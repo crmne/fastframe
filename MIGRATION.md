@@ -15,6 +15,14 @@ Keep behaviour: each section lists where the crate differs from what an app
 did, so the app either accepts the change on purpose or keeps its own code
 for that part.
 
+## Before you start
+
+fastframe needs Rust 1.98 (`rust-version` in every crate). An app pinned to
+an older toolchain in `rust-toolchain.toml` fails to resolve on macOS and
+Windows with "rustc 1.97.1 is not supported by fastframe-*"; bump the app's
+toolchain and `rust-version` to 1.98 first. Keep the app's `[patch.crates-io]`
+block for the egui and winit forks: patches only apply at the app's root.
+
 ## By app
 
 Which crates each app adopts, and which it leaves for later. Each crate's
@@ -24,7 +32,7 @@ section below has a subsection per app with the details.
 | --- | --- | --- |
 | ZapFast | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos), [update](#fastframe-update) | |
 | Spotifast | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos) (the double-click setting only), [update](#fastframe-update) | |
-| RekordFlash | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [macos](#fastframe-macos), [log](#fastframe-log) (only the facade-free redaction and panic line, with `default-features = false`) | [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations; [shell](#fastframe-shell) (no tray or background mode); its `tracing` logger stays |
+| RekordFlash | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [macos](#fastframe-macos) (done in b5985bb); [log](#fastframe-log) (only the facade-free redaction and panic line, with `default-features = false`) later | [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations; [shell](#fastframe-shell) (no tray or background mode); its `tracing` logger stays |
 | TonePush | [text](#fastframe-text), [fonts](#fastframe-fonts) | [icons](#fastframe-icons) later (its own macros and layout); [log](#fastframe-log) (it uses `eprintln!`); [shell](#fastframe-shell); [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
 | Chat with Work Local Agent | [text](#fastframe-text) | [fonts](#fastframe-fonts) (it draws with the platform's UI font); [tray](#fastframe-tray) and [shell](#fastframe-shell) (one winit loop with `pump_app_events`, tray-icon 0.25); [log](#fastframe-log) until it wants a log file; [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
 
