@@ -33,7 +33,7 @@ section below has a subsection per app with the details.
 | ZapFast | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos), [update](#fastframe-update) | |
 | Spotifast | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos) (the double-click setting only), [update](#fastframe-update) | |
 | RekordFlash | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [macos](#fastframe-macos) (done in b5985bb); [log](#fastframe-log) (only the facade-free redaction and panic line, with `default-features = false`) later | [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations; [shell](#fastframe-shell) (no tray or background mode); its `tracing` logger stays |
-| TonePush | [text](#fastframe-text), [fonts](#fastframe-fonts) | [icons](#fastframe-icons) later (its own macros and layout); [log](#fastframe-log) (it uses `eprintln!`); [shell](#fastframe-shell); [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
+| TonePush | [text](#fastframe-text), [fonts](#fastframe-fonts), [update](#fastframe-update) (with `portable_executable`) | [icons](#fastframe-icons) later (its own macros and layout); [log](#fastframe-log) (it uses `eprintln!`); [shell](#fastframe-shell); [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
 | Chat with Work Local Agent | [text](#fastframe-text) | [fonts](#fastframe-fonts) (it draws with the platform's UI font); [tray](#fastframe-tray) and [shell](#fastframe-shell) (one winit loop with `pump_app_events`, tray-icon 0.25); [log](#fastframe-log) until it wants a log file; [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
 
 Shared widgets have not moved; see [Not moved yet: widgets](#not-moved-yet-widgets).
@@ -858,6 +858,37 @@ the update is verified against `checksums.txt` alone. To sign:
 
 Older installs keep updating on checksums until they reach a version that
 embeds the key.
+
+### TonePush
+
+TonePush has no updater of its own to delete: 0.6.1 only asks GitHub for
+the newest tag and links to it. It adopts the crate over its own ureq
+client, implementing `Transport` with redirects turned off, and without the
+`reqwest` feature.
+
+Its archives hold two programs, the `tonepush` command-line tool and the
+`tonepush-gui` editor, beside one marker, so it sets `portable_executable`:
+
+```rust
+pub const CONFIG: UpdateConfig = UpdateConfig {
+    portable_executable: Some("tonepush-gui"),
+    macos: MacConfig {
+        bundle_ids: &["rocks.tonepush.editor"],
+        executable_names: &[],
+        legacy_bundle_names: &[],
+    },
+    publisher_key: Some(include_str!("../../../assets/update-public-key.hex")),
+    ..UpdateConfig::new("crmne/tonepush", "TonePush", "tonepush", env!("CARGO_PKG_VERSION"))
+};
+```
+
+The editor answers `--version` with `tonepush <version>`, the slug, and the
+release workflow puts `tonepush-portable.txt` (`tonepush-portable-v1`) into
+the Linux and Windows archives. Only a running `tonepush-gui` beside that
+marker updates itself; the `tonepush` tool next to it never matches. Inside
+the macOS bundle the editor's executable is `tonepush`, so the bundle needs
+no executable names. ZapFast and Spotifast leave `portable_executable` at
+`None` and nothing changes for them.
 
 ### Deleted lines, both apps
 

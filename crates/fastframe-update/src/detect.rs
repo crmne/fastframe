@@ -219,7 +219,9 @@ pub(crate) fn detect(
             {
                 return found(Kind::WindowsInstaller);
             }
-            if marker(config, directory, "portable") {
+            if marker(config, directory, "portable")
+                && runs_the_portable_app(config, platform, executable)
+            {
                 found(Kind::Portable)
             } else {
                 Err(Unsupported::NotPortable)
@@ -227,6 +229,26 @@ pub(crate) fn detect(
         }
         Platform::Other => Err(Unsupported::Platform),
     }
+}
+
+/// Whether a portable copy is the app the archive installs. With
+/// [`UpdateConfig::portable_executable`] set, the archive ships other
+/// programs beside the app and its marker; only the app's own file name may
+/// update itself, or a sibling would be replaced by the app. Without it,
+/// any name is accepted, as before.
+fn runs_the_portable_app(config: &UpdateConfig, platform: Platform, executable: &Path) -> bool {
+    if config.portable_executable.is_none() {
+        return true;
+    }
+    let expected = crate::release::portable_executable(config, platform);
+    executable.file_name().is_some_and(|name| {
+        let name = name.to_string_lossy();
+        if platform == Platform::Windows {
+            name.eq_ignore_ascii_case(&expected)
+        } else {
+            name == expected.as_str()
+        }
+    })
 }
 
 /// Whether `<name>-<kind>.txt` in `directory` reads `<name>-<kind>-v1`, for
@@ -405,6 +427,55 @@ mod tests {
         )
         .unwrap();
         assert_eq!(linux(path, &host).unwrap().kind, Kind::Portable);
+    }
+
+    /// TonePush's archives carry the `tonepush` command-line tool beside the
+    /// `tonepush-gui` editor and one marker. Only the editor updates itself.
+    #[test]
+    fn a_named_portable_executable_is_the_only_copy_that_updates() {
+        const TONEPUSH: UpdateConfig = UpdateConfig {
+            portable_executable: Some("tonepush-gui"),
+            ..UpdateConfig::new("crmne/tonepush", "TonePush", "tonepush", "0.6.1")
+        };
+        let host = FakeHost::default();
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("tonepush-portable.txt"),
+            "tonepush-portable-v1\n",
+        )
+        .unwrap();
+        for (platform, app, sibling) in [
+            (Platform::Linux, "tonepush-gui", "tonepush"),
+            (Platform::Windows, "tonepush-gui.exe", "tonepush.exe"),
+            (Platform::Windows, "TonePush-GUI.EXE", "TONEPUSH.EXE"),
+        ] {
+            let app = directory.path().join(app);
+            assert_eq!(
+                detect(&TONEPUSH, &host, platform, &app),
+                Ok(Installation {
+                    executable: app.clone(),
+                    kind: Kind::Portable
+                }),
+                "{platform:?}"
+            );
+            assert_eq!(
+                detect(&TONEPUSH, &host, platform, &directory.path().join(sibling)),
+                Err(Unsupported::NotPortable),
+                "{platform:?}"
+            );
+        }
+        // Without the field any name next to the marker may update, as
+        // before: a renamed ZapFast keeps updating.
+        fs::write(
+            directory.path().join("zapfast-portable.txt"),
+            "zapfast-portable-v1\n",
+        )
+        .unwrap();
+        let renamed = directory.path().join("zapfast-0.16");
+        assert_eq!(
+            linux(renamed.to_str().unwrap(), &host).unwrap().kind,
+            Kind::Portable
+        );
     }
 
     #[test]

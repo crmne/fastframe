@@ -8,7 +8,7 @@
 //! | File | Written by | Meaning |
 //! | --- | --- | --- |
 //! | `<asset name>` | download | the verified package; kept for the installer and disk image |
-//! | `<slug>` or `<slug>.exe` | download | the unpacked portable executable |
+//! | `<slug>` or `<slug>.exe` (or the configured portable executable) | download | the unpacked portable executable |
 //! | `helper`, `helper.exe`, `helper.app` | handoff | the copy of the running app that installs |
 //! | `handoff.json` | handoff, helper | the job, and later the relaunched app's receipt |
 //! | `helper.log` | helper | the helper's standard error |

@@ -427,6 +427,58 @@ mod tests {
         assert!(!spawned[0].logged);
     }
 
+    /// The app is `zapfast-gui` beside a `zapfast` command-line tool: the
+    /// helper installs and rolls back the app only, and the tool is left
+    /// alone either way.
+    #[test]
+    fn a_named_portable_executable_is_installed_and_rolled_back_alone() {
+        let config = UpdateConfig {
+            portable_executable: Some("zapfast-gui"),
+            ..ZAPFAST
+        };
+        for acknowledged in [true, false] {
+            let root = tempfile::tempdir().unwrap();
+            let tool = root.path().join("zapfast");
+            fs::write(&tool, b"old tool").unwrap();
+            let executable = root.path().join("zapfast-gui");
+            fs::write(&executable, b"old executable").unwrap();
+            let installation = Installation {
+                executable: executable.canonicalize().unwrap(),
+                kind: Kind::Portable,
+            };
+            let directory = stage::staging(&config, &installation).unwrap();
+            let payload = directory.join("zapfast-gui");
+            fs::write(&payload, b"new executable").unwrap();
+            let staged = Staged {
+                sha256: stage::hash(&payload).unwrap(),
+                installation,
+                directory,
+                payload,
+                version: "0.17.0".into(),
+            };
+            let job = write_job(&staged);
+            let host = FakeHost::default().on_spawn(if acknowledged {
+                Behaviour::Acknowledge
+            } else {
+                Behaviour::Exit(true)
+            });
+            let result = run(&config, &host, &job);
+            assert_eq!(result.is_ok(), acknowledged);
+            assert_eq!(
+                fs::read(&executable).unwrap(),
+                if acknowledged {
+                    &b"new executable"[..]
+                } else {
+                    &b"old executable"[..]
+                }
+            );
+            assert_eq!(fs::read(&tool).unwrap(), b"old tool");
+            for spawned in host.spawned() {
+                assert_eq!(spawned.executable, staged.installation.executable);
+            }
+        }
+    }
+
     #[test]
     fn an_app_that_never_acknowledges_is_rolled_back_and_told_why() {
         for (behaviour, message) in [

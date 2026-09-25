@@ -400,6 +400,78 @@ mod tests {
         assert_eq!(staged.directory.parent(), Some(directory.path()));
     }
 
+    /// An archive with the app as `zapfast-gui` beside a `zapfast`
+    /// command-line tool: the app is unpacked, probed and staged; the tool is
+    /// never taken, and the probe still expects the slug.
+    #[test]
+    fn a_named_portable_executable_is_the_one_staged() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = UpdateConfig {
+            portable_executable: Some("zapfast-gui"),
+            ..config()
+        };
+        let executable = directory.path().join("zapfast-gui");
+        fs::write(&executable, b"the running app").unwrap();
+        fs::write(directory.path().join("zapfast"), b"the running tool").unwrap();
+        let host = FakeHost::default()
+            .with_archive_entry(
+                "zapfast-v0.17.0-x86_64-unknown-linux-gnu/zapfast",
+                b"new tool",
+            )
+            .with_archive_entry(
+                "zapfast-v0.17.0-x86_64-unknown-linux-gnu/zapfast-gui",
+                b"new app",
+            )
+            .with_version_output("zapfast 0.17.0");
+        let prepared = run(
+            &Fixture::default(),
+            &config,
+            &host,
+            Installation {
+                executable,
+                kind: Kind::Portable,
+            },
+        )
+        .unwrap();
+        let staged = &prepared.staged;
+        assert_eq!(staged.payload, staged.directory.join("zapfast-gui"));
+        assert_eq!(fs::read(&staged.payload).unwrap(), b"new app");
+        assert!(!staged.directory.join("zapfast").exists());
+        assert_eq!(host.version_probes(), std::slice::from_ref(&staged.payload));
+        assert_eq!(
+            fs::read(directory.path().join("zapfast")).unwrap(),
+            b"the running tool"
+        );
+        assert_eq!(
+            release::portable_executable(&config, Platform::Windows),
+            "zapfast-gui.exe"
+        );
+
+        // An archive without the app is refused, not satisfied by the tool.
+        let only_tool = FakeHost::default()
+            .with_archive_entry(
+                "zapfast-v0.17.0-x86_64-unknown-linux-gnu/zapfast",
+                b"new tool",
+            )
+            .with_version_output("zapfast 0.17.0");
+        let other = tempfile::tempdir().unwrap();
+        let executable = other.path().join("zapfast-gui");
+        fs::write(&executable, b"the running app").unwrap();
+        assert!(
+            run(
+                &Fixture::default(),
+                &config,
+                &only_tool,
+                Installation {
+                    executable,
+                    kind: Kind::Portable,
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(fs::read_dir(other.path()).unwrap().count(), 1);
+    }
+
     #[test]
     fn a_wrong_version_answer_discards_the_download() {
         let directory = tempfile::tempdir().unwrap();

@@ -125,8 +125,8 @@ pub struct UpdateConfig {
     /// as the macOS bundle name (`ZapFast.app`).
     pub app_name: &'static str,
     /// The lowercase command name, for example `zapfast`. Release assets
-    /// (`zapfast-v1.2.3-<target>.tar.gz`), the executable inside them, the
-    /// staging folder (`.zapfast-update-<random>`), the marker files
+    /// (`zapfast-v1.2.3-<target>.tar.gz`), the executable inside them (unless
+    /// [`UpdateConfig::portable_executable`] names another), the staging folder (`.zapfast-update-<random>`), the marker files
     /// (`zapfast-portable.txt`) and the expected `--version` output
     /// (`zapfast 1.2.3`) all derive from it.
     pub slug: &'static str,
@@ -134,6 +134,17 @@ pub struct UpdateConfig {
     /// app's own crate. Inside this crate that macro would name fastframe's
     /// version instead.
     pub current_version: &'static str,
+    /// The app's file inside a portable archive, when it is not the slug:
+    /// `<slug>-v<version>-<target>/<name>`, plus `.exe` on Windows. For
+    /// archives that ship more than one program, such as TonePush's
+    /// `tonepush` command-line tool beside its `tonepush-gui` editor. That
+    /// file is unpacked, probed and installed over the running executable,
+    /// and a portable copy updates itself only when the running executable
+    /// has this name, so a sibling program next to the same marker is never
+    /// replaced by it. The `--version` probe still expects
+    /// `<slug> <version>`. `None`, the default, means the slug. It changes
+    /// nothing for macOS bundles or the Windows installer.
+    pub portable_executable: Option<&'static str>,
     /// Names the app shipped under before, for example `fastpotify`. Each
     /// is accepted wherever the slug is: marker files, `--version` output,
     /// staging folders and Homebrew casks.
@@ -171,6 +182,7 @@ impl UpdateConfig {
             app_name,
             slug,
             current_version,
+            portable_executable: None,
             legacy_names: &[],
             legacy_windows_installs: &[],
             macos: MacConfig {
@@ -204,6 +216,14 @@ impl UpdateConfig {
             ensure!(
                 valid_name(name) && name == name.to_ascii_lowercase(),
                 "Command names must be lowercase: {name}"
+            );
+        }
+        if let Some(name) = self.portable_executable {
+            ensure!(
+                valid_name(name)
+                    && !name.starts_with('.')
+                    && !name.to_ascii_lowercase().ends_with(".exe"),
+                "The portable executable must be a plain file name without .exe: {name}"
             );
         }
         ensure!(
@@ -319,9 +339,35 @@ mod tests {
                 legacy_names: &["../escape"],
                 ..ZAPFAST
             },
+            UpdateConfig {
+                portable_executable: Some("../escape"),
+                ..ZAPFAST
+            },
+            UpdateConfig {
+                portable_executable: Some(".."),
+                ..ZAPFAST
+            },
+            UpdateConfig {
+                portable_executable: Some("zapfast-gui.exe"),
+                ..ZAPFAST
+            },
+            UpdateConfig {
+                portable_executable: Some(""),
+                ..ZAPFAST
+            },
         ] {
             assert!(broken.validate().is_err(), "{broken:?}");
         }
+    }
+
+    #[test]
+    fn a_portable_executable_name_is_accepted() {
+        UpdateConfig {
+            portable_executable: Some("zapfast-gui"),
+            ..ZAPFAST
+        }
+        .validate()
+        .unwrap();
     }
 
     #[test]

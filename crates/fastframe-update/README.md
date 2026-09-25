@@ -68,6 +68,11 @@ would report fastframe's version, so the app passes its own.
   native-packages' `sign-release`).
 - `--version` printing `<slug> <version>`: the helper of the previous release
   runs the downloaded executable with `--version` before installing it.
+- For an archive with more than one program, `portable_executable`: the
+  app's file name inside it (TonePush's `tonepush-gui` beside its `tonepush`
+  command-line tool). That file is unpacked, probed and installed, and only a
+  running executable of that name updates itself. The probe still expects
+  `<slug> <version>`. `None` means the slug.
 
 ## How an update is installed
 
@@ -111,7 +116,7 @@ installs reads the receipt. These must not change without a transition:
 | `handoff.json` | compact JSON: `{"prepared":{"installation":{"executable":…,"kind":"Portable"\|"WindowsInstaller"\|"MacBundle"},"directory":…,"payload":…,"sha256":…,"version":…},"parent":<pid>,"arguments":[…]}` |
 | Markers | `<name>-portable.txt` containing `<name>-portable-v1`; `<name>-installer.txt` containing `<name>-installer-v1` |
 | Assets | `<slug>-v<version>-<target>.tar.gz` (Linux), `.zip` (Windows portable), `-setup.exe` (Windows installer), `<slug>-v<version>-macos-universal.dmg`; targets `x86_64`/`aarch64` `-unknown-linux-gnu` and `-pc-windows-msvc` |
-| Archive layout | `<slug>-v<version>-<target>/<slug>[.exe]` |
+| Archive layout | `<slug>-v<version>-<target>/<slug>[.exe]`, or `<portable_executable>[.exe]` in place of the second `<slug>` |
 | Checksums | `checksums.txt` in `sha256sum` format; `checksums.txt.sig` is a raw 64-byte Ed25519 signature over its exact bytes |
 | Version probe | `<slug or legacy name> <version>` on standard output |
 

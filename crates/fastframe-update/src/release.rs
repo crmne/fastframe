@@ -152,12 +152,14 @@ pub(crate) fn asset_name(stem: &str, kind: Kind, platform: Platform) -> String {
     }
 }
 
-/// The executable inside a portable archive, and its name once unpacked.
+/// The executable inside a portable archive, and its name once unpacked:
+/// [`UpdateConfig::portable_executable`], or the slug.
 pub(crate) fn portable_executable(config: &UpdateConfig, platform: Platform) -> String {
+    let name = config.portable_executable.unwrap_or(config.slug);
     if platform == Platform::Windows {
-        format!("{}.exe", config.slug)
+        format!("{name}.exe")
     } else {
-        config.slug.to_owned()
+        name.to_owned()
     }
 }
 
