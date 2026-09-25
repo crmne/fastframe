@@ -48,7 +48,13 @@ pub(crate) fn download(
         version::is_plain_release(&release.version),
         "Invalid release version"
     );
-    let key = config.publisher_key.map(signing::decode_key).transpose()?;
+    let keys = config
+        .publisher_key
+        .into_iter()
+        .chain(config.additional_publisher_keys.iter().copied())
+        .map(signing::decode_key)
+        .collect::<Result<Vec<_>>>()?;
+    let key = keys.first().copied();
     let metadata = release::metadata(config, transport, source, &release.version)?;
     let target = release::target(platform, arch)?;
     let stem = release::stem(config, &release.version, target);
@@ -86,7 +92,7 @@ pub(crate) fn download(
         manifest.len() as u64 == checksums.size,
         "Invalid update checksum download size"
     );
-    if let (Some(key), Some(signature)) = (key, signature) {
+    if let (Some(_), Some(signature)) = (key, signature) {
         let mut bytes = Vec::new();
         fetch(
             transport,
@@ -99,7 +105,16 @@ pub(crate) fn download(
         .read_to_end(&mut bytes)?;
         // Do not parse a checksum, download a package or create staging
         // files until the manifest is authorized by the embedded key.
-        signing::verify(&manifest, &bytes, &key)?;
+        // Any trusted key will do: during a key rotation releases are
+        // signed with one while installs trust both.
+        let mut result = signing::verify(&manifest, &bytes, &keys[0]);
+        for other in &keys[1..] {
+            if result.is_ok() {
+                break;
+            }
+            result = signing::verify(&manifest, &bytes, other);
+        }
+        result?;
     }
     let expected = release::checksum(
         std::str::from_utf8(&manifest).context("Invalid update checksum text")?,
@@ -480,6 +495,33 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_signature_from_an_additional_key_is_accepted() {
+        let directory = tempfile::tempdir().unwrap();
+        let other = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
+        let other = hex(other.public_key().as_ref());
+        let fixture = crate::testing::fixture_key_hex();
+        let config = UpdateConfig {
+            publisher_key: Some(Box::leak(other.into_boxed_str())),
+            additional_publisher_keys: Box::leak(vec![fixture].into_boxed_slice()),
+            ..ZAPFAST
+        };
+        let host = FakeHost::default()
+            .with_archive_entry(
+                "zapfast-v0.17.0-x86_64-unknown-linux-gnu/zapfast",
+                b"new executable",
+            )
+            .with_version_output("zapfast 0.17.0");
+        let prepared = run(
+            &Fixture::default(),
+            &config,
+            &host,
+            portable(directory.path()),
+        )
+        .expect("a release signed with a key in rotation is accepted");
+        assert_eq!(prepared.version(), "0.17.0");
     }
 
     #[test]

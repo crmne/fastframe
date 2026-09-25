@@ -150,6 +150,11 @@ pub struct UpdateConfig {
     /// `checksums.txt`, or nothing is downloaded. `None` trusts the checksum
     /// file as served by GitHub, which only protects against corruption.
     pub publisher_key: Option<&'static str>,
+    /// More publisher keys a release may be signed with, for rotating keys:
+    /// ship the next key here, keep signing with `publisher_key`, then sign
+    /// with the next key once installs trust it. A signature valid under any
+    /// of these or `publisher_key` is accepted. Needs `publisher_key`.
+    pub additional_publisher_keys: &'static [&'static str],
 }
 
 impl UpdateConfig {
@@ -174,6 +179,7 @@ impl UpdateConfig {
                 legacy_bundle_names: &[],
             },
             publisher_key: None,
+            additional_publisher_keys: &[],
         }
     }
 
@@ -205,6 +211,13 @@ impl UpdateConfig {
             "The current version must be major.minor.patch"
         );
         if let Some(key) = self.publisher_key {
+            signing::decode_key(key)?;
+        }
+        ensure!(
+            self.publisher_key.is_some() || self.additional_publisher_keys.is_empty(),
+            "Additional publisher keys need a publisher key"
+        );
+        for key in self.additional_publisher_keys {
             signing::decode_key(key)?;
         }
         Ok(())

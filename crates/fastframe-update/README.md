@@ -165,3 +165,15 @@ replace; the tests never spawn a process or use the network.
 ## License
 
 MIT
+
+## Rotating the publisher key
+
+Keep signing with the current key while installs learn the next one:
+
+1. Generate the next key, back it up outside GitHub, and put its public key
+   in `additional_publisher_keys`. Releases stay signed with `publisher_key`.
+2. Once most installs run a version that trusts both, sign releases with the
+   next key and make it the `publisher_key`.
+
+An install that skips every release in between refuses the newly signed one
+and needs a manual download once.
