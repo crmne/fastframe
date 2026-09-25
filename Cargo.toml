@@ -1,0 +1,35 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+authors = ["Carmine Paolino <carmine@paolino.me>"]
+repository = "https://github.com/crmne/fastframe"
+homepage = "https://github.com/crmne/fastframe"
+
+[workspace.dependencies]
+# Stock egui 0.36.1 already has per-font hinting targets and sub-pixel
+# binning (emilk/egui#8262). Apps patch egui to their fork at the app root;
+# the fork is based on 0.36.1 and keeps the same API.
+egui = { version = "0.36.1", default-features = false }
+# D-Bus for the desktop portal. Already in every app that talks to the
+# session bus; the tokio backend matches theirs, so no second executor.
+zbus = { version = "5.19", default-features = false, features = ["blocking-api", "tokio"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"

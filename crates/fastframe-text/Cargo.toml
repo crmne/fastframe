@@ -1,0 +1,32 @@
+[package]
+name = "fastframe-text"
+description = "Follow the desktop's font rendering settings (hinting, antialiasing) in egui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["egui", "fonts", "hinting", "fontconfig", "desktop"]
+categories = ["gui"]
+
+[features]
+default = []
+# Deliver changes to the desktop's settings on a background thread (Linux
+# desktop portal). Without it only the one-off `detect` is available.
+watch = []
+
+[dependencies]
+egui.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus.workspace = true
+
+[dev-dependencies]
+# The built-in fonts give `apply_to` something to reach in tests.
+egui = { workspace = true, features = ["default_fonts"] }
+
+[lints]
+workspace = true

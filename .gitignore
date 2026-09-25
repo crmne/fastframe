@@ -1,0 +1,8 @@
+/target/
+**/target/
+.idea/
+.vscode/
+.claude/
+.direnv/
+
+/.cache/
