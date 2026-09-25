@@ -20,6 +20,11 @@ egui = { version = "0.36.1", default-features = false }
 # session bus; the tokio backend matches theirs, so no second executor.
 zbus = { version = "5.19", default-features = false, features = ["blocking-api", "tokio"] }
 
+# Logging (fastframe-log): the versions ZapFast and Spotifast build with.
+log = { version = "0.4", features = ["std"] }
+env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
+jiff = "0.2"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"

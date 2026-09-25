@@ -1,0 +1,24 @@
+[package]
+name = "fastframe-log"
+description = "Log to stderr and a file for bug reports, keep private data out, and record panics without their payload"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["logging", "panic", "privacy", "desktop"]
+categories = ["development-tools::debugging"]
+
+[dependencies]
+# The facade every app logs through.
+log.workspace = true
+# The logger ZapFast and Spotifast already use, with the same features.
+env_logger.workspace = true
+# Timestamps in the panic log, as the apps write them today.
+jiff.workspace = true
+
+[lints]
+workspace = true

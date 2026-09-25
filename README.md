@@ -28,6 +28,7 @@ written for one of those apps first and moved here once another app needed it.
 | Crate | What it does |
 | --- | --- |
 | [`fastframe-text`](crates/fastframe-text) | Follows the desktop's font rendering settings (hinting, antialiasing, sub-pixel positioning, text weight) in egui, and snaps hand-placed text to whole pixels. |
+| [`fastframe-log`](crates/fastframe-log) | Logs to stderr and a per-run file for bug reports, rewrites private targets, and records panics without their payload. |
 
 ## Status
 
@@ -66,6 +67,8 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-targets --all-features
 RUSTDOCFLAGS='-D warnings' cargo doc --locked --all-features --no-deps
 ```
+
+[MIGRATION.md](MIGRATION.md) lists what each app replaces with each crate.
 
 See [AGENTS.md](AGENTS.md) for the rules contributors and coding agents follow.
 
