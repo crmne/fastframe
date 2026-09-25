@@ -27,21 +27,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      # After the toolchain, so the cache key follows the pinned rustc. The
+      # key carries no job name, so each job sets its own generation. Saves
+      # only on pushes to main; pull requests restore.
+      - uses: jdx/mr-boxington-action@v1
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-generation: quality-v1
       - name: Formatting
         run: cargo fmt --all --check
       - name: Clippy (default features)
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: mbx clippy --locked --all-targets -- -D warnings
       - name: Clippy (all features)
-        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+        run: mbx clippy --locked --all-targets --all-features -- -D warnings
       - name: Clippy (fastframe-log without the logger)
-        run: cargo clippy --locked -p fastframe-log --all-targets --no-default-features -- -D warnings
+        run: mbx clippy --locked -p fastframe-log --all-targets --no-default-features -- -D warnings
       - name: Rustdoc
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --locked --all-features --no-deps
+        run: mbx doc --locked --all-features --no-deps
 
   test:
     name: test (${{ matrix.os }})
@@ -56,18 +59,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: jdx/mr-boxington-action@v1
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-generation: test-v1
       # Platform code sits behind cfg blocks, so lint each platform too.
       - name: Clippy (all features)
-        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+        run: mbx clippy --locked --all-targets --all-features -- -D warnings
       - name: Tests (default features)
-        run: cargo test --locked --all-targets
+        run: mbx test --locked --all-targets
       - name: Tests (all features)
-        run: cargo test --locked --all-targets --all-features
+        run: mbx test --locked --all-targets --all-features
       - name: Doc tests
-        run: cargo test --locked --doc --all-features
+        run: mbx test --locked --doc --all-features
       # Apps on `tracing` take fastframe-log without its `log` logger.
       - name: Tests (fastframe-log without the logger)
-        run: cargo test --locked -p fastframe-log --no-default-features
+        run: mbx test --locked -p fastframe-log --no-default-features

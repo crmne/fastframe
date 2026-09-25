@@ -75,8 +75,28 @@ cargo test --locked -p fastframe-log --no-default-features
 RUSTDOCFLAGS='-D warnings' cargo doc --locked --all-features --no-deps
 ```
 
-Build output goes in this repository's own `target/`. Never put build output
-in `/tmp`.
+## Disk use
+
+Builds go through [mbx](https://mr-boxington.jdx.dev), enabled for mise users
+by `mise.toml` (run `mise trust` once in each new checkout or worktree, or
+mise refuses to run `cargo` there). It keeps compiled work in one shared
+store, places each checkout's `target/` under a disk budget, and collects old
+outputs on its own. Plain `cargo` still works for contributors who do not use
+mise or mbx.
+
+- Give each worktree and each parallel agent its own target directory. A
+  worktree's own `target/` is enough, and mbx manages it; a second build in
+  the same checkout uses `CARGO_TARGET_DIR=target/<name>`, which stays inside
+  the managed target. Never point builds at a shared target directory: Cargo's
+  lock serializes them, one worktree's test run can execute another's binary,
+  and the store already shares compiled outputs.
+- Never vary `codegen-units` or other compiler flags per agent. Each variant
+  is a separate cache entry and fills the disk.
+- Do not `cargo clean` to save space. `mbx gc --dry-run` previews collection
+  and `mbx gc` runs it now; `mbx cache stats` shows what is held.
+- When a build is colder than expected, `mbx explain --last` says what missed
+  the cache and why.
+- Never put build output or large scratch files in `/tmp`.
 
 ## Working style
 
