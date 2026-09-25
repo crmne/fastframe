@@ -1,8 +1,8 @@
 # Moving apps onto fastframe
 
-One section per crate: what each app deletes, and what it calls instead.
-Each move is its own change in the app's repository, made after the crate
-lands here. Paths are relative to the app's repository root; line counts are
+An index by app, then one section per crate: what each app deletes, and
+what it calls instead. Each move is its own change in the app's repository,
+made after the crate lands here. Paths are relative to the app's repository root; line counts are
 estimates taken when the crate was extracted.
 
 Depend on a pinned revision:
@@ -14,6 +14,335 @@ fastframe-<name> = { git = "https://github.com/crmne/fastframe", rev = "<commit>
 Keep behaviour: each section lists where the crate differs from what an app
 did, so the app either accepts the change on purpose or keeps its own code
 for that part.
+
+## By app
+
+Which crates each app adopts, and which it leaves for later. Each crate's
+section below has a subsection per app with the details.
+
+| App | Adopts | Not now |
+| --- | --- | --- |
+| ZapFast | [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos), [update](#fastframe-update) | |
+| Spotifast | [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos) (the double-click setting only), [update](#fastframe-update) | |
+| RekordFlash | [fonts](#fastframe-fonts), [icons](#fastframe-icons), [macos](#fastframe-macos), [log](#fastframe-log) (only the facade-free redaction and panic line, with `default-features = false`) | [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations; [shell](#fastframe-shell) (no tray or background mode); its `tracing` logger stays |
+| TonePush | [fonts](#fastframe-fonts) | [icons](#fastframe-icons) later (its own macros and layout); [log](#fastframe-log) (it uses `eprintln!`); [shell](#fastframe-shell); [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
+| Chat with Work Local Agent | nothing yet | [fonts](#fastframe-fonts) (it draws with the platform's UI font); [tray](#fastframe-tray) and [shell](#fastframe-shell) (one winit loop with `pump_app_events`, tray-icon 0.25); [log](#fastframe-log) until it wants a log file; [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
+
+Shared widgets have not moved; see [Not moved yet: widgets](#not-moved-yet-widgets).
+
+## fastframe-fonts
+
+Bundled Inter at the app's weights, the monospace choice, companions such
+as a bundled emoji face, and the system fallback faces with their baseline
+and Arabic adjustments. Each app keeps its sizes and text styles, its own
+extra faces (ZapFast's colour emoji overlay, Spotifast's skin font and
+playlist face, TonePush's Plex Mono file), and when it installs fonts.
+
+Everywhere, the helpers become one-liners or go away:
+
+```rust
+pub fn regular(size: f32) -> egui::FontId { fastframe_fonts::Weight::Regular.font_id(size) }
+pub fn medium(size: f32) -> egui::FontId { fastframe_fonts::Weight::Medium.font_id(size) }
+pub fn semibold(size: f32) -> egui::FontId { fastframe_fonts::Weight::SemiBold.font_id(size) }
+pub fn bold(size: f32) -> egui::FontId { fastframe_fonts::Weight::Bold.font_id(size) }
+```
+
+The family names `inter-medium`, `inter-semibold` and `inter-bold` and the
+regular key `inter` are the ones ZapFast and Spotifast already use.
+
+### ZapFast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/system_fonts.rs` | 462 | `fastframe_fonts::system::fallbacks()` (used by `FontSetup`) |
+| `src/theme.rs` `install_fonts` | 52 | `FontSetup::default().install(ctx)`, or `.definitions()` then `ctx.set_fonts` if the app adjusts them (for example with fastframe-text) |
+| `src/theme.rs` `INTER_MEDIUM`, `INTER_SEMIBOLD`, `INTER_BOLD` | 3 | `Weight::*.family()` / `Weight::*.name()` |
+| `src/theme.rs` test `inter_figures_are_tabular` | 20 | the crate's `figures_are_tabular` |
+| `assets/fonts/InterVariable.ttf`, `assets/fonts/README.md` | 2 files | `fastframe_fonts::INTER` and the crate's `fonts/README.md`. Keep `Inter-LICENSE.txt` if packaging ships it from there. |
+| `Cargo.toml` `memmap2` | 1 | the crate (keep `skrifa`: `emoji.rs` and the demo use it) |
+
+About 540 lines. Demo and screenshot builds call `.system_fallbacks(false)`
+if they want output independent of the machine's fonts (the current code
+always adds them).
+
+Behaviour that changes, all from Spotifast's newer copy: fallbacks are moved
+onto Inter's baseline (`y_offset_factor`); macOS asks CoreText instead of
+scanning `/System/Library/Fonts` (which never finds PingFang); on Linux the
+directories fontconfig's configuration names are probed too (NixOS); a
+Japanese face no longer serves Han on a Chinese desktop when a Chinese one
+exists; Windows reads its display language for the Han cut; Yi and the ★
+probe are added. The ♡ probe ZapFast called `symbols` is now `suits`, so its
+font data key becomes `fallback-suits` when a different face than the one for
+★ covers it.
+
+### Spotifast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/system_fonts.rs` except `pledit_face`, `find_family`, `walk_fonts` and `rank_family` | 800 | `fastframe_fonts::system::fallbacks()`; the playlist face walks `fastframe_fonts::system::font_directories()` |
+| `src/mac_fonts.rs` | 485 | the crate's macOS module (the same CoreText code) |
+| `src/theme.rs` `install_fonts` | 76 | `FontSetup::default().companion("noto_emoji", Arc::new(FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf")))).definitions()`, then `ctx.set_fonts` |
+| `src/theme.rs` `fallback_baseline_y_offset` and its three tests | 47 + 70 | the crate's `baseline_offset` and `fallback_glyphs_are_painted_on_the_latin_baseline` |
+| `src/theme.rs` `INTER_*` constants, `inter_figures_are_tabular` | 25 | as for ZapFast |
+| `assets/fonts/InterVariable.ttf`, `assets/fonts/README.md` | 2 files | the crate |
+| `tests/fixtures/yi/` | 3 files | the crate's copy, used by `a_font_that_draws_a_yi_name_is_chosen` |
+| `Cargo.toml` `memmap2` | 1 | the crate (keep `skrifa` for MilkDrop and pixel text) |
+
+About 1,500 lines. `milkdrop/overlay.rs` and `ui/winamp/pixel_text.rs` read
+`fastframe_fonts::system::fallbacks()` instead; `Fallback` gains `scale` and
+`y_offset_factor`, which they may ignore. Code that looked up
+`system_fonts::FALLBACK_SCRIPTS` for a probe character uses the fallback's
+own face instead (the list is internal to the crate now).
+
+Behaviour that changes, from ZapFast's copy: a small Arabic face is enlarged
+up to 25% to match Inter's x-height, and Javanese, mathematical
+alphanumerics, enclosed alphanumerics and ♡ get fallbacks too.
+
+### RekordFlash
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme.rs` `install_fonts` | 38 | `FontSetup::default().weights(&[Weight::SemiBold]).monospace(Monospace::Inter).install(context)` |
+| `src/theme.rs` `SEMIBOLD` | 1 | `Weight::SemiBold.family()` in `semibold(size)` |
+| `assets/fonts/InterVariable.ttf`, `assets/fonts/README.md` | 2 files | the crate |
+
+About 40 lines. RekordFlash has no system fallbacks today: the default adds
+them, so track names in CJK, Arabic or Indic scripts stop drawing as boxes.
+Pass `.system_fallbacks(false)` to keep today's behaviour. The font data keys
+change from `rekordflash-inter` to `inter`.
+
+### TonePush
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme.rs` `fonts` (the loop and family set-up) | 45 | `FontSetup::default().weights(&[Weight::SemiBold]).monospace(Monospace::Font { name: "plex-mono".into(), data: Arc::new(FontData::from_static(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"))) }).install(ctx)` |
+| `assets/fonts/Inter-Regular.ttf`, `assets/fonts/Inter-SemiBold.ttf` | 2 files | `fastframe_fonts::INTER` at 400 and 600 |
+
+About 45 lines. The `SEMIBOLD` family name changes from `semibold` to
+`inter-semibold` (use `Weight::SemiBold.family()`). Inter's figures become
+tabular in labels too, and system fallbacks are added unless turned off.
+
+### Chat with Work
+
+It draws with the platform's UI font and bundles none; nothing to move.
+
+## fastframe-icons
+
+The `icons!` macro, the icon enum it now generates, the bytes loader, and the
+43 Lucide files ZapFast and Spotifast ship byte for byte alike. Each app keeps
+its own SVG files, its icon widgets (`icon`, `paint_icon`, `icon_button`),
+and its sizes and tints.
+
+Every app does the same:
+
+1. Replace the `macro_rules! icons`, the `pub enum Icon { .. }` list, the
+   `const ICONS: &[(Icon, &str, &[u8])] = icons! { .. }` table, `impl Icon`
+   (`uri`, `image`) and `register_icons` with one block:
+
+   ```rust
+   fastframe_icons::icons! {
+       pub enum Icon {
+           prefix: "zapfast-icon-",          // the app's current bytes:// prefix
+           directory: "../assets/icons/",
+           Archive => "archive",             // the old table's entries, unchanged
+           Check => lucide "check",          // a shared icon: see step 3
+           // ...
+       }
+   }
+   ```
+
+2. Call `fastframe_icons::install::<Icon>(ctx)` where `register_icons(ctx)`
+   was called (after `egui_extras::install_image_loaders`).
+3. For each of the 43 shared names (`fastframe_icons::lucide::ALL`), write
+   `lucide "name"` and delete `assets/icons/<name>.svg`. Keep
+   `assets/icons/LICENSE.txt`: the app still ships its own Lucide files.
+4. Code that iterated `ICONS` uses `Icon::ALL` with `icon.uri()` and
+   `icon.bytes()`.
+
+### ZapFast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme.rs` `macro_rules! icons` | 9 | the crate's `icons!` |
+| `src/theme.rs` `pub enum Icon` (variant list) | 78 | generated by `icons!` |
+| `src/theme.rs` `impl Icon { uri, image }` | 14 | generated |
+| `src/theme.rs` `struct IconBytes` and its `BytesLoader` impl, `register_icons` | 38 | `fastframe_icons::install::<Icon>(ctx)` (the same never-forget loader) |
+| `src/theme.rs` tests `every_icon_has_a_file`, `icon_bytes_outlive_forgetting` | 40 | covered by the crate's loader tests |
+| `assets/icons/*.svg`: the 43 shared names | 43 files | `lucide "name"` |
+
+About 180 lines of Rust and 43 files. The `ICONS` table becomes the
+`icons!` block (the same length).
+
+### Spotifast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme.rs` `macro_rules! icons` | 9 | the crate's `icons!` |
+| `src/theme.rs` `pub enum Icon` | 92 | generated |
+| `src/theme.rs` `impl Icon { uri, image }` | 14 | generated |
+| `src/theme.rs` `register_icons` (`ctx.include_bytes` per icon) | 5 | `fastframe_icons::install::<Icon>(ctx)` |
+| `assets/icons/*.svg`: the 43 shared names | 43 files | `lucide "name"` |
+
+About 120 lines and 43 files. Behaviour change: icons are served by the
+never-forget loader instead of `ctx.include_bytes`, which fixes the red
+placeholder if Spotifast ever turns on `reduce_texture_memory`.
+
+### RekordFlash
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme.rs` `macro_rules! icons` | 9 | the crate's `icons!` with `prefix: "rekordflash-"` |
+| `src/theme.rs` `enum Icon` | 57 | generated (declare it `pub(crate) enum Icon` or keep it private, as now) |
+| `src/theme.rs` `impl Icon { uri }`, `register_icons` | 13 | generated, `fastframe_icons::install::<Icon>(context)` |
+
+About 80 lines. Its SVGs are minified `lucide-static` files that differ
+from the shared ones byte for byte, so it keeps all of them. Its draw-time
+helpers keep their shape: `icon_image(icon, color, size)` becomes
+`icon.image(color, size)` (the same `egui::Image`, tinted and sized), and
+`icon(ui, ..)`, `icon_button` and `transport_button` keep calling
+`icon.uri()`.
+
+### TonePush
+
+Its UI and category icons use their own macros and file layout. It can move
+to `icons!` later; nothing is shared with it yet.
+
+## fastframe-theme
+
+Palette files, the background catalogue, the shared palettes, Omarchy
+following and file watching. Each app keeps its `Palette` struct and its
+dark and light defaults, `theme::apply` (the mapping onto `egui::Visuals`
+and widget styling), the Settings picker and its wording, the
+`reload-themes` command on its single-instance channel, and the packaging
+files in `contrib/omarchy/`.
+
+Every app does the same:
+
+1. `impl fastframe_theme::Palette for Palette`: `base` returns
+   `Palette::dark()` or `Palette::light()`; `set` is the old `match name`
+   from `parse_palette`, returning `false` for unknown names; ZapFast's
+   `derive` holds its "Spotifast palettes share the sixteen interface
+   colours" block.
+2. `theme::custom::CustomTheme` becomes `fastframe_theme::CustomTheme<Palette>`
+   and `theme::custom::Catalog` becomes `fastframe_theme::Catalog<Palette>`.
+   The serialized cache (`custom_theme_cache`, `system_theme_cache`) keeps
+   its shape, so existing `settings.json` files read as before; point
+   `deserialize_with` at `"fastframe_theme::read_cached_theme"`.
+3. `theme::custom::label` becomes `fastframe_theme::display_name`.
+4. `Catalog::start(directory, selected, &waker)` takes a
+   `fastframe_theme::Waker`: build one once with
+   `fastframe_theme::Waker::new({ let waker = self.waker.clone(); move || waker.wake() })`.
+5. The status line: `catalog.status(selected)` returns `Status::Loading`,
+   `Status::SelectedUnavailable` or `Status::Problem(..)`; the app maps each
+   to its (translated) sentence. The sentences both apps use today:
+   "Loading local themes…", "The selected theme is unavailable. Keeping the
+   last usable appearance. See the log for details.", and per `Problem`:
+   `Unreadable` "The themes folder could not be read. See the log for
+   details.", `TooManyEntries` "The themes folder has more than 512 entries.
+   Keep fewer files there to list the custom palettes.", `TooManyThemes`
+   "Only 128 custom palettes can be listed. Keep fewer JSON files in the
+   themes folder to see the rest.", `LoaderFailed` "Custom themes could not
+   be loaded. Run <slug> reload-themes to try again.", `OmarchyUnreadable`
+   "The Omarchy palette could not be loaded. Keeping the last usable
+   appearance. See the log for details."
+6. Add a test that the shipped hook has not drifted:
+   `assert_eq!(include_str!("../contrib/omarchy/<slug>-theme"), fastframe_theme::omarchy::hook_script("<slug>"));`
+
+### ZapFast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme/custom.rs` | 794 | the crate; keep only the `Palette` impl (about 45 lines, in `theme.rs`) |
+| `src/theme/omarchy.rs` | 390 | `fastframe_theme::omarchy` (setup, rendering, install), used by the catalogue |
+| `src/theme/presets.rs` | 95 | `fastframe_theme::presets` (`presets::themes::<Palette>()` in the demo and in `bubble_text_is_readable_in_every_palette`). Keep `spotifast_palettes_also_colour_the_conversation` as an app test of `derive`. |
+| `src/theme/watch.rs` | 79 | the crate's watcher |
+| `assets/themes/*.json` | 8 files | `fastframe_theme::presets::FILES` |
+| `tests/fixtures/omarchy/` | 5 files | the crate's fixtures (they render the base template; keep ZapFast's own if it wants a test of its extended template through `fastframe_theme::omarchy::render_seed::<Palette>`) |
+| `Cargo.toml` `notify` | 1 | the crate (Linux only) |
+
+About 1,300 lines, less the 45-line `Palette` impl and a 25-line status
+mapping. In `App::new`: `app.custom_themes.enable_desktop_themes(DesktopThemes { slug: "zapfast", omarchy_template: include_str!("../contrib/omarchy/zapfast.json.tpl"), presets: true })`.
+Behaviour is unchanged.
+
+### Spotifast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme/custom.rs` | 684 | the crate; keep the `Palette` impl (about 30 lines) and `Problem::text` becomes the status mapping above |
+| `src/theme/omarchy.rs` | 328 | `fastframe_theme::omarchy`, except the `fastpotify` hook upgrade and the legacy-profile check (see below) |
+| `tests/fixtures/omarchy/` | 5 files | the crate's fixtures (identical) |
+
+About 950 lines. `entrypoint.rs` calls
+`app.custom_themes.enable_desktop_themes(DesktopThemes { slug: "spotifast", omarchy_template: include_str!("../contrib/omarchy/spotifast.json.tpl"), presets: false })`
+(`presets: true` adds the eight shared palettes to its picker, which it does
+not show today). Keep in the app, run before that call on Linux:
+
+- the upgrade of an installed hook that still says `/fastpotify/themes`
+  (the block at the top of `Setup::install`, about 20 lines), and
+- skipping `enable_desktop_themes` when the themes directory is the legacy
+  `fastpotify` one during an updater trial.
+
+`tests/omarchy.rs` (which runs the shipped hook with bash) can stay, or give
+way to the `hook_script` equality test.
+
+Behaviour that changes, from ZapFast's newer copy: Omarchy is followed
+whenever it is set up, not only when a package installed the assets, and
+its palette is read from Omarchy's rendering (or rendered from its colours)
+rather than from `themes/omarchy.json` alone; the themes folder and the
+current Omarchy theme are watched, so palettes reload without the hook or a
+restart.
+
+### RekordFlash, TonePush, Chat with Work
+
+RekordFlash and TonePush draw one fixed dark palette, and Chat with Work
+follows the platform's light or dark setting; none reads palette files.
+They can adopt the crate by implementing `Palette` when they add custom
+themes or Omarchy support.
+
+## fastframe-i18n
+
+The PO compiler, the lookup functions, language tag parsing, and the
+template update script. Each app keeps its `Locale` enum, its tags, native
+names, language picker, `settings.json` format, and its own phrase helpers
+(Spotifast's `song_count` and friends).
+
+### ZapFast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `build_support/catalogs.rs` | 45 | `fastframe_i18n::build::compile` (used by the next row) |
+| `build.rs`: the `catalogs` module, the two `rerun-if-changed` lines, and the loop over `assets/i18n` that writes `catalogs.rs` | 30 | `fastframe_i18n::build::compile_catalogs("assets/i18n");` at the top of `main` |
+| `Cargo.toml` `[build-dependencies]` `include-po`, `polib` | 4 | `fastframe-i18n = { ..., features = ["build"] }` as a build-dependency |
+| `Cargo.toml` `tr` | 1 | nothing: generated catalogs implement `fastframe_i18n::Translator` |
+| `src/i18n.rs`: `Locale::translator`, `gettext`, `pgettext`, `ngettext` | 45 | `impl fastframe_i18n::Locale for Locale { fn catalog(self) ... }` (the old `translator` body) and `pub use fastframe_i18n::{gettext, ngettext, pgettext};` |
+| `src/i18n.rs`: the subtag split in `Locale::from_system` | 6 | `fastframe_i18n::LanguageTag::parse`; match on `tag.language` |
+| `src/i18n.rs`: `sys_locale::get_locale()` in `detect` | 4 | `fastframe_i18n::detect(from_tag)` (keep the `cfg!(test)` guard in the app). This walks every preferred language, not only the first: a desktop listing Norwegian then German now gets German. |
+| `Cargo.toml` `sys-locale` | 1 | comes with the crate |
+| `.github/scripts/update-translations.sh` | 32 | a wrapper calling the crate's `scripts/update-translations.sh --package ZapFast --domain zapfast --bugs '<translation issue URL>' --keyword translated:2 --fuzzy-matching "$@"` (see the crate README for finding the script). Drop `--fuzzy-matching` to adopt Spotifast's choice. |
+
+About 130 lines. Call sites (`crate::i18n::gettext(app.locale, ..)`) stay as
+they are because `crate::i18n` re-exports the functions. The tests that
+check real catalogs (`german_catalog_translates_the_pilot` and the plural
+tests) stay in the app.
+
+### Spotifast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `build_support/catalogs.rs` | 45 | `fastframe_i18n::build::compile` |
+| `build.rs`: the `catalogs` module, its `rerun-if-changed` lines, the loop over `assets/i18n`, and the `tests/fixtures/translation.po` compile with `test_catalog.rs` | 45 | `fastframe_i18n::build::compile_catalogs("assets/i18n");` |
+| `tests/localization.rs`: `compiled_po_omits_unfinished_messages_and_uses_locale_plural_rules`, and `tests/fixtures/translation.po` | 30 + 32 | covered by `fastframe-i18n` (`build` tests and the `tests/i18n-app` fixture). Keep `catalogs_cover_the_template_and_preserve_named_placeholders` (it needs `polib` as a dev-dependency still). |
+| `Cargo.toml` `[build-dependencies]` `polib`, `include-po`; `tr` | 5 | the crate, as above |
+| `src/i18n.rs`: `Locale::translator`, `gettext`, `pgettext`, `ngettext` | 50 | `impl fastframe_i18n::Locale for Locale` and `pub use fastframe_i18n::{gettext, ngettext, pgettext};` |
+| `src/i18n.rs`: the tag splitting at the top of `from_language_tag`, and `from_preferred` | 20 | `LanguageTag::parse(tag)` then the existing `match` on `language`, `script`, `region`; `fastframe_i18n::first_supported(tags, ..)` |
+| `src/i18n.rs`: the `OnceLock` and `sys_locale::get_locales()` in `from_system` | 8 | `fastframe_i18n::detect(..)` (cached per process in the crate) |
+| `.github/scripts/update-translations.sh` | 33 | a wrapper: `--package Spotifast --domain spotifast --bugs '<translation issue URL>'` (no fuzzy matching is the default) |
+
+About 200 lines. `Locale::from_tag` keeps using `clap::ValueEnum`.
+
+### RekordFlash, TonePush, Chat with Work
+
+No translations yet. Start with the crate when they add one.
 
 ## fastframe-log
 
@@ -279,319 +608,226 @@ About 35 lines. Difference: Spotifast now also honours the older
 Spotifast keeps AppKit's own traffic-light positions (its top bar is laid
 out around them), so `align_traffic_lights` is not needed there.
 
-## fastframe-i18n
+## fastframe-update
 
-The PO compiler, the lookup functions, language tag parsing, and the
-template update script. Each app keeps its `Locale` enum, its tags, native
-names, language picker, `settings.json` format, and its own phrase helpers
-(Spotifast's `song_count` and friends).
+Self-update from GitHub releases. Each app keeps its `UpdateConfig` (names,
+legacy names, macOS identity, publisher key), its HTTP client settings, and
+its update interface. The move below targets ZapFast 0.16.x and Spotifast
+0.10.x. Take the `reqwest` feature:
 
-### ZapFast
-
-| Delete | Lines | Instead |
-| --- | --- | --- |
-| `build_support/catalogs.rs` | 45 | `fastframe_i18n::build::compile` (used by the next row) |
-| `build.rs`: the `catalogs` module, the two `rerun-if-changed` lines, and the loop over `assets/i18n` that writes `catalogs.rs` | 30 | `fastframe_i18n::build::compile_catalogs("assets/i18n");` at the top of `main` |
-| `Cargo.toml` `[build-dependencies]` `include-po`, `polib` | 4 | `fastframe-i18n = { ..., features = ["build"] }` as a build-dependency |
-| `Cargo.toml` `tr` | 1 | nothing: generated catalogs implement `fastframe_i18n::Translator` |
-| `src/i18n.rs`: `Locale::translator`, `gettext`, `pgettext`, `ngettext` | 45 | `impl fastframe_i18n::Locale for Locale { fn catalog(self) ... }` (the old `translator` body) and `pub use fastframe_i18n::{gettext, ngettext, pgettext};` |
-| `src/i18n.rs`: the subtag split in `Locale::from_system` | 6 | `fastframe_i18n::LanguageTag::parse`; match on `tag.language` |
-| `src/i18n.rs`: `sys_locale::get_locale()` in `detect` | 4 | `fastframe_i18n::detect(from_tag)` (keep the `cfg!(test)` guard in the app). This walks every preferred language, not only the first: a desktop listing Norwegian then German now gets German. |
-| `Cargo.toml` `sys-locale` | 1 | comes with the crate |
-| `.github/scripts/update-translations.sh` | 32 | a wrapper calling the crate's `scripts/update-translations.sh --package ZapFast --domain zapfast --bugs '<translation issue URL>' --keyword translated:2 --fuzzy-matching "$@"` (see the crate README for finding the script). Drop `--fuzzy-matching` to adopt Spotifast's choice. |
-
-About 130 lines. Call sites (`crate::i18n::gettext(app.locale, ..)`) stay as
-they are because `crate::i18n` re-exports the functions. The tests that
-check real catalogs (`german_catalog_translates_the_pilot` and the plural
-tests) stay in the app.
-
-### Spotifast
-
-| Delete | Lines | Instead |
-| --- | --- | --- |
-| `build_support/catalogs.rs` | 45 | `fastframe_i18n::build::compile` |
-| `build.rs`: the `catalogs` module, its `rerun-if-changed` lines, the loop over `assets/i18n`, and the `tests/fixtures/translation.po` compile with `test_catalog.rs` | 45 | `fastframe_i18n::build::compile_catalogs("assets/i18n");` |
-| `tests/localization.rs`: `compiled_po_omits_unfinished_messages_and_uses_locale_plural_rules`, and `tests/fixtures/translation.po` | 30 + 32 | covered by `fastframe-i18n` (`build` tests and the `tests/i18n-app` fixture). Keep `catalogs_cover_the_template_and_preserve_named_placeholders` (it needs `polib` as a dev-dependency still). |
-| `Cargo.toml` `[build-dependencies]` `polib`, `include-po`; `tr` | 5 | the crate, as above |
-| `src/i18n.rs`: `Locale::translator`, `gettext`, `pgettext`, `ngettext` | 50 | `impl fastframe_i18n::Locale for Locale` and `pub use fastframe_i18n::{gettext, ngettext, pgettext};` |
-| `src/i18n.rs`: the tag splitting at the top of `from_language_tag`, and `from_preferred` | 20 | `LanguageTag::parse(tag)` then the existing `match` on `language`, `script`, `region`; `fastframe_i18n::first_supported(tags, ..)` |
-| `src/i18n.rs`: the `OnceLock` and `sys_locale::get_locales()` in `from_system` | 8 | `fastframe_i18n::detect(..)` (cached per process in the crate) |
-| `.github/scripts/update-translations.sh` | 33 | a wrapper: `--package Spotifast --domain spotifast --bugs '<translation issue URL>'` (no fuzzy matching is the default) |
-
-About 200 lines. `Locale::from_tag` keeps using `clap::ValueEnum`.
-
-### RekordFlash, TonePush, Chat with Work
-
-No translations yet. Start with the crate when they add one.
-
-## fastframe-icons
-
-The `icons!` macro, the icon enum it now generates, the bytes loader, and the
-43 Lucide files ZapFast and Spotifast ship byte for byte alike. Each app keeps
-its own SVG files, its icon widgets (`icon`, `paint_icon`, `icon_button`),
-and its sizes and tints.
-
-Every app does the same:
-
-1. Replace the `macro_rules! icons`, the `pub enum Icon { .. }` list, the
-   `const ICONS: &[(Icon, &str, &[u8])] = icons! { .. }` table, `impl Icon`
-   (`uri`, `image`) and `register_icons` with one block:
-
-   ```rust
-   fastframe_icons::icons! {
-       pub enum Icon {
-           prefix: "zapfast-icon-",          // the app's current bytes:// prefix
-           directory: "../assets/icons/",
-           Archive => "archive",             // the old table's entries, unchanged
-           Check => lucide "check",          // a shared icon: see step 3
-           // ...
-       }
-   }
-   ```
-
-2. Call `fastframe_icons::install::<Icon>(ctx)` where `register_icons(ctx)`
-   was called (after `egui_extras::install_image_loaders`).
-3. For each of the 43 shared names (`fastframe_icons::lucide::ALL`), write
-   `lucide "name"` and delete `assets/icons/<name>.svg`. Keep
-   `assets/icons/LICENSE.txt`: the app still ships its own Lucide files.
-4. Code that iterated `ICONS` uses `Icon::ALL` with `icon.uri()` and
-   `icon.bytes()`.
-
-### ZapFast
-
-| Delete | Lines | Instead |
-| --- | --- | --- |
-| `src/theme.rs` `macro_rules! icons` | 9 | the crate's `icons!` |
-| `src/theme.rs` `pub enum Icon` (variant list) | 78 | generated by `icons!` |
-| `src/theme.rs` `impl Icon { uri, image }` | 14 | generated |
-| `src/theme.rs` `struct IconBytes` and its `BytesLoader` impl, `register_icons` | 38 | `fastframe_icons::install::<Icon>(ctx)` (the same never-forget loader) |
-| `src/theme.rs` tests `every_icon_has_a_file`, `icon_bytes_outlive_forgetting` | 40 | covered by the crate's loader tests |
-| `assets/icons/*.svg`: the 43 shared names | 43 files | `lucide "name"` |
-
-About 180 lines of Rust and 43 files. The `ICONS` table becomes the
-`icons!` block (the same length).
-
-### Spotifast
-
-| Delete | Lines | Instead |
-| --- | --- | --- |
-| `src/theme.rs` `macro_rules! icons` | 9 | the crate's `icons!` |
-| `src/theme.rs` `pub enum Icon` | 92 | generated |
-| `src/theme.rs` `impl Icon { uri, image }` | 14 | generated |
-| `src/theme.rs` `register_icons` (`ctx.include_bytes` per icon) | 5 | `fastframe_icons::install::<Icon>(ctx)` |
-| `assets/icons/*.svg`: the 43 shared names | 43 files | `lucide "name"` |
-
-About 120 lines and 43 files. Behaviour change: icons are served by the
-never-forget loader instead of `ctx.include_bytes`, which fixes the red
-placeholder if Spotifast ever turns on `reduce_texture_memory`.
-
-### RekordFlash
-
-| Delete | Lines | Instead |
-| --- | --- | --- |
-| `src/theme.rs` `macro_rules! icons` | 9 | the crate's `icons!` with `prefix: "rekordflash-"` |
-| `src/theme.rs` `enum Icon` | 57 | generated (declare it `pub(crate) enum Icon` or keep it private, as now) |
-| `src/theme.rs` `impl Icon { uri }`, `register_icons` | 13 | generated, `fastframe_icons::install::<Icon>(context)` |
-
-About 80 lines. Its SVGs are minified `lucide-static` files that differ
-from the shared ones byte for byte, so it keeps all of them. Its draw-time
-helpers keep their shape: `icon_image(icon, color, size)` becomes
-`icon.image(color, size)` (the same `egui::Image`, tinted and sized), and
-`icon(ui, ..)`, `icon_button` and `transport_button` keep calling
-`icon.uri()`.
-
-### TonePush
-
-Its UI and category icons use their own macros and file layout. It can move
-to `icons!` later; nothing is shared with it yet.
-
-## fastframe-fonts
-
-Bundled Inter at the app's weights, the monospace choice, companions such
-as a bundled emoji face, and the system fallback faces with their baseline
-and Arabic adjustments. Each app keeps its sizes and text styles, its own
-extra faces (ZapFast's colour emoji overlay, Spotifast's skin font and
-playlist face, TonePush's Plex Mono file), and when it installs fonts.
-
-Everywhere, the helpers become one-liners or go away:
-
-```rust
-pub fn regular(size: f32) -> egui::FontId { fastframe_fonts::Weight::Regular.font_id(size) }
-pub fn medium(size: f32) -> egui::FontId { fastframe_fonts::Weight::Medium.font_id(size) }
-pub fn semibold(size: f32) -> egui::FontId { fastframe_fonts::Weight::SemiBold.font_id(size) }
-pub fn bold(size: f32) -> egui::FontId { fastframe_fonts::Weight::Bold.font_id(size) }
+```toml
+fastframe-update = { git = "https://github.com/crmne/fastframe", rev = "<commit>", features = ["reqwest"] }
 ```
 
-The family names `inter-medium`, `inter-semibold` and `inter-bold` and the
-regular key `inter` are the ones ZapFast and Spotifast already use.
+Both apps already build reqwest 0.12 with `blocking`, so the `reqwest`
+feature adds nothing to their trees; ring, sha2 0.11, url, serde and anyhow
+are already there too.
+
+The first release built on the crate is installed by the previous release's
+own updater, which is unchanged. What that old helper needs from the new
+binary stays the same: `--version` prints `<slug> <version>`, the new app
+accepts `--update-receipt <job>` and `--update-error <message>` (now through
+`intercept`), and it writes `started` next to the receipt. The crate's
+`compat` tests cover the receipts of both apps' current releases.
 
 ### ZapFast
 
-| Delete | Lines | Instead |
+#### Delete
+
+| File | Lines |
+| --- | --- |
+| `src/updates.rs` | 123 |
+| `src/updates/install.rs` | 798 |
+| `src/updates/macos.rs` | 440 |
+| `src/updates/signing.rs` | 85 |
+| `src/updates/transfer.rs` | 498 |
+| **Total** | **1,944** |
+
+The 19 updater tests in those files move into the crate. Keep
+`assets/update-public-key.hex`, `packaging/zapfast-portable.txt`,
+`packaging/windows/zapfast-installer.txt` and `packaging/UPDATE_SIGNING.md`
+(point its verification paragraph at this crate).
+
+#### Add
+
+A new `src/updates.rs` of about 35 lines:
+
+```rust
+pub use fastframe_update::{
+    CHECK_INTERVAL, DownloadState, Installation, Kind, Prepared, Release, Source, Unsupported,
+    Updater,
+};
+use fastframe_update::{MacConfig, ReqwestTransport, UpdateConfig};
+
+pub const CONFIG: UpdateConfig = UpdateConfig {
+    // Cask and bundle names from before the rename. This also accepts
+    // fastsapp-* marker files and `fastsapp <version>` answers, which no
+    // release produces.
+    legacy_names: &["fastsapp"],
+    macos: MacConfig {
+        bundle_ids: &["me.paolino.fastsapp"],
+        executable_names: &[],
+        legacy_bundle_names: &["FastsApp.app"],
+    },
+    publisher_key: Some(include_str!("../assets/update-public-key.hex")),
+    ..UpdateConfig::new("crmne/zapfast", "ZapFast", "zapfast", env!("CARGO_PKG_VERSION"))
+};
+
+/// An updater on the proxy-aware reqwest client.
+pub fn updater() -> anyhow::Result<Updater> {
+    let mut builder = reqwest::blocking::Client::builder();
+    if let Some(proxy) = crate::proxy::reqwest_proxy() {
+        builder = builder.proxy(proxy);
+    }
+    Ok(Updater::new(CONFIG, ReqwestTransport::new(builder)?))
+}
+
+#[test]
+fn update_config_is_valid() {
+    CONFIG.validate().unwrap();
+}
+```
+
+#### Replace
+
+| Where | Today | With |
 | --- | --- | --- |
-| `src/system_fonts.rs` | 462 | `fastframe_fonts::system::fallbacks()` (used by `FontSetup`) |
-| `src/theme.rs` `install_fonts` | 52 | `FontSetup::default().install(ctx)`, or `.definitions()` then `ctx.set_fonts` if the app adjusts them (for example with fastframe-text) |
-| `src/theme.rs` `INTER_MEDIUM`, `INTER_SEMIBOLD`, `INTER_BOLD` | 3 | `Weight::*.family()` / `Weight::*.name()` |
-| `src/theme.rs` test `inter_figures_are_tabular` | 20 | the crate's `figures_are_tabular` |
-| `assets/fonts/InterVariable.ttf`, `assets/fonts/README.md` | 2 files | `fastframe_fonts::INTER` and the crate's `fonts/README.md`. Keep `Inter-LICENSE.txt` if packaging ships it from there. |
-| `Cargo.toml` `memmap2` | 1 | the crate (keep `skrifa`: `emoji.rs` and the demo use it) |
+| `main.rs` start | `if arguments.len() == 3 && arguments[1] == "--apply-update" { run_helper(..) }` | `let launch = fastframe_update::intercept(&updates::CONFIG);` |
+| `main.rs` `Cli` | hidden `update_receipt` and `update_error` arguments; `Cli::parse()` | remove both; `Cli::parse_from(&launch.arguments)` |
+| `main.rs` | `cli.update_error` toast | `launch.error` |
+| `main.rs` | `update_receipt: Option<PathBuf>`, `update_receipt.is_none()` before starting hidden | `Option<fastframe_update::Receipt>`, `launch.receipt.is_none()` |
+| `main.rs` `ui` | `install::acknowledge(&receipt)` | `receipt.acknowledge()` |
+| `worker.rs` `InspectUpdate` | `install::detect()` | `updates::updater()?.installation()` (map the error with `to_string()`) |
+| `worker.rs` `DownloadUpdate` | `updates::download(&release, &source, progress)` | `updater.with_source(source).download(&release, progress)` |
+| `worker.rs` `InstallUpdate` | `install::handoff(&prepared, arguments)` | `updater.handoff(*prepared, arguments)` |
+| `worker.rs` `CheckForUpdates` | `updates::newer_release()` over `proxy::agent()` | `updater.check()` |
+| `app.rs`, `demo.rs` tests | `Prepared { installation, directory, payload, sha256, version }` | `Prepared::sample(installation, "99.0.0")` |
+| `Source::GitHub` | enum variant | `Source::github()`; `source.is_github()` |
 
-About 540 lines. Demo and screenshot builds call `.system_fallbacks(false)`
-if they want output independent of the machine's fonts (the current code
-always adds them).
+`Command::InstallUpdate` already moves the `Prepared` out of
+`DownloadState::Ready` with `mem::replace`, which suits the non-`Clone`
+`Prepared`.
 
-Behaviour that changes, all from Spotifast's newer copy: fallbacks are moved
-onto Inter's baseline (`y_offset_factor`); macOS asks CoreText instead of
-scanning `/System/Library/Fonts` (which never finds PingFang); on Linux the
-directories fontconfig's configuration names are probed too (NixOS); a
-Japanese face no longer serves Han on a Chinese desktop when a Chinese one
-exists; Windows reads its display language for the Han cut; Yi and the ★
-probe are added. The ♡ probe ZapFast called `symbols` is now `suits`, so its
-font data key becomes `fallback-suits` when a different face than the one for
-★ covers it.
+Net: about 1,944 lines deleted and 60 added or changed, so roughly 1,880
+fewer lines.
+
+#### What changes for users
+
+- The helper's standard error goes to `helper.log` in the staging folder (as
+  Spotifast does), and `handoff` names that file when the helper dies.
+- A Nix install says "Update this installation with Nix." instead of "with
+  Nix or Homebrew".
+- A handoff into a staging folder that already holds a marker is refused
+  (none can today, since each download gets a new folder).
+- `result.txt` is written before the rolled-back app restarts, not after.
 
 ### Spotifast
 
-| Delete | Lines | Instead |
+#### Delete
+
+| File | Lines |
+| --- | --- |
+| `src/updates.rs` | 122 |
+| `src/updates/install.rs` | 791 |
+| `src/updates/macos.rs` | 503 |
+| `src/updates/transfer.rs` | 587 |
+| **Total** | **2,003** |
+
+The 21 updater tests move into the crate. Keep the marker files in
+`packaging/` (`spotifast-` and `fastpotify-portable.txt`,
+`spotifast-` and `fastpotify-installer.txt`) and the CI step that runs
+`--apply-update` on a missing job inside a real bundle: `intercept` prints
+the error to standard error and exits with 1, as today.
+
+`examples/updater-inspect.rs` (11 lines) becomes a call to
+`Updater::installation_at(&path)`.
+
+#### Add
+
+A new `src/updates.rs` of about 40 lines:
+
+```rust
+pub use fastframe_update::{
+    CHECK_INTERVAL, DownloadState, Installation, Kind, Prepared, Release, Source, Unsupported,
+    Updater,
+};
+use fastframe_update::{MacConfig, ReqwestTransport, UpdateConfig};
+
+pub const CONFIG: UpdateConfig = UpdateConfig {
+    legacy_names: &["fastpotify"],
+    legacy_windows_installs: &["Programs/Fastpotify/fastpotify.exe"],
+    macos: MacConfig {
+        bundle_ids: &["rocks.spotifast.Spotifast", "me.paolino.fastpotify"],
+        // 0.9.1 kept "fastpotify" for older clients' validation; later
+        // releases may rename it to "Spotifast" (#538).
+        executable_names: &["fastpotify", "Spotifast"],
+        legacy_bundle_names: &["Fastpotify.app"],
+    },
+    // Checksums only until releases are signed; see below.
+    publisher_key: None,
+    ..UpdateConfig::new("crmne/spotifast", "Spotifast", "spotifast", env!("CARGO_PKG_VERSION"))
+};
+
+pub fn updater(proxy: &crate::settings::ProxyConfig) -> anyhow::Result<Updater> {
+    let builder = crate::http::blocking_builder(proxy).map_err(anyhow::Error::msg)?;
+    Ok(Updater::new(CONFIG, ReqwestTransport::new(builder)?))
+}
+```
+
+#### Replace
+
+| Where | Today | With |
 | --- | --- | --- |
-| `src/system_fonts.rs` except `pledit_face`, `find_family`, `walk_fonts` and `rank_family` | 800 | `fastframe_fonts::system::fallbacks()`; the playlist face walks `fastframe_fonts::system::font_directories()` |
-| `src/mac_fonts.rs` | 485 | the crate's macOS module (the same CoreText code) |
-| `src/theme.rs` `install_fonts` | 76 | `FontSetup::default().companion("noto_emoji", Arc::new(FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf")))).definitions()`, then `ctx.set_fonts` |
-| `src/theme.rs` `fallback_baseline_y_offset` and its three tests | 47 + 70 | the crate's `baseline_offset` and `fallback_glyphs_are_painted_on_the_latin_baseline` |
-| `src/theme.rs` `INTER_*` constants, `inter_figures_are_tabular` | 25 | as for ZapFast |
-| `assets/fonts/InterVariable.ttf`, `assets/fonts/README.md` | 2 files | the crate |
-| `tests/fixtures/yi/` | 3 files | the crate's copy, used by `a_font_that_draws_a_yi_name_is_chosen` |
-| `Cargo.toml` `memmap2` | 1 | the crate (keep `skrifa` for MilkDrop and pixel text) |
+| `entrypoint.rs` start | `--apply-update` block with `eprintln!` and `exit` | `let launch = fastframe_update::intercept(&updates::CONFIG);` (keep it before the MilkDrop child check) |
+| `entrypoint.rs` `Cli` | hidden `update_receipt`/`update_error`; `Cli::command().name(name).get_matches()` | remove both; `.get_matches_from(&launch.arguments)`. The `fastpotify`/`spotifast` name choice from `argv[0]` stays: old updaters check `fastpotify <version>`. |
+| `entrypoint.rs` | `cli.update_receipt.is_some()` for migration and `AppDirs::for_launch` | `launch.receipt.is_some()` |
+| `entrypoint.rs` demo feed | `updates::Source::local(feed)` | `fastframe_update::Source::local(feed)` |
+| `backend.rs` `check_for_updates` | async `newer_release_from(&http, &source)` | `tokio::task::spawn_blocking(move \|\| updater.with_source(source).check())` |
+| `backend.rs` `InspectUpdate` | `install::detect()` | `updater.installation()` |
+| `backend.rs` `DownloadUpdate` | `updates::download(&release, &source, &proxy, progress)` | `updates::updater(&proxy)?.with_source(source).download(&release, progress)` |
+| `backend.rs` `InstallUpdate` | `install::handoff(&prepared, arguments)` | `updater.handoff(*prepared, arguments)` |
+| `app.rs` `InstallUpdate` | `prepared.clone()` from `&self.update_download` | move it out with `std::mem::replace(&mut self.update_download, DownloadState::Installing)`; `Prepared` is not `Clone` |
+| `app.rs` | `matches!(self.update_source, Source::GitHub)` | `self.update_source.is_github()` |
+| `app.rs` receipt | `install::acknowledge(&receipt)` | `receipt.acknowledge()` |
+| `demo.rs`, `app.rs` tests | `Prepared { .. }` literals | `Prepared::sample(installation, version)` |
 
-About 1,500 lines. `milkdrop/overlay.rs` and `ui/winamp/pixel_text.rs` read
-`fastframe_fonts::system::fallbacks()` instead; `Fallback` gains `scale` and
-`y_offset_factor`, which they may ignore. Code that looked up
-`system_fonts::FALLBACK_SCRIPTS` for a probe character uses the fallback's
-own face instead (the list is internal to the crate now).
+Net: about 2,003 lines deleted and 70 added or changed, so roughly 1,930
+fewer lines.
 
-Behaviour that changes, from ZapFast's copy: a small Arabic face is enlarged
-up to 25% to match Inter's x-height, and Javanese, mathematical
-alphanumerics, enclosed alphanumerics and ♡ get fallbacks too.
+#### What changes for users
 
-### RekordFlash
+- **The macOS helper runs from a copy of the whole bundle** (ZapFast's fix),
+  not from the installed bundle. The installed bundle can then be moved and
+  restored without touching the helper's own code.
+- `portable_entry`'s special case for the 0.8.0 and 0.9.0 archive layout is
+  gone. Those versions are older than 0.10, so no app built on the crate can
+  be offered them.
+- The pre-marker Windows location now also checks the setup program's
+  current default, `Programs/Spotifast/spotifast.exe`, as well as
+  `Programs/Fastpotify/fastpotify.exe`.
+- A Nix install says "Update this installation with Nix."
 
-| Delete | Lines | Instead |
-| --- | --- | --- |
-| `src/theme.rs` `install_fonts` | 38 | `FontSetup::default().weights(&[Weight::SemiBold]).monospace(Monospace::Inter).install(context)` |
-| `src/theme.rs` `SEMIBOLD` | 1 | `Weight::SemiBold.family()` in `semibold(size)` |
-| `assets/fonts/InterVariable.ttf`, `assets/fonts/README.md` | 2 files | the crate |
+#### Turning on publisher signatures
 
-About 40 lines. RekordFlash has no system fallbacks today: the default adds
-them, so track names in CJK, Arabic or Indic scripts stop drawing as boxes.
-Pass `.system_fallbacks(false)` to keep today's behaviour. The font data keys
-change from `rekordflash-inter` to `inter`.
+Spotifast releases are not signed yet, so `publisher_key` stays `None` and
+the update is verified against `checksums.txt` alone. To sign:
 
-### TonePush
+1. Add native-packages' `sign-release` step and a `release-signing`
+   environment with the private key to the release workflow, as ZapFast has,
+   and publish a release that carries `checksums.txt.sig`.
+2. Only then ship a version with `publisher_key: Some(include_str!(..))`.
+   From that version on, a release without a valid signature is refused, so
+   every later release must be signed.
 
-| Delete | Lines | Instead |
-| --- | --- | --- |
-| `src/theme.rs` `fonts` (the loop and family set-up) | 45 | `FontSetup::default().weights(&[Weight::SemiBold]).monospace(Monospace::Font { name: "plex-mono".into(), data: Arc::new(FontData::from_static(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"))) }).install(ctx)` |
-| `assets/fonts/Inter-Regular.ttf`, `assets/fonts/Inter-SemiBold.ttf` | 2 files | `fastframe_fonts::INTER` at 400 and 600 |
+Older installs keep updating on checksums until they reach a version that
+embeds the key.
 
-About 45 lines. The `SEMIBOLD` family name changes from `semibold` to
-`inter-semibold` (use `Weight::SemiBold.family()`). Inter's figures become
-tabular in labels too, and system fallbacks are added unless turned off.
+### Deleted lines, both apps
 
-### Chat with Work
-
-It draws with the platform's UI font and bundles none; nothing to move.
-
-## fastframe-theme
-
-Palette files, the background catalogue, the shared palettes, Omarchy
-following and file watching. Each app keeps its `Palette` struct and its
-dark and light defaults, `theme::apply` (the mapping onto `egui::Visuals`
-and widget styling), the Settings picker and its wording, the
-`reload-themes` command on its single-instance channel, and the packaging
-files in `contrib/omarchy/`.
-
-Every app does the same:
-
-1. `impl fastframe_theme::Palette for Palette`: `base` returns
-   `Palette::dark()` or `Palette::light()`; `set` is the old `match name`
-   from `parse_palette`, returning `false` for unknown names; ZapFast's
-   `derive` holds its "Spotifast palettes share the sixteen interface
-   colours" block.
-2. `theme::custom::CustomTheme` becomes `fastframe_theme::CustomTheme<Palette>`
-   and `theme::custom::Catalog` becomes `fastframe_theme::Catalog<Palette>`.
-   The serialized cache (`custom_theme_cache`, `system_theme_cache`) keeps
-   its shape, so existing `settings.json` files read as before; point
-   `deserialize_with` at `"fastframe_theme::read_cached_theme"`.
-3. `theme::custom::label` becomes `fastframe_theme::display_name`.
-4. `Catalog::start(directory, selected, &waker)` takes a
-   `fastframe_theme::Waker`: build one once with
-   `fastframe_theme::Waker::new({ let waker = self.waker.clone(); move || waker.wake() })`.
-5. The status line: `catalog.status(selected)` returns `Status::Loading`,
-   `Status::SelectedUnavailable` or `Status::Problem(..)`; the app maps each
-   to its (translated) sentence. The sentences both apps use today:
-   "Loading local themes…", "The selected theme is unavailable. Keeping the
-   last usable appearance. See the log for details.", and per `Problem`:
-   `Unreadable` "The themes folder could not be read. See the log for
-   details.", `TooManyEntries` "The themes folder has more than 512 entries.
-   Keep fewer files there to list the custom palettes.", `TooManyThemes`
-   "Only 128 custom palettes can be listed. Keep fewer JSON files in the
-   themes folder to see the rest.", `LoaderFailed` "Custom themes could not
-   be loaded. Run <slug> reload-themes to try again.", `OmarchyUnreadable`
-   "The Omarchy palette could not be loaded. Keeping the last usable
-   appearance. See the log for details."
-6. Add a test that the shipped hook has not drifted:
-   `assert_eq!(include_str!("../contrib/omarchy/<slug>-theme"), fastframe_theme::omarchy::hook_script("<slug>"));`
-
-### ZapFast
-
-| Delete | Lines | Instead |
-| --- | --- | --- |
-| `src/theme/custom.rs` | 794 | the crate; keep only the `Palette` impl (about 45 lines, in `theme.rs`) |
-| `src/theme/omarchy.rs` | 390 | `fastframe_theme::omarchy` (setup, rendering, install), used by the catalogue |
-| `src/theme/presets.rs` | 95 | `fastframe_theme::presets` (`presets::themes::<Palette>()` in the demo and in `bubble_text_is_readable_in_every_palette`). Keep `spotifast_palettes_also_colour_the_conversation` as an app test of `derive`. |
-| `src/theme/watch.rs` | 79 | the crate's watcher |
-| `assets/themes/*.json` | 8 files | `fastframe_theme::presets::FILES` |
-| `tests/fixtures/omarchy/` | 5 files | the crate's fixtures (they render the base template; keep ZapFast's own if it wants a test of its extended template through `fastframe_theme::omarchy::render_seed::<Palette>`) |
-| `Cargo.toml` `notify` | 1 | the crate (Linux only) |
-
-About 1,300 lines, less the 45-line `Palette` impl and a 25-line status
-mapping. In `App::new`: `app.custom_themes.enable_desktop_themes(DesktopThemes { slug: "zapfast", omarchy_template: include_str!("../contrib/omarchy/zapfast.json.tpl"), presets: true })`.
-Behaviour is unchanged.
-
-### Spotifast
-
-| Delete | Lines | Instead |
-| --- | --- | --- |
-| `src/theme/custom.rs` | 684 | the crate; keep the `Palette` impl (about 30 lines) and `Problem::text` becomes the status mapping above |
-| `src/theme/omarchy.rs` | 328 | `fastframe_theme::omarchy`, except the `fastpotify` hook upgrade and the legacy-profile check (see below) |
-| `tests/fixtures/omarchy/` | 5 files | the crate's fixtures (identical) |
-
-About 950 lines. `entrypoint.rs` calls
-`app.custom_themes.enable_desktop_themes(DesktopThemes { slug: "spotifast", omarchy_template: include_str!("../contrib/omarchy/spotifast.json.tpl"), presets: false })`
-(`presets: true` adds the eight shared palettes to its picker, which it does
-not show today). Keep in the app, run before that call on Linux:
-
-- the upgrade of an installed hook that still says `/fastpotify/themes`
-  (the block at the top of `Setup::install`, about 20 lines), and
-- skipping `enable_desktop_themes` when the themes directory is the legacy
-  `fastpotify` one during an updater trial.
-
-`tests/omarchy.rs` (which runs the shipped hook with bash) can stay, or give
-way to the `hook_script` equality test.
-
-Behaviour that changes, from ZapFast's newer copy: Omarchy is followed
-whenever it is set up, not only when a package installed the assets, and
-its palette is read from Omarchy's rendering (or rendered from its colours)
-rather than from `themes/omarchy.json` alone; the themes folder and the
-current Omarchy theme are watched, so palettes reload without the hook or a
-restart.
-
-### RekordFlash, TonePush, Chat with Work
-
-RekordFlash and TonePush draw one fixed dark palette, and Chat with Work
-follows the platform's light or dark setting; none reads palette files.
-They can adopt the crate by implementing `Palette` when they add custom
-themes or Omarchy support.
+About 3,950 lines of updater code and tests leave the two apps, replaced by
+about 75 lines of configuration and 130 of changed call sites. The crate is
+about 6,000 lines as formatted: about 2,900 of code and documentation and
+3,100 of tests and test fakes.
 
 ## Not moved yet: widgets
 
