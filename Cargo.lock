@@ -951,6 +951,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastframe-icons"
+version = "0.1.0"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "fastframe-log"
 version = "0.1.0"
 dependencies = [

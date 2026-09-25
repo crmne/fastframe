@@ -1,0 +1,20 @@
+[package]
+name = "fastframe-icons"
+description = "Embedded SVG icon sets for egui, with the Lucide icons the apps share"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT AND ISC"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["egui", "icons", "svg", "lucide"]
+categories = ["gui"]
+include = ["src", "icons", "tests", "README.md", "Cargo.toml"]
+
+[dependencies]
+egui.workspace = true
+
+[lints]
+workspace = true
