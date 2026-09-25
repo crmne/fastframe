@@ -60,9 +60,10 @@
 //!   [`idle`] runs AppKit's loop while no window exists. A Dock click asks to
 //!   [`Event::Show`]. The menu opens on right click; left click toggles.
 //!
-//! The menu handler of tray-icon (muda) is process-wide. An app that builds
-//! its own muda menus (a macOS menu bar) and installs its own handler must
-//! pass each event to [`claim_menu_event`] first.
+//! The menu handler of tray-icon (muda) is process-wide, and muda keeps the
+//! first one installed, ignoring the rest. An app that builds its own muda
+//! menus (a macOS menu bar) must install its handler before the tray makes
+//! its item, and pass each event to [`claim_menu_event`] first.
 
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -211,8 +212,10 @@ pub fn idle(duration: Duration) {
 /// and returns whether it was.
 ///
 /// The tray installs muda's process-wide handler when it makes its item
-/// (Windows, macOS). An app that later installs its own handler, for its
-/// macOS menu bar say, replaces the tray's and must call this first:
+/// (Windows: [`Tray::spawn`]; macOS: the first [`Tray::attach`]). muda keeps
+/// the first handler it is given and silently ignores later ones, so an app
+/// with its own handler, for its macOS menu bar say, installs it before then
+/// (ZapFast #215) and calls this first:
 ///
 /// ```ignore
 /// MenuEvent::set_event_handler(Some(|event: MenuEvent| {

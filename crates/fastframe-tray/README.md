@@ -74,9 +74,12 @@ fastframe_tray::idle(std::time::Duration::from_millis(150));
 ## Sharing muda's menu handler
 
 tray-icon's menus (muda) report clicks through one process-wide handler,
-which the tray installs when it makes its item. An app that builds its own
-muda menus, such as a macOS menu bar, and installs its own handler replaces
-the tray's; it must hand each event to the tray first:
+which the tray installs when it makes its item (Windows: `Tray::spawn`;
+macOS: the first `Tray::attach`). muda keeps the first handler it is given
+and silently ignores later ones. An app that builds its own muda menus, such
+as a macOS menu bar, must install its handler before the tray makes its
+item, or its menu does nothing (ZapFast #215), and hand each event to the
+tray first:
 
 ```rust
 MenuEvent::set_event_handler(Some(|event: MenuEvent| {
