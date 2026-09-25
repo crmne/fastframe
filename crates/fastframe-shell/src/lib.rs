@@ -235,6 +235,22 @@ pub struct Lease<A> {
 }
 
 impl<A> Lease<A> {
+    /// Reads the app before its window exists, to choose that window's
+    /// options: Spotifast opens its mini player instead of the main window
+    /// when the app says so, and sizes it from the settings.
+    ///
+    /// # Panics
+    ///
+    /// If the app is already held elsewhere, which [`Shell`] never allows.
+    pub fn peek<T>(&self, read: impl FnOnce(&A) -> T) -> T {
+        read(
+            self.slot
+                .borrow()
+                .as_ref()
+                .expect("the app waits in the shell until the window takes it"),
+        )
+    }
+
     /// Takes the app for the window whose context is `ctx`, attaching the
     /// [`Waker`] to it. Call it from eframe's app creator.
     ///
@@ -474,6 +490,28 @@ mod tests {
             calls(),
             ["window", "window_gone", "tick", "tick", "shutdown"]
         );
+    }
+
+    /// Spotifast's mini player: the app decides before each window which
+    /// kind it is, and the next window after a Reopen is the other kind.
+    #[test]
+    fn each_window_can_read_the_app_before_it_takes_it() {
+        let waker = Waker::default();
+        let mut kinds = Vec::new();
+        Shell::new(script(&[], &[], false), &waker)
+            .run(|lease| {
+                kinds.push(lease.peek(|app| app.now));
+                let mut held = lease.take(&egui::Context::default());
+                held.now = if kinds.len() == 1 {
+                    Closed::Reopen
+                } else {
+                    Closed::Quit
+                };
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+        assert_eq!(kinds, [Closed::Quit, Closed::Reopen]);
+        assert_eq!(calls(), ["shutdown"]);
     }
 
     #[test]

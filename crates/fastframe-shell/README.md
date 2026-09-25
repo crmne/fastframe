@@ -57,6 +57,8 @@ The window's `eframe::App` keeps the `Held<App>` (it derefs to the app).
 When eframe drops it with the window, the app goes back to the shell, which
 asks `closed()` what to do next: quit, run headless, or open the next window
 at once (`Closed::Reopen`, for switching to a different kind of window).
+Before `run_native`, `lease.peek(|app| ..)` reads the app to choose that
+window's options, such as which kind of window it is.
 
 - `Waker` repaints whichever window exists, from any thread, and does
   nothing while none does.
