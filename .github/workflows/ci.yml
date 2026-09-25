@@ -66,3 +66,6 @@ jobs:
         run: cargo test --locked --all-targets --all-features
       - name: Doc tests
         run: cargo test --locked --doc --all-features
+      # Apps on `tracing` take fastframe-log without its `log` logger.
+      - name: Tests (fastframe-log without the logger)
+        run: cargo test --locked -p fastframe-log --no-default-features

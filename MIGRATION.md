@@ -74,10 +74,19 @@ Differences, all deliberate:
 
 ### RekordFlash, TonePush, Chat with Work
 
-Not moving now. RekordFlash logs through `tracing-subscriber`. TonePush uses
-`eprintln!`. Chat with Work logs to stderr only and reads `CWW_APP_LOG`, not
-`RUST_LOG`; it can adopt the crate once it wants a log file, which would
-change its variable.
+Not moving the logger now. RekordFlash logs through `tracing-subscriber`
+(an `EnvFilter` in `main.rs`, stderr only) and records panics as structured
+session evidence (`src/diagnostics/sessions.rs`), which chains the previous
+hook and already never captures the payload. It can take the facade-free
+parts with `default-features = false`: `redact::links`/`words` for error
+strings, and, if it wants a human-readable panic line next to its session
+records, `log_panics` installed before `Session::install_panic_hook` (so the
+session hook chains it). Its logger stays as it is; the crate has no
+`tracing` subscriber until a second app logs through `tracing`.
+
+TonePush uses `eprintln!`. Chat with Work logs to stderr only and reads
+`CWW_APP_LOG`, not `RUST_LOG`; it can adopt the crate once it wants a log
+file, which would change its variable.
 
 ## fastframe-tray
 

@@ -48,6 +48,31 @@ The payload is never written anywhere: an `expect` or a formatted panic
 message can quote whatever the code was handling. The source location is
 enough to find the panic.
 
+## Apps on `tracing`
+
+`Logging` is a [`log`](https://docs.rs/log) logger, behind the default
+`logger` feature. The panic hook and the redaction helpers use only the
+standard library and work with any facade, so an app on `tracing` takes them
+without the logger:
+
+```toml
+fastframe-log = { git = "https://github.com/crmne/fastframe", rev = "<commit>", default-features = false }
+```
+
+```rust
+fastframe_log::log_panics(state_dir.join("panic.log"), "rekordflash", env!("CARGO_PKG_VERSION"));
+tracing::warn!(error = %fastframe_log::redact::links(&error.to_string()), "download failed");
+```
+
+`log_panics` replaces the panic hook without chaining the previous one (the
+default hook would print the payload). Install it first: a hook set later
+that chains `std::panic::take_hook()`, such as RekordFlash's session
+recorder, then runs before it and keeps working.
+
+There is no `tracing` subscriber in this crate: only one app logs through
+`tracing`, and it writes no log file. One can follow when a second app
+needs it.
+
 ## Redaction
 
 For single messages, before they are logged:

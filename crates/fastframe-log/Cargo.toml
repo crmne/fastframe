@@ -12,11 +12,17 @@ readme = "README.md"
 keywords = ["logging", "panic", "privacy", "desktop"]
 categories = ["development-tools::debugging"]
 
+[features]
+default = ["logger"]
+# The `log` logger (`Logging`). Without it only the panic hook and the
+# redaction helpers remain, for apps on another facade such as `tracing`.
+logger = ["dep:log", "dep:env_logger"]
+
 [dependencies]
-# The facade every app logs through.
-log.workspace = true
+# The facade ZapFast and Spotifast log through.
+log = { workspace = true, optional = true }
 # The logger ZapFast and Spotifast already use, with the same features.
-env_logger.workspace = true
+env_logger = { workspace = true, optional = true }
 # Timestamps in the panic log, as the apps write them today.
 jiff.workspace = true
 
