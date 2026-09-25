@@ -25,6 +25,12 @@ log = { version = "0.4", features = ["std"] }
 env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
 jiff = "0.2"
 
+# The keep-running shell (fastframe-shell). `Frame::winit_window`, for the
+# window and monitor positions off-screen recovery reads. eframe does not
+# compile on macOS without a renderer, so this names glow, which every app
+# uses.
+eframe = { version = "0.36.1", default-features = false, features = ["glow", "wayland", "x11"] }
+
 # The tray (fastframe-tray): the versions ZapFast and Spotifast build with.
 ksni = { version = "0.3", features = ["blocking"] }
 tray-icon = { version = "0.24", default-features = false }

@@ -96,7 +96,7 @@ tray events to its own actions.
 | `src/app.rs`: `TrayService::spawn(move \|\| waker.wake())` | 1 | `fastframe_tray::Tray::spawn(Config { id: "zapfast", title: "ZapFast".into(), icon: util::app_icon_rgba, template_icon: Some(util::tray_template_rgba), menu: vec![MenuItem::action("show", "Show or hide ZapFast"), MenuItem::Separator, MenuItem::action("quit", "Quit")] }, move \|\| waker.wake())` |
 | `src/app.rs` `handle_tray`: the `TrayCommand` match | 10 | `for event in tray.events()`: `Event::Show` to `ShowWindow`; `Event::Toggle` and `Event::Menu("show")` to show or hide; `Event::Menu("quit")` to `Quit` |
 | `src/app.rs`: `tray.hidden()` in `window_gone` | 3 | nothing (it did nothing) |
-| `src/main.rs`: `zapfast::tray::idle(..)` | 1 | `fastframe_tray::idle(..)` |
+| `src/main.rs`: `zapfast::tray::idle(..)` | 1 | `.idle(fastframe_tray::idle)` on the shell (see fastframe-shell) |
 | `src/macos.rs` `attach`: the menu handler | 0 | call `if fastframe_tray::claim_menu_event(&event.id.0) { return; }` first in the `MenuEvent` handler |
 | `src/macos.rs` `action`: the `"show"` arm shared with the tray | 7 | nothing: the tray's ids are its own (`fastframe-tray:show`) and reach `tray.events()`. Keep `"quit"` for the app menu's Quit. |
 | `Cargo.toml` `ksni`, `tray-icon` | 2 | come with the crate. `tray-icon` stays if `macos.rs` keeps building the menu bar with muda (it does). |
@@ -127,7 +127,7 @@ Differences, all taken from Spotifast on purpose:
 | `src/app.rs`: the `TrayCommand` match | 12 | match `Event::Toggle`/`Menu("show")`, `Show`, `Menu("play-pause")`, `Menu("next")`, `Menu("previous")`, `Menu("quit")` |
 | `src/app.rs`: `tray.set_playing(playing)` | 1 | `tray.set_label("play-pause", if playing { "Pause" } else { "Play" })` (the crate does not skip repeats; keep the app's `playing` comparison, or call only on change) |
 | `src/app.rs`: `tray.hidden()` | 3 | nothing |
-| `src/entrypoint.rs`: `spotifast::tray::idle(..)` | 1 | `fastframe_tray::idle(..)` |
+| `src/entrypoint.rs`: `spotifast::tray::idle(..)` | 1 | `.idle(fastframe_tray::idle)` |
 | `Cargo.toml` `ksni`, `tray-icon` | 2 | come with the crate |
 
 About 800 lines, of which 140 are the Flatpak private-bus test in
@@ -151,3 +151,79 @@ Differences:
 Not moving now: its tray shares one winit loop with the window
 (`pump_app_events`) and uses tray-icon 0.25. It can adopt the crate if it
 moves to the run-native loop, after the workspace moves to tray-icon 0.25.
+
+## fastframe-shell
+
+The keep-running loop around `eframe::run_native`, the `Waker`, start
+hidden, and off-screen window recovery. Each app keeps its `eframe::App`
+wrapper (demo shots, tours, thumb bar, menus), its native options, and its
+decisions about when to hide, show, reopen and quit. Single instance stays in
+each app (see the crate README for why).
+
+### ZapFast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/backend.rs`: `struct Waker` and its impl | 26 | `pub use fastframe_shell::Waker;` (same methods, including `wake_after`) |
+| `src/main.rs`: `slot`, the `start_hidden` computation's `hides_to_tray` part, the outer `loop`, the headless inner `loop`, the final `shutdown` | 100 | `impl fastframe_shell::Resident for App` (below), then `Shell::new(app, &waker).start_hidden(cli.start_hidden && !demo && update_receipt.is_none()).idle(fastframe_tray::idle).run(\|lease\| eframe::run_native("ZapFast", native_options(..), Box::new(move \|cc\| { let mut app = lease.take(&cc.egui_ctx); app.attach(&cc.egui_ctx); ... Ok(Box::new(Shell { app, .. })) })))` |
+| `src/main.rs`: `creator_waker.attach(..)`, the `creator_slot` take, `waker.detach()` | 10 | `lease.take(&cc.egui_ctx)` and the shell |
+| `src/main.rs` `Shell`: `app: Option<App>`, `slot`, `impl Drop for Shell` | 8 | `app: fastframe_shell::Held<App>`; `self.app.as_mut()` becomes `&mut self.app` |
+| `src/main.rs`: `recovered_window_position`, `recover_offscreen_window` | 80 | `fastframe_shell::window::recover_offscreen(ctx, frame)` behind the existing `window_recovery_checked` flag (drop the `cfg`: the crate does nothing on macOS) |
+| `src/main.rs`: `mod window_tests` | 70 | the same cases are in the crate |
+| `src/app.rs`: `hide_intent`/`quit_requested`/`wants_show` reads in `main` | 0 | the `Resident` impl |
+
+The `Resident` impl (about 25 lines in `app.rs`):
+
+```rust
+impl fastframe_shell::Resident for App {
+    fn closed(&self) -> Closed {
+        if !self.quit_requested && self.hide_intent { Closed::Hide } else { Closed::Quit }
+    }
+    fn window_gone(&mut self) { App::window_gone(self) }
+    fn headless_frame(&mut self, ctx: &egui::Context) -> Headless {
+        self.background_frame(ctx);
+        if self.quit_requested { Headless::Quit }
+        else if self.wants_show { Headless::Show }
+        else { Headless::Wait }
+    }
+    fn start_hidden(&mut self) -> bool {
+        if !self.hides_to_tray() { return false; }
+        App::start_hidden(self); // sets hide_intent, releases the backend
+        true
+    }
+    fn shutdown(&mut self) { App::shutdown(self) }
+}
+```
+
+About 270 lines out, 25 in. Keep `a_hidden_start_starts_the_backend_without_a_frame`
+in `app.rs`: the crate tests that the shell calls `start_hidden` before any
+window, the app test that it releases the backend.
+
+No behaviour changes. Moving the hide-to-tray check into `start_hidden`
+keeps the rule "without a tray there is no way back, so show the window".
+
+### Spotifast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/backend.rs`: `struct Waker` and its impl | 24 | `pub use fastframe_shell::Waker;` |
+| `src/entrypoint.rs`: `slot`, the outer `loop`'s bookkeeping (`creator_slot`, `waker.detach()`, the `switch`/`hide` reads, the headless inner `loop`, the final `shutdown`) | 70 | `impl Resident for App` with `closed()` returning `Closed::Reopen` for `switch_intent`, then `Shell::new(app, &waker).idle(fastframe_tray::idle).run(\|lease\| { let mini = ...; let options = ...; eframe::run_native("Spotifast", options, Box::new(move \|cc\| { ...; let mut app = lease.take(&cc.egui_ctx); ... })) })` |
+| `src/entrypoint.rs` `Shell`: `app: Option<App>`, `slot`, the slot line in `Drop` | 4 | `app: Held<App>`; `Drop` keeps only `thumbbar.detach()` (the app returns after it, when the field drops) |
+
+About 95 lines out, 25 in. The per-window option building (`MiniWindow`,
+`native_options`, `profile_options`, the thumb bar) moves into the `run`
+closure unchanged, since the closure runs once per window.
+
+Off-screen recovery: Spotifast checks its own saved session positions before
+applying them (`window::can_restore`, the Windows work-area test of the
+title bar), which stays. It can add `recover_offscreen` on the main window's
+first frame as a net for positions eframe restored itself; that is new
+behaviour on X11 and Windows, so it is optional.
+
+No other behaviour changes.
+
+### RekordFlash, TonePush, Chat with Work
+
+Not moving: RekordFlash and TonePush have no tray or background mode. Chat
+with Work keeps its window alive with `pump_app_events` on one winit loop, a
+different design.

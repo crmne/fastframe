@@ -1,0 +1,24 @@
+[package]
+name = "fastframe-shell"
+description = "Keep an egui app running without a window, recreate the window on demand, and bring back windows restored off-screen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["egui", "eframe", "tray", "background", "desktop"]
+categories = ["gui"]
+
+[dependencies]
+# `Waker` repaints through the window's context; recovery asks it to move.
+egui.workspace = true
+# `Frame::winit_window`, for the window and monitor positions recovery reads.
+eframe.workspace = true
+# One warning when a window is moved back on screen.
+log.workspace = true
+
+[lints]
+workspace = true
