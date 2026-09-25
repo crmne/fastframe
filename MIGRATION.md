@@ -400,3 +400,99 @@ from the shared ones byte for byte, so it keeps all of them.
 
 Its UI and category icons use their own macros and file layout. It can move
 to `icons!` later; nothing is shared with it yet.
+
+## fastframe-fonts
+
+Bundled Inter at the app's weights, the monospace choice, companions such
+as a bundled emoji face, and the system fallback faces with their baseline
+and Arabic adjustments. Each app keeps its sizes and text styles, its own
+extra faces (ZapFast's colour emoji overlay, Spotifast's skin font and
+playlist face, TonePush's Plex Mono file), and when it installs fonts.
+
+Everywhere, the helpers become one-liners or go away:
+
+```rust
+pub fn regular(size: f32) -> egui::FontId { fastframe_fonts::Weight::Regular.font_id(size) }
+pub fn medium(size: f32) -> egui::FontId { fastframe_fonts::Weight::Medium.font_id(size) }
+pub fn semibold(size: f32) -> egui::FontId { fastframe_fonts::Weight::SemiBold.font_id(size) }
+pub fn bold(size: f32) -> egui::FontId { fastframe_fonts::Weight::Bold.font_id(size) }
+```
+
+The family names `inter-medium`, `inter-semibold` and `inter-bold` and the
+regular key `inter` are the ones ZapFast and Spotifast already use.
+
+### ZapFast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/system_fonts.rs` | 462 | `fastframe_fonts::system::fallbacks()` (used by `FontSetup`) |
+| `src/theme.rs` `install_fonts` | 52 | `FontSetup::default().install(ctx)`, or `.definitions()` then `ctx.set_fonts` if the app adjusts them (for example with fastframe-text) |
+| `src/theme.rs` `INTER_MEDIUM`, `INTER_SEMIBOLD`, `INTER_BOLD` | 3 | `Weight::*.family()` / `Weight::*.name()` |
+| `src/theme.rs` test `inter_figures_are_tabular` | 20 | the crate's `figures_are_tabular` |
+| `assets/fonts/InterVariable.ttf`, `assets/fonts/README.md` | 2 files | `fastframe_fonts::INTER` and the crate's `fonts/README.md`. Keep `Inter-LICENSE.txt` if packaging ships it from there. |
+| `Cargo.toml` `memmap2` | 1 | the crate (keep `skrifa`: `emoji.rs` and the demo use it) |
+
+About 540 lines. Demo and screenshot builds call `.system_fallbacks(false)`
+if they want output independent of the machine's fonts (the current code
+always adds them).
+
+Behaviour that changes, all from Spotifast's newer copy: fallbacks are moved
+onto Inter's baseline (`y_offset_factor`); macOS asks CoreText instead of
+scanning `/System/Library/Fonts` (which never finds PingFang); on Linux the
+directories fontconfig's configuration names are probed too (NixOS); a
+Japanese face no longer serves Han on a Chinese desktop when a Chinese one
+exists; Windows reads its display language for the Han cut; Yi and the ★
+probe are added. The ♡ probe ZapFast called `symbols` is now `suits`, so its
+font data key becomes `fallback-suits` when a different face than the one for
+★ covers it.
+
+### Spotifast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/system_fonts.rs` except `pledit_face`, `find_family`, `walk_fonts` and `rank_family` | 800 | `fastframe_fonts::system::fallbacks()`; the playlist face walks `fastframe_fonts::system::font_directories()` |
+| `src/mac_fonts.rs` | 485 | the crate's macOS module (the same CoreText code) |
+| `src/theme.rs` `install_fonts` | 76 | `FontSetup::default().companion("noto_emoji", Arc::new(FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf")))).definitions()`, then `ctx.set_fonts` |
+| `src/theme.rs` `fallback_baseline_y_offset` and its three tests | 47 + 70 | the crate's `baseline_offset` and `fallback_glyphs_are_painted_on_the_latin_baseline` |
+| `src/theme.rs` `INTER_*` constants, `inter_figures_are_tabular` | 25 | as for ZapFast |
+| `assets/fonts/InterVariable.ttf`, `assets/fonts/README.md` | 2 files | the crate |
+| `tests/fixtures/yi/` | 3 files | the crate's copy, used by `a_font_that_draws_a_yi_name_is_chosen` |
+| `Cargo.toml` `memmap2` | 1 | the crate (keep `skrifa` for MilkDrop and pixel text) |
+
+About 1,500 lines. `milkdrop/overlay.rs` and `ui/winamp/pixel_text.rs` read
+`fastframe_fonts::system::fallbacks()` instead; `Fallback` gains `scale` and
+`y_offset_factor`, which they may ignore. Code that looked up
+`system_fonts::FALLBACK_SCRIPTS` for a probe character uses the fallback's
+own face instead (the list is internal to the crate now).
+
+Behaviour that changes, from ZapFast's copy: a small Arabic face is enlarged
+up to 25% to match Inter's x-height, and Javanese, mathematical
+alphanumerics, enclosed alphanumerics and ♡ get fallbacks too.
+
+### RekordFlash
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme.rs` `install_fonts` | 38 | `FontSetup::default().weights(&[Weight::SemiBold]).monospace(Monospace::Inter).install(context)` |
+| `src/theme.rs` `SEMIBOLD` | 1 | `Weight::SemiBold.family()` in `semibold(size)` |
+| `assets/fonts/InterVariable.ttf`, `assets/fonts/README.md` | 2 files | the crate |
+
+About 40 lines. RekordFlash has no system fallbacks today: the default adds
+them, so track names in CJK, Arabic or Indic scripts stop drawing as boxes.
+Pass `.system_fallbacks(false)` to keep today's behaviour. The font data keys
+change from `rekordflash-inter` to `inter`.
+
+### TonePush
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme.rs` `fonts` (the loop and family set-up) | 45 | `FontSetup::default().weights(&[Weight::SemiBold]).monospace(Monospace::Font { name: "plex-mono".into(), data: Arc::new(FontData::from_static(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"))) }).install(ctx)` |
+| `assets/fonts/Inter-Regular.ttf`, `assets/fonts/Inter-SemiBold.ttf` | 2 files | `fastframe_fonts::INTER` at 400 and 600 |
+
+About 45 lines. The `SEMIBOLD` family name changes from `semibold` to
+`inter-semibold` (use `Weight::SemiBold.family()`). Inter's figures become
+tabular in labels too, and system fallbacks are added unless turned off.
+
+### Chat with Work
+
+It draws with the platform's UI font and bundles none; nothing to move.

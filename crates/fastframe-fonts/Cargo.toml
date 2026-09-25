@@ -1,0 +1,52 @@
+[package]
+name = "fastframe-fonts"
+description = "Bundled Inter at the apps' weights, with installed fonts for every other script, for egui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT AND OFL-1.1"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["egui", "fonts", "inter", "fallback", "cjk"]
+categories = ["gui"]
+
+[dependencies]
+egui.workspace = true
+# Reads installed fonts' names, character maps and metrics. The parser
+# epaint 0.36 already rasterizes with, at its version, so no second copy.
+skrifa = "0.44"
+# Maps font files while probing, so only their headers are read.
+memmap2 = "0.9"
+# The per-user font and home directories. Already in ZapFast and Spotifast.
+directories = "6"
+log = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+# The display language, which picks the regional cut of a pan-CJK font.
+# Already in both apps' trees at this version.
+windows-sys = { version = "0.60", features = ["Win32_Globalization"] }
+
+[dev-dependencies]
+# egui's own fonts, as the apps build with, so the fallback order is tested
+# against what they get.
+egui = { workspace = true, features = ["default_fonts"] }
+tempfile = "3"
+
+# The workspace lints, except that unsafe code is denied rather than
+# forbidden: memory-mapping font files and asking CoreText and Win32 need
+# it. Each use carries an `allow` with its reason and a SAFETY comment.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
