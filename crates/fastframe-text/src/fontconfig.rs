@@ -1,7 +1,7 @@
 //! Fontconfig's rendering settings for a family (Linux and other Unix).
 //!
 //! No fontconfig binding is common to the apps' dependency trees, and the C
-//! library would add a build dependency, so [`read`] runs
+//! library would add a build dependency, so `read` runs
 //! `fc-match -f '%{hintstyle}|%{hinting}|%{antialias}' <family>` and parses
 //! its one line with [`parse_fc_match`]. When `fc-match` is not installed, or
 //! fails, the reader has no answer. `rgba` is not asked for: egui renders
@@ -13,7 +13,7 @@
 
 use crate::{Hinting, TextRendering};
 
-/// The `fc-match` format [`read`] asks for and [`parse_fc_match`] expects.
+/// The `fc-match` format `read` asks for and [`parse_fc_match`] expects.
 pub const FORMAT: &str = "%{hintstyle}|%{hinting}|%{antialias}";
 
 /// Maps fontconfig's `hintstyle` (`0`..`3`, or the `hintslight` style

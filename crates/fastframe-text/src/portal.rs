@@ -9,7 +9,7 @@
 //!
 //! The portal says nothing about sub-pixel positioning; GTK 4 always uses
 //! it, so the default (on) stands. The parsers here are pure and available on
-//! every platform; only [`read`] talks to the bus, and only on Linux.
+//! every platform; only `read` talks to the bus, and only on Linux.
 
 use crate::{Hinting, TextRendering};
 
