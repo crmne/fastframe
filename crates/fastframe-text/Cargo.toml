@@ -22,7 +22,9 @@ watch = []
 egui.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus.workspace = true
+# One blocking portal call needs no tokio: zbus's own small executor does.
+# Apps that already enable zbus's tokio feature keep it (features unify).
+zbus = { version = "5.19", default-features = false, features = ["blocking-api", "async-io"] }
 
 [dev-dependencies]
 # The built-in fonts give `apply_to` something to reach in tests.
