@@ -36,6 +36,8 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Clippy (all features)
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Clippy (fastframe-log without the logger)
+        run: cargo clippy --locked -p fastframe-log --all-targets --no-default-features -- -D warnings
       - name: Rustdoc
         env:
           RUSTDOCFLAGS: -D warnings
