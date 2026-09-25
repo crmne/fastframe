@@ -1,0 +1,54 @@
+[package]
+name = "fastframe-tray"
+description = "A tray item with the app's own menu: StatusNotifier on Linux, the notification area on Windows, the menu bar on macOS"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["tray", "statusnotifier", "menu-bar", "egui", "desktop"]
+categories = ["gui"]
+
+[dependencies]
+# Why no tray host was found, and what AppKit refused.
+log.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# StatusNotifierItem over D-Bus, on its own thread. Already in both apps.
+ksni.workspace = true
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+# The notification-area and menu-bar item, and its menu (muda). The version
+# ZapFast and Spotifast build with.
+tray-icon.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# The tray thread's message loop.
+windows-sys.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# The Dock reopen handler and the headless AppKit pump.
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+
+# The workspace forbids unsafe code. This crate needs it for the Win32
+# message loop and the Objective-C runtime, so it carries the workspace's
+# lints with `unsafe_code` lowered to `deny`, allowed only in the modules that
+# talk to the OS (`windows.rs`, `macos.rs`), each block with a SAFETY note.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"

@@ -25,6 +25,14 @@ log = { version = "0.4", features = ["std"] }
 env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
 jiff = "0.2"
 
+# The tray (fastframe-tray): the versions ZapFast and Spotifast build with.
+ksni = { version = "0.3", features = ["blocking"] }
+tray-icon = { version = "0.24", default-features = false }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSGraphicsContext", "NSResponder", "NSRunningApplication"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDate", "NSGeometry", "NSObjCRuntime", "NSRunLoop", "NSString"] }
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
