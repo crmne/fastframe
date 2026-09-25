@@ -279,3 +279,47 @@ About 35 lines. Difference: Spotifast now also honours the older
 Spotifast keeps AppKit's own traffic-light positions (its top bar is laid
 out around them), so `align_traffic_lights` is not needed there.
 
+## fastframe-i18n
+
+The PO compiler, the lookup functions, language tag parsing, and the
+template update script. Each app keeps its `Locale` enum, its tags, native
+names, language picker, `settings.json` format, and its own phrase helpers
+(Spotifast's `song_count` and friends).
+
+### ZapFast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `build_support/catalogs.rs` | 45 | `fastframe_i18n::build::compile` (used by the next row) |
+| `build.rs`: the `catalogs` module, the two `rerun-if-changed` lines, and the loop over `assets/i18n` that writes `catalogs.rs` | 30 | `fastframe_i18n::build::compile_catalogs("assets/i18n");` at the top of `main` |
+| `Cargo.toml` `[build-dependencies]` `include-po`, `polib` | 4 | `fastframe-i18n = { ..., features = ["build"] }` as a build-dependency |
+| `Cargo.toml` `tr` | 1 | nothing: generated catalogs implement `fastframe_i18n::Translator` |
+| `src/i18n.rs`: `Locale::translator`, `gettext`, `pgettext`, `ngettext` | 45 | `impl fastframe_i18n::Locale for Locale { fn catalog(self) ... }` (the old `translator` body) and `pub use fastframe_i18n::{gettext, ngettext, pgettext};` |
+| `src/i18n.rs`: the subtag split in `Locale::from_system` | 6 | `fastframe_i18n::LanguageTag::parse`; match on `tag.language` |
+| `src/i18n.rs`: `sys_locale::get_locale()` in `detect` | 4 | `fastframe_i18n::detect(from_tag)` (keep the `cfg!(test)` guard in the app). This walks every preferred language, not only the first: a desktop listing Norwegian then German now gets German. |
+| `Cargo.toml` `sys-locale` | 1 | comes with the crate |
+| `.github/scripts/update-translations.sh` | 32 | a wrapper calling the crate's `scripts/update-translations.sh --package ZapFast --domain zapfast --bugs '<translation issue URL>' --keyword translated:2 --fuzzy-matching "$@"` (see the crate README for finding the script). Drop `--fuzzy-matching` to adopt Spotifast's choice. |
+
+About 130 lines. Call sites (`crate::i18n::gettext(app.locale, ..)`) stay as
+they are because `crate::i18n` re-exports the functions. The tests that
+check real catalogs (`german_catalog_translates_the_pilot` and the plural
+tests) stay in the app.
+
+### Spotifast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `build_support/catalogs.rs` | 45 | `fastframe_i18n::build::compile` |
+| `build.rs`: the `catalogs` module, its `rerun-if-changed` lines, the loop over `assets/i18n`, and the `tests/fixtures/translation.po` compile with `test_catalog.rs` | 45 | `fastframe_i18n::build::compile_catalogs("assets/i18n");` |
+| `tests/localization.rs`: `compiled_po_omits_unfinished_messages_and_uses_locale_plural_rules`, and `tests/fixtures/translation.po` | 30 + 32 | covered by `fastframe-i18n` (`build` tests and the `tests/i18n-app` fixture). Keep `catalogs_cover_the_template_and_preserve_named_placeholders` (it needs `polib` as a dev-dependency still). |
+| `Cargo.toml` `[build-dependencies]` `polib`, `include-po`; `tr` | 5 | the crate, as above |
+| `src/i18n.rs`: `Locale::translator`, `gettext`, `pgettext`, `ngettext` | 50 | `impl fastframe_i18n::Locale for Locale` and `pub use fastframe_i18n::{gettext, ngettext, pgettext};` |
+| `src/i18n.rs`: the tag splitting at the top of `from_language_tag`, and `from_preferred` | 20 | `LanguageTag::parse(tag)` then the existing `match` on `language`, `script`, `region`; `fastframe_i18n::first_supported(tags, ..)` |
+| `src/i18n.rs`: the `OnceLock` and `sys_locale::get_locales()` in `from_system` | 8 | `fastframe_i18n::detect(..)` (cached per process in the crate) |
+| `.github/scripts/update-translations.sh` | 33 | a wrapper: `--package Spotifast --domain spotifast --bugs '<translation issue URL>'` (no fuzzy matching is the default) |
+
+About 200 lines. `Locale::from_tag` keeps using `clap::ValueEnum`.
+
+### RekordFlash, TonePush, Chat with Work
+
+No translations yet. Start with the crate when they add one.

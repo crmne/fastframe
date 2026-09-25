@@ -1,0 +1,17 @@
+[package]
+name = "fastframe-i18n-app"
+description = "An app-shaped fixture that compiles catalogs with fastframe-i18n's build feature"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+fastframe-i18n = { path = "../../crates/fastframe-i18n" }
+
+[build-dependencies]
+fastframe-i18n = { path = "../../crates/fastframe-i18n", features = ["build"] }
+
+[lints]
+workspace = true

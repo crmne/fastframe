@@ -28,6 +28,7 @@ written for one of those apps first and moved here once another app needed it.
 | Crate | What it does |
 | --- | --- |
 | [`fastframe-text`](crates/fastframe-text) | Follows the desktop's font rendering settings (hinting, antialiasing, sub-pixel positioning, text weight) in egui, and snaps hand-placed text to whole pixels. |
+| [`fastframe-i18n`](crates/fastframe-i18n) | Bundled gettext catalogs: a build-time PO compiler for `build.rs`, `gettext`/`pgettext`/`ngettext` lookups, system language detection, and the template update script. |
 | [`fastframe-log`](crates/fastframe-log) | Logs to stderr and a per-run file for bug reports, rewrites private targets, and records panics without their payload. |
 | [`fastframe-tray`](crates/fastframe-tray) | A tray item with the app's own menu: StatusNotifier on Linux, the notification area on Windows, the menu bar on macOS. |
 | [`fastframe-macos`](crates/fastframe-macos) | Puts the macOS traffic lights on the centre line of an app's own title bar, and reads the system's title-bar double-click setting. |

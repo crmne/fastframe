@@ -1,0 +1,10 @@
+# A hyphenated tag becomes the module pt_br.
+msgid ""
+msgstr ""
+"Project-Id-Version: fastframe tests\n"
+"Language: pt_BR\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+msgid "Home"
+msgstr "Início"

@@ -1,0 +1,37 @@
+[package]
+name = "fastframe-i18n"
+description = "Bundled gettext catalogs for egui apps: a build-time PO compiler and runtime lookups"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["gettext", "i18n", "translation", "po", "egui"]
+categories = ["internationalization", "localization"]
+
+[features]
+default = []
+# The PO compiler, for an app's build.rs. Take it as a build-dependency
+# only, so polib and include-po never reach the app binary.
+build = ["dep:polib", "dep:include-po"]
+
+[dependencies]
+# The trait the generated catalogs implement. Already used by ZapFast and
+# Spotifast at this version, without default features.
+tr = { version = "0.1.11", default-features = false }
+# The operating system's preferred languages. Already in both apps.
+sys-locale = "0.3"
+# Parse PO files and drop unfinished entries before compiling them.
+polib = { version = "0.3", optional = true }
+# Compile a prepared PO file and its plural expression to Rust.
+include-po = { version = "0.2", optional = true }
+
+[dev-dependencies]
+# Scratch directories for compiling fixture catalogs.
+tempfile = "3"
+
+[lints]
+workspace = true

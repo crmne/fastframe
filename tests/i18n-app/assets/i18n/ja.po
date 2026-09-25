@@ -1,0 +1,11 @@
+# Japanese has one plural form and a constant plural rule.
+msgid ""
+msgstr ""
+"Project-Id-Version: fastframe tests\n"
+"Language: ja\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "{count} track"
+msgid_plural "{count} tracks"
+msgstr[0] "{count}曲"
