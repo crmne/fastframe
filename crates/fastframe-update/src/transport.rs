@@ -96,7 +96,11 @@ impl Source {
 
     /// A feed on this computer, for demos and end-to-end tests:
     /// `<base>/latest.json` answers both the release check and the release
-    /// metadata. Only plain HTTP on `127.0.0.1` or `[::1]` is accepted, and
+    /// metadata. On the pre-release channel
+    /// ([`Prereleases::WhenRunningPrerelease`](crate::Prereleases)) the
+    /// check reads `<base>/releases.json` instead, one page shaped like
+    /// GitHub's release list, and `latest.json` answers the metadata of the
+    /// release it picks. Only plain HTTP on `127.0.0.1` or `[::1]` is accepted, and
     /// downloads may not leave that origin. Signatures are still required
     /// when the configuration has a publisher key.
     pub fn local(base: &str) -> Result<Self> {
@@ -125,6 +129,24 @@ impl Source {
                 config.repository
             ),
             Origin::Local(base) => feed(base),
+        }
+    }
+
+    /// Page `page` (from 1) of the release list, or `None` past the last
+    /// page a source has. A local feed has one.
+    pub(crate) fn releases(
+        &self,
+        config: &UpdateConfig,
+        page: u32,
+        per_page: u32,
+    ) -> Option<String> {
+        match &self.0 {
+            Origin::GitHub => Some(format!(
+                "https://api.github.com/repos/{}/releases?per_page={per_page}&page={page}",
+                config.repository
+            )),
+            Origin::Local(base) => (page == 1)
+                .then(|| format!("{}/releases.json", base.as_str().trim_end_matches('/'))),
         }
     }
 
@@ -247,6 +269,10 @@ mod tests {
             "https://api.github.com/repos/crmne/zapfast/releases/latest"
         );
         assert_eq!(
+            Source::github().releases(&ZAPFAST, 2, 100).as_deref(),
+            Some("https://api.github.com/repos/crmne/zapfast/releases?per_page=100&page=2")
+        );
+        assert_eq!(
             Source::github().release(&ZAPFAST, "0.17.0"),
             "https://api.github.com/repos/crmne/zapfast/releases/tags/v0.17.0"
         );
@@ -267,6 +293,11 @@ mod tests {
         let local = Source::local("http://127.0.0.1:8123/").unwrap();
         assert!(!local.is_github());
         assert_eq!(local.latest(&ZAPFAST), "http://127.0.0.1:8123/latest.json");
+        assert_eq!(
+            local.releases(&ZAPFAST, 1, 100).as_deref(),
+            Some("http://127.0.0.1:8123/releases.json")
+        );
+        assert_eq!(local.releases(&ZAPFAST, 2, 100), None);
         assert!(local.allowed(&Url::parse("http://127.0.0.1:8123/package").unwrap()));
         assert!(!local.allowed(&Url::parse("http://127.0.0.1:9000/package").unwrap()));
         for address in [

@@ -29,12 +29,35 @@ struct Latest {
     html_url: String,
 }
 
+/// Releases per page of the release list, GitHub's maximum.
+const PER_PAGE: u32 = 100;
+/// Pages of the release list read at most: the newest 300 releases. GitHub
+/// lists the newest first, so a newer release is on the first page unless
+/// hundreds were published since.
+const MAX_PAGES: u32 = 3;
+/// The largest page of the release list accepted. A full page carries every
+/// release's notes and asset details and can exceed `MANIFEST_LIMIT`.
+const LIST_LIMIT: u64 = 16 * 1024 * 1024;
+
+#[derive(Deserialize)]
+struct Listed {
+    #[serde(default)]
+    tag_name: String,
+    #[serde(default)]
+    html_url: String,
+    #[serde(default)]
+    draft: bool,
+}
+
 /// The newest release, when it is newer than the running app.
 pub(crate) fn newer(
     config: &UpdateConfig,
     transport: &dyn Transport,
     source: &Source,
 ) -> Result<Option<Release>> {
+    if config.prerelease_channel() {
+        return newest_listed(config, transport, source);
+    }
     let mut body = Vec::new();
     fetch(transport, source, config, &source.latest(config), JSON)?
         .take(MANIFEST_LIMIT + 1)
@@ -54,6 +77,56 @@ pub(crate) fn newer(
     )
 }
 
+/// The pre-release channel: the highest published version above the
+/// running pre-release, stable or not, from the release list. Drafts and
+/// tags that are not `v` and a safe semantic version are skipped.
+fn newest_listed(
+    config: &UpdateConfig,
+    transport: &dyn Transport,
+    source: &Source,
+) -> Result<Option<Release>> {
+    let current = version::Semver::parse(config.current_version)
+        .context("The current version is not a semantic version")?;
+    let mut best: Option<(String, String)> = None;
+    for page in 1..=MAX_PAGES {
+        let Some(url) = source.releases(config, page, PER_PAGE) else {
+            break;
+        };
+        let mut body = Vec::new();
+        fetch(transport, source, config, &url, JSON)?
+            .take(LIST_LIMIT + 1)
+            .read_to_end(&mut body)
+            .context("Could not read the release list")?;
+        ensure!(
+            body.len() as u64 <= LIST_LIMIT,
+            "The release list is too large"
+        );
+        let listed: Vec<Listed> =
+            serde_json::from_slice(&body).context("Unexpected release list")?;
+        for release in &listed {
+            let Some(tag) = release.tag_name.strip_prefix('v') else {
+                continue;
+            };
+            let Some(candidate) = version::Semver::parse(tag) else {
+                continue;
+            };
+            let best_so_far = best
+                .as_ref()
+                .and_then(|(version, _)| version::Semver::parse(version));
+            if !release.draft
+                && candidate > current
+                && best_so_far.is_none_or(|best| candidate > best)
+            {
+                best = Some((tag.to_owned(), release.html_url.clone()));
+            }
+        }
+        if listed.len() < PER_PAGE as usize {
+            break;
+        }
+    }
+    Ok(best.map(|(version, url)| Release { version, url }))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct Metadata {
     tag_name: String,
@@ -71,8 +144,10 @@ pub(crate) struct Asset {
     pub(crate) size: u64,
 }
 
-/// The release's metadata, checked to be the published stable release of
-/// `version`.
+/// The release's metadata, checked to be the published release of
+/// `version`: stable, unless this build is on the pre-release channel, where
+/// GitHub's pre-release flag is allowed (the version itself was already
+/// checked).
 pub(crate) fn metadata(
     config: &UpdateConfig,
     transport: &dyn Transport,
@@ -96,7 +171,9 @@ pub(crate) fn metadata(
     let metadata: Metadata =
         serde_json::from_slice(&body).context("Unexpected release metadata")?;
     ensure!(
-        !metadata.draft && !metadata.prerelease && metadata.tag_name == format!("v{version}"),
+        !metadata.draft
+            && (!metadata.prerelease || config.prerelease_channel())
+            && metadata.tag_name == format!("v{version}"),
         "The release changed. Check for updates again."
     );
     Ok(metadata)
@@ -227,6 +304,195 @@ mod tests {
             newer(&older_app, &transport, &Source::github())
                 .unwrap()
                 .is_some()
+        );
+    }
+
+    const LIST: &str = "https://api.github.com/repos/crmne/zapfast/releases?per_page=100&page=";
+
+    fn alpha(current: &'static str) -> UpdateConfig {
+        UpdateConfig {
+            current_version: current,
+            prereleases: crate::Prereleases::WhenRunningPrerelease,
+            ..ZAPFAST
+        }
+    }
+
+    fn entry(tag: &str, draft: bool, prerelease: bool) -> serde_json::Value {
+        serde_json::json!({
+            "tag_name": tag,
+            "html_url": format!("https://github.com/crmne/zapfast/releases/tag/{tag}"),
+            "draft": draft,
+            "prerelease": prerelease,
+            "body": "notes",
+            "assets": [],
+        })
+    }
+
+    fn list(entries: &[serde_json::Value]) -> Vec<u8> {
+        serde_json::Value::Array(entries.to_vec())
+            .to_string()
+            .into_bytes()
+    }
+
+    fn offered(config: &UpdateConfig, transport: &FakeTransport) -> Option<String> {
+        newer(config, transport, &Source::github())
+            .unwrap()
+            .map(|release| release.version)
+    }
+
+    #[test]
+    fn a_stable_build_never_reads_the_release_list() {
+        let transport = FakeTransport::default()
+            .serve(LATEST, listing("v0.3.0").as_bytes())
+            .serve(
+                &format!("{LIST}1"),
+                &list(&[entry("v0.4.0-alpha.1", false, true)]),
+            );
+        for config in [
+            alpha("0.2.0"),
+            UpdateConfig {
+                current_version: "0.2.0",
+                ..ZAPFAST
+            },
+        ] {
+            assert_eq!(offered(&config, &transport).as_deref(), Some("0.3.0"));
+        }
+        assert!(
+            transport
+                .requested()
+                .iter()
+                .all(|url| url.as_str() == LATEST)
+        );
+        // Without the channel a pre-release build keeps today's rules too.
+        let candidate = UpdateConfig {
+            current_version: "0.3.0-alpha.4",
+            ..ZAPFAST
+        };
+        let transport = FakeTransport::default().serve(LATEST, listing("v0.3.0").as_bytes());
+        assert_eq!(offered(&candidate, &transport).as_deref(), Some("0.3.0"));
+    }
+
+    #[test]
+    fn a_prerelease_build_is_offered_the_highest_newer_release() {
+        let page = list(&[
+            entry("v0.3.0-alpha.9", false, true),
+            entry("v0.3.0-alpha.10", false, true),
+            entry("v0.3.0-alpha.11", true, true),
+            entry("v0.2.0", false, false),
+            entry("nightly", false, true),
+            entry("v0.9.0-alpha/../../x", false, true),
+            entry("v0.9.0+build", false, true),
+            entry("0.9.0", false, true),
+            serde_json::json!({"html_url": "https://github.com/crmne/zapfast"}),
+        ]);
+        let transport = FakeTransport::default().serve(&format!("{LIST}1"), &page);
+        assert_eq!(
+            newer(&alpha("0.3.0-alpha.4"), &transport, &Source::github()).unwrap(),
+            Some(Release {
+                version: "0.3.0-alpha.10".into(),
+                url: "https://github.com/crmne/zapfast/releases/tag/v0.3.0-alpha.10".into(),
+            }),
+            "alpha.10 beats alpha.9; the draft alpha.11 and garbage tags are skipped"
+        );
+        assert_eq!(transport.requested(), [format!("{LIST}1")]);
+        assert_eq!(transport.accepts(), ["application/vnd.github+json"]);
+        assert_eq!(offered(&alpha("0.3.0-alpha.10"), &transport), None);
+
+        // A stable release beats the pre-releases before it, whatever its
+        // GitHub flag says.
+        for flagged in [false, true] {
+            let page = list(&[
+                entry("v0.3.0-alpha.10", false, true),
+                entry("v0.3.0", false, flagged),
+                entry("v0.3.0-rc.1", false, true),
+            ]);
+            let transport = FakeTransport::default().serve(&format!("{LIST}1"), &page);
+            assert_eq!(
+                offered(&alpha("0.3.0-alpha.4"), &transport).as_deref(),
+                Some("0.3.0")
+            );
+        }
+        // A newer line's pre-release beats an older stable release.
+        let page = list(&[
+            entry("v0.3.0", false, false),
+            entry("v0.4.0-alpha.1", false, true),
+        ]);
+        let transport = FakeTransport::default().serve(&format!("{LIST}1"), &page);
+        assert_eq!(
+            offered(&alpha("0.3.0-alpha.4"), &transport).as_deref(),
+            Some("0.4.0-alpha.1")
+        );
+    }
+
+    #[test]
+    fn the_release_list_is_read_page_by_page_up_to_a_bound() {
+        let full = |tag: &str| {
+            let mut entries = vec![entry("v0.1.0", false, false); 99];
+            entries.push(entry(tag, false, true));
+            list(&entries)
+        };
+        let transport = FakeTransport::default()
+            .serve(&format!("{LIST}1"), &full("v0.3.0-alpha.5"))
+            .serve(
+                &format!("{LIST}2"),
+                &list(&[entry("v0.3.0-alpha.6", false, true)]),
+            )
+            .serve(&format!("{LIST}3"), &full("v0.3.0-alpha.7"));
+        assert_eq!(
+            offered(&alpha("0.3.0-alpha.4"), &transport).as_deref(),
+            Some("0.3.0-alpha.6"),
+            "a short page is the last one"
+        );
+        assert_eq!(transport.requested().len(), 2);
+
+        let transport = FakeTransport::default()
+            .serve(&format!("{LIST}1"), &full("v0.3.0-alpha.5"))
+            .serve(&format!("{LIST}2"), &full("v0.3.0-alpha.6"))
+            .serve(&format!("{LIST}3"), &full("v0.3.0-alpha.7"))
+            .serve(&format!("{LIST}4"), &full("v0.3.0-alpha.8"));
+        assert_eq!(
+            offered(&alpha("0.3.0-alpha.4"), &transport).as_deref(),
+            Some("0.3.0-alpha.7")
+        );
+        assert_eq!(transport.requested().len(), 3, "at most three pages");
+    }
+
+    #[test]
+    fn a_broken_release_list_is_an_error_not_an_update() {
+        for body in [&b"not json"[..], b"{}", b"[1]"] {
+            let transport = FakeTransport::default().serve(&format!("{LIST}1"), body);
+            assert!(
+                newer(&alpha("0.3.0-alpha.4"), &transport, &Source::github()).is_err(),
+                "{}",
+                String::from_utf8_lossy(body)
+            );
+        }
+        // No list at all, as when the repository is private.
+        assert!(
+            newer(
+                &alpha("0.3.0-alpha.4"),
+                &FakeTransport::default(),
+                &Source::github()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_local_feed_serves_one_page_of_releases() {
+        let transport = FakeTransport::default().serve(
+            "http://127.0.0.1:9/releases.json",
+            &list(&[entry("v0.3.0-alpha.5", false, true)]),
+        );
+        let release = newer(
+            &alpha("0.3.0-alpha.4"),
+            &transport,
+            &Source::local("http://127.0.0.1:9").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            release.map(|release| release.version).as_deref(),
+            Some("0.3.0-alpha.5")
         );
     }
 

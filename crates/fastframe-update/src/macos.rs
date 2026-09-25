@@ -142,7 +142,7 @@ fn validate(
         config.app_name
     );
     ensure!(
-        host.plist(bundle, "CFBundleShortVersionString")? == version,
+        short_version_matches(&host.plist(bundle, "CFBundleShortVersionString")?, version),
         "The app bundle has the wrong version"
     );
     let incoming = host.signing_team(bundle)?;
@@ -158,6 +158,17 @@ fn validate(
         );
     }
     crate::download::check_version(config, host, &executable_path(host, bundle)?, version)
+}
+
+/// Whether a bundle's `CFBundleShortVersionString` names `version`. macOS
+/// expects three numbers there, so a pre-release (`0.3.0-alpha.4`) may carry
+/// just its `0.3.0`; the `--version` probe that follows still checks the
+/// exact version.
+fn short_version_matches(short: &str, version: &str) -> bool {
+    short == version
+        || version
+            .split_once('-')
+            .is_some_and(|(core, _)| crate::version::is_plain_release(core) && short == core)
 }
 
 /// A mounted disk image, detached when dropped.
@@ -322,6 +333,17 @@ mod tests {
         },
         ..UpdateConfig::new("crmne/spotifast", "Spotifast", "spotifast", "0.10.1")
     };
+
+    #[test]
+    fn a_prerelease_bundle_may_carry_only_its_numeric_short_version() {
+        assert!(short_version_matches("0.17.0", "0.17.0"));
+        assert!(short_version_matches("0.3.0", "0.3.0-alpha.4"));
+        assert!(short_version_matches("0.3.0-alpha.4", "0.3.0-alpha.4"));
+        assert!(!short_version_matches("0.3.1", "0.3.0-alpha.4"));
+        assert!(!short_version_matches("0.16.3", "0.17.0"));
+        assert!(!short_version_matches("0.17", "0.17.0"));
+        assert!(!short_version_matches("", "-alpha"));
+    }
 
     #[test]
     fn only_the_expected_bundle_layout_is_accepted() {

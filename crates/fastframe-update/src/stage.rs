@@ -323,7 +323,7 @@ impl Staged {
             "Invalid installation directory"
         );
         ensure!(
-            crate::version::is_plain_release(&self.version),
+            config.accepts_version(&self.version),
             "Invalid update version"
         );
         if self.installation.kind == Kind::MacBundle {

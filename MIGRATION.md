@@ -32,7 +32,7 @@ section below has a subsection per app with the details.
 | --- | --- | --- |
 | ZapFast | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos), [update](#fastframe-update) | |
 | Spotifast | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos) (the double-click setting only), [update](#fastframe-update) | |
-| RekordFlash | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [macos](#fastframe-macos) (done in b5985bb); [log](#fastframe-log) (only the facade-free redaction and panic line, with `default-features = false`) later | [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations; [shell](#fastframe-shell) (no tray or background mode); its `tracing` logger stays |
+| RekordFlash | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [macos](#fastframe-macos) (done in b5985bb); [update](#fastframe-update) (with the pre-release channel); [log](#fastframe-log) (only the facade-free redaction and panic line, with `default-features = false`) later | [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations; [shell](#fastframe-shell) (no tray or background mode); its `tracing` logger stays |
 | TonePush | [text](#fastframe-text), [fonts](#fastframe-fonts), [update](#fastframe-update) (with `portable_executable`) | [icons](#fastframe-icons) later (its own macros and layout); [log](#fastframe-log) (it uses `eprintln!`); [shell](#fastframe-shell); [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
 | Chat with Work Local Agent | [text](#fastframe-text) | [fonts](#fastframe-fonts) (it draws with the platform's UI font); [tray](#fastframe-tray) and [shell](#fastframe-shell) (one winit loop with `pump_app_events`, tray-icon 0.25); [log](#fastframe-log) until it wants a log file; [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
 
@@ -889,6 +889,39 @@ marker updates itself; the `tonepush` tool next to it never matches. Inside
 the macOS bundle the editor's executable is `tonepush`, so the bundle needs
 no executable names. ZapFast and Spotifast leave `portable_executable` at
 `None` and nothing changes for them.
+
+### RekordFlash
+
+RekordFlash has no updater yet, and every release so far is a GitHub
+pre-release (`v0.5.0-alpha.2`), so `releases/latest` answers 404. It turns on
+the pre-release channel:
+
+```rust
+pub const CONFIG: UpdateConfig = UpdateConfig {
+    prereleases: Prereleases::WhenRunningPrerelease,
+    publisher_key: Some(include_str!("../assets/update-public-key.hex")),
+    ..UpdateConfig::new("crmne/rekordflash", "RekordFlash", "rekordflash", env!("CARGO_PKG_VERSION"))
+};
+```
+
+An alpha is offered the highest newer release, alpha or stable; a stable
+build never sees an alpha. Before it ships:
+
+- An expired alpha must still reach the update check, the download, the
+  handoff and `Receipt::acknowledge`. Put the expiry gate after `intercept`
+  and keep the update banner usable when the alpha has expired, or an
+  expired copy can only be replaced by hand.
+- `--version` prints `rekordflash 0.5.0-alpha.2`, the full version. The
+  macOS bundle's `CFBundleShortVersionString` may stay the numeric
+  `0.5.0` that `packaging/macos/bundle.sh` writes.
+- The Linux and Windows archives need `rekordflash-portable.txt`
+  (`rekordflash-portable-v1`), or those copies report `NotPortable`.
+- A portable update replaces only the executable. The `models` folder,
+  bundled libraries and `alpha-release.json` in the archive are not
+  updated; a release that changes them needs the app to cope with the old
+  ones, or a manual download.
+- Once a stable release exists, publish it as a normal (latest) release:
+  a stable build reads only `releases/latest`.
 
 ### Deleted lines, both apps
 

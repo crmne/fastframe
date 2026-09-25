@@ -78,7 +78,8 @@ would report fastframe's version, so the app passes its own.
 
 1. `check` reads `https://api.github.com/repos/<repository>/releases/latest`
    and compares its tag with `current_version`. Pre-releases are never
-   offered; a release candidate hears about its final release.
+   offered; a release candidate hears about its final release. On the
+   pre-release channel (below) it reads the release list instead.
 2. `installation` refuses copies a package manager owns: Flatpak, Snap,
    apt, dnf, pacman (including the AUR), Nix, Homebrew (formula paths and
    casks, which link to the bundle from `Caskroom`) and `cargo install`, and
@@ -100,6 +101,47 @@ would report fastframe's version, so the app passes its own.
    with `--update-receipt`. The new app acknowledges by writing `started`.
    A failure at any step, or no `started` within a minute, restores
    `previous` and restarts the old app with `--update-error`.
+
+## Pre-releases
+
+An app whose releases are all pre-releases (RekordFlash's alphas, for which
+`releases/latest` answers 404) opts in:
+
+```rust
+use fastframe_update::{Prereleases, UpdateConfig};
+
+pub const UPDATES: UpdateConfig = UpdateConfig {
+    prereleases: Prereleases::WhenRunningPrerelease,
+    ..UpdateConfig::new("crmne/rekordflash", "RekordFlash", "rekordflash", env!("CARGO_PKG_VERSION"))
+};
+```
+
+- The default, `Prereleases::Never`, is the behaviour described above.
+- With `WhenRunningPrerelease`, a build whose own version is a pre-release
+  (`0.3.0-alpha.4`) reads `/repos/<repository>/releases` (100 per page, at
+  most three pages), skips drafts and any tag that is not `v` followed by a
+  valid version, and offers the highest version above its own by semver
+  precedence: a newer pre-release (`alpha.10` after `alpha.9`) or a stable
+  release (`0.3.0` after `0.3.0-rc.1`), whatever GitHub's pre-release flag
+  says. A stable build with the same setting still reads only
+  `releases/latest` and is never offered a pre-release.
+- Versions on the channel must be `major.minor.patch[-identifiers]`, with
+  numbers without leading zeros and dot-separated identifiers of ASCII
+  letters, digits and hyphens, at most 64 bytes. No `v`, no `+build`
+  metadata, no empty identifiers. That keeps every version safe in asset
+  names, staging files and URLs. Anything else is skipped when listing and
+  refused by `download` before any request.
+- Everything downstream takes the full version: assets are
+  `<slug>-v0.3.0-alpha.10-<target>…`, `--version` must print
+  `<slug> 0.3.0-alpha.10`, and the receipt carries that version. The helper
+  and the receipt accept a pre-release version only when their own build is
+  on the channel. A macOS bundle may carry just `0.3.0` as its
+  `CFBundleShortVersionString`, since macOS expects three numbers there; the
+  `--version` probe still checks the exact version.
+- Nothing about the file formats changes: `handoff.json`, the markers and the
+  staging names are the same as for stable releases.
+- A local feed (`Source::local`) serves the list as `<base>/releases.json`
+  (one page) and the chosen release's metadata as `<base>/latest.json`.
 
 ## The contract between versions
 

@@ -13,7 +13,7 @@ use crate::host::Host;
 use crate::release::{self, MANIFEST_LIMIT, Release};
 use crate::stage::{self, Prepared, Staged};
 use crate::transport::{Source, Transport, fetch};
-use crate::{UpdateConfig, hex, signing, version};
+use crate::{UpdateConfig, hex, signing};
 
 const BINARY: &str = "application/octet-stream";
 
@@ -45,7 +45,7 @@ pub(crate) fn download(
         arch,
     } = *inputs;
     ensure!(
-        version::is_plain_release(&release.version),
+        config.accepts_version(&release.version),
         "Invalid release version"
     );
     let keys = config
@@ -243,6 +243,8 @@ mod tests {
         published_size: Option<usize>,
         kind: Kind,
         platform: Platform,
+        version: &'static str,
+        prerelease: bool,
     }
 
     impl Default for Fixture {
@@ -255,19 +257,21 @@ mod tests {
                 published_size: None,
                 kind: Kind::Portable,
                 platform: Platform::Linux,
+                version: VERSION,
+                prerelease: false,
             }
         }
     }
 
-    fn asset_url(name: &str) -> String {
-        format!("https://github.com/crmne/zapfast/releases/download/v{VERSION}/{name}")
+    fn asset_url(version: &str, name: &str) -> String {
+        format!("https://github.com/crmne/zapfast/releases/download/v{version}/{name}")
     }
 
     impl Fixture {
         fn name(&self) -> String {
             let target = release::target(self.platform, "x86_64").unwrap();
             release::asset_name(
-                &release::stem(&ZAPFAST, VERSION, target),
+                &release::stem(&ZAPFAST, self.version, target),
                 self.kind,
                 self.platform,
             )
@@ -275,6 +279,7 @@ mod tests {
 
         fn transport(&self) -> FakeTransport {
             let name = self.name();
+            let asset_url = |name: &str| asset_url(self.version, name);
             let digest = self
                 .listed_digest
                 .clone()
@@ -295,10 +300,13 @@ mod tests {
             if self.signature {
                 assets.push(serde_json::json!({"name": "checksums.txt.sig", "size": 64, "browser_download_url": asset_url("checksums.txt.sig")}));
             }
-            let metadata = serde_json::json!({"tag_name": format!("v{VERSION}"), "draft": false, "prerelease": false, "assets": assets});
+            let metadata = serde_json::json!({"tag_name": format!("v{}", self.version), "draft": false, "prerelease": self.prerelease, "assets": assets});
             FakeTransport::default()
                 .serve(
-                    &format!("https://api.github.com/repos/crmne/zapfast/releases/tags/v{VERSION}"),
+                    &format!(
+                        "https://api.github.com/repos/crmne/zapfast/releases/tags/v{}",
+                        self.version
+                    ),
                     metadata.to_string().as_bytes(),
                 )
                 .redirect(
@@ -340,7 +348,7 @@ mod tests {
             },
             installation,
             &Release {
-                version: VERSION.into(),
+                version: fixture.version.into(),
                 url: String::new(),
             },
             |_, _| {},
@@ -686,8 +694,8 @@ mod tests {
         let name = fixture.name();
         let metadata = serde_json::json!({"tag_name": "v0.17.0", "assets": [
             {"name": name, "size": 18, "browser_download_url": "https://github.com/crmne/other/releases/download/v0.17.0/x"},
-            {"name": "checksums.txt", "size": 10, "browser_download_url": asset_url("checksums.txt")},
-            {"name": "checksums.txt.sig", "size": 64, "browser_download_url": asset_url("checksums.txt.sig")},
+            {"name": "checksums.txt", "size": 10, "browser_download_url": asset_url(VERSION, "checksums.txt")},
+            {"name": "checksums.txt.sig", "size": 64, "browser_download_url": asset_url(VERSION, "checksums.txt.sig")},
         ]});
         let transport = FakeTransport::default().serve(
             "https://api.github.com/repos/crmne/zapfast/releases/tags/v0.17.0",
@@ -773,6 +781,180 @@ mod tests {
             );
         }
         assert!(transport.requested().is_empty());
+    }
+
+    fn alpha_config(current: &'static str) -> UpdateConfig {
+        UpdateConfig {
+            current_version: current,
+            prereleases: crate::Prereleases::WhenRunningPrerelease,
+            ..config()
+        }
+    }
+
+    #[test]
+    fn a_prerelease_downloads_verifies_and_stages_on_the_channel() {
+        let directory = tempfile::tempdir().unwrap();
+        let host = FakeHost::default()
+            .with_archive_entry(
+                "zapfast-v0.3.0-alpha.10-x86_64-unknown-linux-gnu/zapfast",
+                b"new alpha",
+            )
+            .with_version_output("zapfast 0.3.0-alpha.10");
+        let fixture = Fixture {
+            version: "0.3.0-alpha.10",
+            prerelease: true,
+            ..Fixture::default()
+        };
+        assert_eq!(
+            fixture.name(),
+            "zapfast-v0.3.0-alpha.10-x86_64-unknown-linux-gnu.tar.gz"
+        );
+        let prepared = run(
+            &fixture,
+            &alpha_config("0.3.0-alpha.9"),
+            &host,
+            portable(directory.path()),
+        )
+        .unwrap();
+        let staged = &prepared.staged;
+        assert_eq!(prepared.version(), "0.3.0-alpha.10");
+        assert_eq!(staged.payload, staged.directory.join("zapfast"));
+        assert_eq!(fs::read(&staged.payload).unwrap(), b"new alpha");
+        assert_eq!(host.version_probes(), std::slice::from_ref(&staged.payload));
+        staged
+            .check_layout(&alpha_config("0.3.0-alpha.9"), &staged.file("handoff.json"))
+            .expect("the helper of the alpha that downloaded it accepts the job");
+        staged
+            .check_layout(
+                &alpha_config("0.3.0-alpha.10"),
+                &staged.file("handoff.json"),
+            )
+            .expect("the relaunched alpha accepts its receipt");
+
+        // The probe must name the exact pre-release.
+        let other = tempfile::tempdir().unwrap();
+        let wrong = FakeHost::default()
+            .with_archive_entry(
+                "zapfast-v0.3.0-alpha.10-x86_64-unknown-linux-gnu/zapfast",
+                b"new alpha",
+            )
+            .with_version_output("zapfast 0.3.0");
+        let error = run(
+            &fixture,
+            &alpha_config("0.3.0-alpha.9"),
+            &wrong,
+            portable(other.path()),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("wrong version"), "{error:#}");
+        untouched(other.path());
+    }
+
+    #[test]
+    fn a_stable_build_never_downloads_a_prerelease() {
+        let fixture = Fixture {
+            version: "0.3.0-alpha.10",
+            prerelease: true,
+            ..Fixture::default()
+        };
+        for config in [
+            // Asked for pre-releases, but runs a stable version.
+            alpha_config("0.2.0"),
+            // Runs a pre-release without asking.
+            UpdateConfig {
+                current_version: "0.3.0-alpha.9",
+                ..config()
+            },
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let transport = fixture.transport();
+            let error = download(
+                &Inputs {
+                    config: &config,
+                    transport: &transport,
+                    source: &Source::github(),
+                    host: &FakeHost::default(),
+                    platform: Platform::Linux,
+                    arch: "x86_64",
+                },
+                portable(directory.path()),
+                &Release {
+                    version: fixture.version.into(),
+                    url: String::new(),
+                },
+                |_, _| {},
+            )
+            .unwrap_err();
+            assert!(
+                error.to_string().contains("Invalid release version"),
+                "{error:#}"
+            );
+            assert!(transport.requested().is_empty());
+            untouched(directory.path());
+        }
+    }
+
+    #[test]
+    fn unsafe_prerelease_versions_never_reach_a_request_on_the_channel() {
+        let transport = FakeTransport::default();
+        let directory = tempfile::tempdir().unwrap();
+        for version in [
+            "0.3.0-alpha/../../x",
+            "0.3.0-alpha\\x",
+            "0.3.0-alpha..1",
+            "0.3.0-alpha.1+build",
+            "0.3.0-alpha 1",
+            "../0.3.0",
+        ] {
+            assert!(
+                download(
+                    &Inputs {
+                        config: &alpha_config("0.3.0-alpha.1"),
+                        transport: &transport,
+                        source: &Source::github(),
+                        host: &FakeHost::default(),
+                        platform: Platform::Linux,
+                        arch: "x86_64",
+                    },
+                    portable(directory.path()),
+                    &Release {
+                        version: version.into(),
+                        url: String::new(),
+                    },
+                    |_, _| {},
+                )
+                .is_err(),
+                "{version}"
+            );
+        }
+        assert!(transport.requested().is_empty());
+    }
+
+    #[test]
+    fn a_stable_release_flagged_prerelease_is_accepted_only_on_the_channel() {
+        let fixture = Fixture {
+            prerelease: true,
+            ..Fixture::default()
+        };
+        let host = || {
+            FakeHost::default()
+                .with_archive_entry(
+                    "zapfast-v0.17.0-x86_64-unknown-linux-gnu/zapfast",
+                    b"new executable",
+                )
+                .with_version_output("zapfast 0.17.0")
+        };
+        let directory = tempfile::tempdir().unwrap();
+        run(
+            &fixture,
+            &alpha_config("0.17.0-alpha.3"),
+            &host(),
+            portable(directory.path()),
+        )
+        .unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let error = run(&fixture, &config(), &host(), portable(other.path())).unwrap_err();
+        assert!(error.to_string().contains("changed"), "{error:#}");
     }
 
     #[test]

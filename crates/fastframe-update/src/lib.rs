@@ -166,6 +166,26 @@ pub struct UpdateConfig {
     /// with the next key once installs trust it. A signature valid under any
     /// of these or `publisher_key` is accepted. Needs `publisher_key`.
     pub additional_publisher_keys: &'static [&'static str],
+    /// Whether pre-releases (`0.3.0-alpha.4`) are offered. The default,
+    /// [`Prereleases::Never`], reads only GitHub's latest release, which is
+    /// never a pre-release.
+    pub prereleases: Prereleases,
+}
+
+/// Which releases an app running a pre-release may move to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Prereleases {
+    /// Only stable releases, from GitHub's latest release. A release
+    /// candidate still hears about its final release.
+    #[default]
+    Never,
+    /// When [`UpdateConfig::current_version`] is itself a pre-release,
+    /// every published, non-draft release is considered and the highest
+    /// version above the running one by semver precedence is offered,
+    /// whether a newer pre-release (`alpha.10` after `alpha.9`) or a stable
+    /// release. A stable build behaves as with [`Prereleases::Never`] and is
+    /// never offered a pre-release.
+    WhenRunningPrerelease,
 }
 
 impl UpdateConfig {
@@ -192,6 +212,7 @@ impl UpdateConfig {
             },
             publisher_key: None,
             additional_publisher_keys: &[],
+            prereleases: Prereleases::Never,
         }
     }
 
@@ -230,6 +251,12 @@ impl UpdateConfig {
             version::parse(self.current_version).is_some(),
             "The current version must be major.minor.patch"
         );
+        ensure!(
+            self.prereleases == Prereleases::Never
+                || version::Semver::parse(self.current_version).is_some(),
+            "With pre-releases on, the current version must be \
+             major.minor.patch[-pre.release] in semver's characters"
+        );
         if let Some(key) = self.publisher_key {
             signing::decode_key(key)?;
         }
@@ -246,6 +273,22 @@ impl UpdateConfig {
     /// The slug, then each legacy name.
     fn names(&self) -> impl Iterator<Item = &'static str> + Clone {
         std::iter::once(self.slug).chain(self.legacy_names.iter().copied())
+    }
+
+    /// Whether this build takes part in the pre-release channel: it asked
+    /// for it and is running a pre-release itself.
+    fn prerelease_channel(&self) -> bool {
+        self.prereleases == Prereleases::WhenRunningPrerelease
+            && version::Semver::parse(self.current_version)
+                .is_some_and(|version| version.is_prerelease())
+    }
+
+    /// Whether `version` may be downloaded, staged and installed: a plain
+    /// stable version, or on the pre-release channel any safe semantic
+    /// version (see `version::Semver::parse`).
+    fn accepts_version(&self, version: &str) -> bool {
+        version::is_plain_release(version)
+            || (self.prerelease_channel() && version::Semver::parse(version).is_some())
     }
 
     fn user_agent(&self) -> String {
@@ -358,6 +401,44 @@ mod tests {
         ] {
             assert!(broken.validate().is_err(), "{broken:?}");
         }
+    }
+
+    #[test]
+    fn the_prerelease_channel_needs_a_semantic_version() {
+        let alpha = UpdateConfig {
+            current_version: "0.3.0-alpha.4",
+            prereleases: Prereleases::WhenRunningPrerelease,
+            ..ZAPFAST
+        };
+        alpha.validate().unwrap();
+        assert!(alpha.prerelease_channel());
+        assert!(alpha.accepts_version("0.3.0-alpha.5"));
+        assert!(alpha.accepts_version("0.3.0"));
+        assert!(!alpha.accepts_version("0.3.0-alpha/../x"));
+        // Asked for, but running a stable build: stable versions only.
+        let stable = UpdateConfig {
+            current_version: "0.3.0",
+            ..alpha
+        };
+        stable.validate().unwrap();
+        assert!(!stable.prerelease_channel());
+        assert!(!stable.accepts_version("0.4.0-alpha.1"));
+        // Not asked for: a release candidate keeps today's rules.
+        let candidate = UpdateConfig {
+            current_version: "0.3.0-rc1",
+            ..ZAPFAST
+        };
+        candidate.validate().unwrap();
+        assert!(!candidate.prerelease_channel());
+        assert!(!candidate.accepts_version("0.3.0-rc2"));
+        assert!(
+            UpdateConfig {
+                current_version: "0.3.0-alpha_4",
+                ..alpha
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]
