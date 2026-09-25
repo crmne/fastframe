@@ -1,0 +1,6 @@
+# Tests compare checked-out files byte for byte (include_str! fixtures, the
+# Omarchy hook, signed checksums), so text keeps LF on every platform, as
+# committed, and binary files are never converted.
+* text=auto eol=lf
+*.sig binary
+*.ttf binary
