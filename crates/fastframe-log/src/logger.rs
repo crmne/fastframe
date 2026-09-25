@@ -110,14 +110,21 @@ impl Logging {
         if let Some((path, error)) = file_error {
             log::warn!("not keeping a log file at {}: {error}", path.display());
         }
-        log::info!(
+        // Under the app's own target, so the app's filter (`warn,zapfast=info`)
+        // keeps it; this crate's target is filtered out by default.
+        log::info!(target: self.app, "{}", self.start_line());
+        Ok(())
+    }
+
+    /// The line `init` logs once the logger is up.
+    fn start_line(&self) -> String {
+        format!(
             "Starting {} {} on {} ({})",
             self.app,
             self.version,
             std::env::consts::OS,
             std::env::consts::ARCH
-        );
-        Ok(())
+        )
     }
 
     /// The logger, reading `rust_log` in place of the environment, and the
@@ -202,6 +209,25 @@ mod tests {
                 .build(),
             redact,
         )
+    }
+
+    /// Apps filter to `warn,<app>=info`: the start line is logged under the
+    /// app's name so that filter keeps it in the file.
+    #[test]
+    fn the_start_line_is_kept_by_the_apps_default_filter() {
+        use log::Log as _;
+        let logging = Logging::new("zapfast", "0.16.3").filter("warn,zapfast=info");
+        let (logger, _) = logging.build(None);
+        let start = log::Metadata::builder()
+            .level(log::Level::Info)
+            .target(logging.app)
+            .build();
+        assert!(logger.enabled(&start));
+        assert!(
+            logging
+                .start_line()
+                .starts_with("Starting zapfast 0.16.3 on ")
+        );
     }
 
     #[test]

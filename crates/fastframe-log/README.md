@@ -29,7 +29,8 @@ fastframe_log::Logging::new("zapfast", env!("CARGO_PKG_VERSION"))
 ```
 
 `init` logs `Starting zapfast 0.16.3 on linux (x86_64)` once the logger is
-up, and warns (on stderr) if the log file could not be created. The app's
+up, at info under the app's name as its target, so a filter such as
+`warn,zapfast=info` keeps it; it also warns (on stderr) if the log file could not be created. The app's
 name and version are passed in; this crate's version is not the app's.
 
 Lines look like `[2026-09-25T10:00:00Z WARN zapfast::backend] message`.
