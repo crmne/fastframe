@@ -394,7 +394,11 @@ placeholder if Spotifast ever turns on `reduce_texture_memory`.
 | `src/theme.rs` `impl Icon { uri }`, `register_icons` | 13 | generated, `fastframe_icons::install::<Icon>(context)` |
 
 About 80 lines. Its SVGs are minified `lucide-static` files that differ
-from the shared ones byte for byte, so it keeps all of them.
+from the shared ones byte for byte, so it keeps all of them. Its draw-time
+helpers keep their shape: `icon_image(icon, color, size)` becomes
+`icon.image(color, size)` (the same `egui::Image`, tinted and sized), and
+`icon(ui, ..)`, `icon_button` and `transport_button` keep calling
+`icon.uri()`.
 
 ### TonePush
 
@@ -589,3 +593,31 @@ follows the platform's light or dark setting; none reads palette files.
 They can adopt the crate by implementing `Palette` when they add custom
 themes or Omarchy support.
 
+## Not moved yet: widgets
+
+Widgets stay in the apps for now. These exist in two or more apps and are
+the candidates for a later `fastframe-widgets`, once the look crates above
+have settled:
+
+| Widget | Apps (where) |
+| --- | --- |
+| Switch (toggle) | ZapFast (`ui/widgets.rs` `switch`), Spotifast (`ui/widgets.rs`), RekordFlash (`theme.rs`), Chat with Work (`ui/widgets.rs`) |
+| Settings row (label, detail, control) | ZapFast (`setting_row`), Spotifast (`setting_row`, `setting_row_sized`), RekordFlash (`setting_row`, `settings_section`, `setting_divider`), Chat with Work (`setting_row`, `section`, `group`) |
+| Icon button and icon painting | ZapFast (`theme.rs` `icon`, `paint_icon`, `icon_button`), Spotifast (same names), RekordFlash (`icon`, `icon_image`, `icon_button`, `toolbar_icon_button`), TonePush (`icon_button`, `tinted_icon_button`), Chat with Work (`paint_icon`) |
+| Primary, secondary and danger buttons | RekordFlash (`primary_button`, `secondary_button`, `danger_button`), Chat with Work (`primary_button`, `destructive_button`); ZapFast and Spotifast use `pill_button`, `soft_button`, `circle_button` for the same roles |
+| Dialog title and footer | RekordFlash (`dialog_title`, `dialog_note`, `dialog_footer`), Chat with Work (`dialog_buttons`), ZapFast (`dialog_scroll_height`) |
+| Segmented control, chips | RekordFlash (`segmented`, `deck_segment`), ZapFast (`chip`, `filter_chip`), Spotifast (`chips`), TonePush (`category_chip`) |
+| Menu item, separator, frame | ZapFast (`menu_item`, `menu_item_enabled`, `menu_separator`, `menu_frame`, `submenu`), Spotifast (the same, plus `menu_submenu`) |
+| Search field | ZapFast, Spotifast (`search_field`) |
+| Empty state, loading and error rows | ZapFast (`empty_state`), Spotifast (`empty_state`, `loading_row`, `error_row`) |
+| Spinner | ZapFast (`spinner`, `paint_spinner`), Spotifast (`spinner`, `circle_spinner`), RekordFlash (`spinner`, paced for an event-driven loop), TonePush (`spinner`) |
+| Status dot, badge | RekordFlash (`status_dot`), Chat with Work (`status_dot`, `badge`), TonePush (`status_dot`), ZapFast (`badge`, `unread_dot`) |
+| Focus ring | ZapFast (`focus_outline`, `reveal_focus`), Spotifast (`focus_ring`) |
+| Credits line, logo | ZapFast, Spotifast (`credit`, `logo`) |
+| Navigation row | RekordFlash (`navigation_row`, `navigation_highlight`), Spotifast (sidebar rows), ZapFast (chat rows) |
+| Drag ghost | Spotifast, TonePush (`drag_ghost`) |
+| Vertical gradient | ZapFast, Spotifast (`paint_vertical_gradient`) |
+
+Their sizes and colours differ by app, so a shared crate would take the
+palette through a small trait (or the `BASE_COLORS` names) rather than fix
+any app's look.
