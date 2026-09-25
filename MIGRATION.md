@@ -496,3 +496,96 @@ tabular in labels too, and system fallbacks are added unless turned off.
 ### Chat with Work
 
 It draws with the platform's UI font and bundles none; nothing to move.
+
+## fastframe-theme
+
+Palette files, the background catalogue, the shared palettes, Omarchy
+following and file watching. Each app keeps its `Palette` struct and its
+dark and light defaults, `theme::apply` (the mapping onto `egui::Visuals`
+and widget styling), the Settings picker and its wording, the
+`reload-themes` command on its single-instance channel, and the packaging
+files in `contrib/omarchy/`.
+
+Every app does the same:
+
+1. `impl fastframe_theme::Palette for Palette`: `base` returns
+   `Palette::dark()` or `Palette::light()`; `set` is the old `match name`
+   from `parse_palette`, returning `false` for unknown names; ZapFast's
+   `derive` holds its "Spotifast palettes share the sixteen interface
+   colours" block.
+2. `theme::custom::CustomTheme` becomes `fastframe_theme::CustomTheme<Palette>`
+   and `theme::custom::Catalog` becomes `fastframe_theme::Catalog<Palette>`.
+   The serialized cache (`custom_theme_cache`, `system_theme_cache`) keeps
+   its shape, so existing `settings.json` files read as before; point
+   `deserialize_with` at `"fastframe_theme::read_cached_theme"`.
+3. `theme::custom::label` becomes `fastframe_theme::display_name`.
+4. `Catalog::start(directory, selected, &waker)` takes a
+   `fastframe_theme::Waker`: build one once with
+   `fastframe_theme::Waker::new({ let waker = self.waker.clone(); move || waker.wake() })`.
+5. The status line: `catalog.status(selected)` returns `Status::Loading`,
+   `Status::SelectedUnavailable` or `Status::Problem(..)`; the app maps each
+   to its (translated) sentence. The sentences both apps use today:
+   "Loading local themes…", "The selected theme is unavailable. Keeping the
+   last usable appearance. See the log for details.", and per `Problem`:
+   `Unreadable` "The themes folder could not be read. See the log for
+   details.", `TooManyEntries` "The themes folder has more than 512 entries.
+   Keep fewer files there to list the custom palettes.", `TooManyThemes`
+   "Only 128 custom palettes can be listed. Keep fewer JSON files in the
+   themes folder to see the rest.", `LoaderFailed` "Custom themes could not
+   be loaded. Run <slug> reload-themes to try again.", `OmarchyUnreadable`
+   "The Omarchy palette could not be loaded. Keeping the last usable
+   appearance. See the log for details."
+6. Add a test that the shipped hook has not drifted:
+   `assert_eq!(include_str!("../contrib/omarchy/<slug>-theme"), fastframe_theme::omarchy::hook_script("<slug>"));`
+
+### ZapFast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme/custom.rs` | 794 | the crate; keep only the `Palette` impl (about 45 lines, in `theme.rs`) |
+| `src/theme/omarchy.rs` | 390 | `fastframe_theme::omarchy` (setup, rendering, install), used by the catalogue |
+| `src/theme/presets.rs` | 95 | `fastframe_theme::presets` (`presets::themes::<Palette>()` in the demo and in `bubble_text_is_readable_in_every_palette`). Keep `spotifast_palettes_also_colour_the_conversation` as an app test of `derive`. |
+| `src/theme/watch.rs` | 79 | the crate's watcher |
+| `assets/themes/*.json` | 8 files | `fastframe_theme::presets::FILES` |
+| `tests/fixtures/omarchy/` | 5 files | the crate's fixtures (they render the base template; keep ZapFast's own if it wants a test of its extended template through `fastframe_theme::omarchy::render_seed::<Palette>`) |
+| `Cargo.toml` `notify` | 1 | the crate (Linux only) |
+
+About 1,300 lines, less the 45-line `Palette` impl and a 25-line status
+mapping. In `App::new`: `app.custom_themes.enable_desktop_themes(DesktopThemes { slug: "zapfast", omarchy_template: include_str!("../contrib/omarchy/zapfast.json.tpl"), presets: true })`.
+Behaviour is unchanged.
+
+### Spotifast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/theme/custom.rs` | 684 | the crate; keep the `Palette` impl (about 30 lines) and `Problem::text` becomes the status mapping above |
+| `src/theme/omarchy.rs` | 328 | `fastframe_theme::omarchy`, except the `fastpotify` hook upgrade and the legacy-profile check (see below) |
+| `tests/fixtures/omarchy/` | 5 files | the crate's fixtures (identical) |
+
+About 950 lines. `entrypoint.rs` calls
+`app.custom_themes.enable_desktop_themes(DesktopThemes { slug: "spotifast", omarchy_template: include_str!("../contrib/omarchy/spotifast.json.tpl"), presets: false })`
+(`presets: true` adds the eight shared palettes to its picker, which it does
+not show today). Keep in the app, run before that call on Linux:
+
+- the upgrade of an installed hook that still says `/fastpotify/themes`
+  (the block at the top of `Setup::install`, about 20 lines), and
+- skipping `enable_desktop_themes` when the themes directory is the legacy
+  `fastpotify` one during an updater trial.
+
+`tests/omarchy.rs` (which runs the shipped hook with bash) can stay, or give
+way to the `hook_script` equality test.
+
+Behaviour that changes, from ZapFast's newer copy: Omarchy is followed
+whenever it is set up, not only when a package installed the assets, and
+its palette is read from Omarchy's rendering (or rendered from its colours)
+rather than from `themes/omarchy.json` alone; the themes folder and the
+current Omarchy theme are watched, so palettes reload without the hook or a
+restart.
+
+### RekordFlash, TonePush, Chat with Work
+
+RekordFlash and TonePush draw one fixed dark palette, and Chat with Work
+follows the platform's light or dark setting; none reads palette files.
+They can adopt the crate by implementing `Palette` when they add custom
+themes or Omarchy support.
+
