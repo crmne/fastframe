@@ -118,9 +118,9 @@ font data key becomes `fallback-suits` when a different face than the one for
 | `src/theme.rs` `INTER_*` constants, `inter_figures_are_tabular` | 25 | as for ZapFast |
 | `assets/fonts/InterVariable.ttf`, `assets/fonts/README.md` | 2 files | the crate |
 | `tests/fixtures/yi/` | 3 files | the crate's copy, used by `a_font_that_draws_a_yi_name_is_chosen` |
-| `Cargo.toml` `memmap2` | 1 | the crate (keep `skrifa` for MilkDrop and pixel text) |
 
-About 1,500 lines. `milkdrop/overlay.rs` and `ui/winamp/pixel_text.rs` read
+Keep `memmap2`: the playlist face lookup that stays in Spotifast maps font
+files with it. About 1,500 lines. `milkdrop/overlay.rs` and `ui/winamp/pixel_text.rs` read
 `fastframe_fonts::system::fallbacks()` instead; `Fallback` gains `scale` and
 `y_offset_factor`, which they may ignore. Code that looked up
 `system_fonts::FALLBACK_SCRIPTS` for a probe character uses the fallback's
