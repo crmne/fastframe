@@ -22,13 +22,37 @@ section below has a subsection per app with the details.
 
 | App | Adopts | Not now |
 | --- | --- | --- |
-| ZapFast | [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos), [update](#fastframe-update) | |
-| Spotifast | [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos) (the double-click setting only), [update](#fastframe-update) | |
-| RekordFlash | [fonts](#fastframe-fonts), [icons](#fastframe-icons), [macos](#fastframe-macos), [log](#fastframe-log) (only the facade-free redaction and panic line, with `default-features = false`) | [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations; [shell](#fastframe-shell) (no tray or background mode); its `tracing` logger stays |
-| TonePush | [fonts](#fastframe-fonts) | [icons](#fastframe-icons) later (its own macros and layout); [log](#fastframe-log) (it uses `eprintln!`); [shell](#fastframe-shell); [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
-| Chat with Work Local Agent | nothing yet | [fonts](#fastframe-fonts) (it draws with the platform's UI font); [tray](#fastframe-tray) and [shell](#fastframe-shell) (one winit loop with `pump_app_events`, tray-icon 0.25); [log](#fastframe-log) until it wants a log file; [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
+| ZapFast | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos), [update](#fastframe-update) | |
+| Spotifast | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [macos](#fastframe-macos) (the double-click setting only), [update](#fastframe-update) | |
+| RekordFlash | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [macos](#fastframe-macos), [log](#fastframe-log) (only the facade-free redaction and panic line, with `default-features = false`) | [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations; [shell](#fastframe-shell) (no tray or background mode); its `tracing` logger stays |
+| TonePush | [text](#fastframe-text), [fonts](#fastframe-fonts) | [icons](#fastframe-icons) later (its own macros and layout); [log](#fastframe-log) (it uses `eprintln!`); [shell](#fastframe-shell); [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
+| Chat with Work Local Agent | [text](#fastframe-text) | [fonts](#fastframe-fonts) (it draws with the platform's UI font); [tray](#fastframe-tray) and [shell](#fastframe-shell) (one winit loop with `pump_app_events`, tray-icon 0.25); [log](#fastframe-log) until it wants a log file; [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
 
 Shared widgets have not moved; see [Not moved yet: widgets](#not-moved-yet-widgets).
+
+## fastframe-text
+
+Follows the desktop's font rendering. Every app replaces its hand-set
+hinting and `color_transfer_function` with it:
+
+```rust
+let rendering = fastframe_text::detect(); // once per process, outside a tokio runtime
+rendering.apply_to(&mut fonts); // before `ctx.set_fonts`
+ctx.all_styles_mut(|style| rendering.apply_to_visuals(&mut style.visuals));
+```
+
+- Linux reads the desktop portal, then fontconfig. With the usual slight
+  hinting this is egui's default hinting with sub-pixel positions, and
+  linear coverage in both themes, which matches GTK's weight.
+- macOS is unhinted and Windows slightly hinted; both keep egui's coverage
+  per theme, so dark text there is a little heavier than on Linux.
+- Apps that shift a galley by hand (ZapFast's selectable bubbles, Spotifast's
+  right-to-left runs) round both ends with `snap_to_pixels`.
+- The `watch` feature follows portal changes live; call `apply_to` and
+  `ctx.set_fonts` again from its callback.
+
+Adopted by all five apps: ZapFast, Spotifast, RekordFlash, TonePush and Chat
+with Work (58da999, which applies it to the system UI font it uses).
 
 ## fastframe-fonts
 
@@ -487,8 +511,11 @@ Differences:
 ### Chat with Work
 
 Not moving now: its tray shares one winit loop with the window
-(`pump_app_events`) and uses tray-icon 0.25. It can adopt the crate if it
-moves to the run-native loop, after the workspace moves to tray-icon 0.25.
+(`pump_app_events`) and uses tray-icon 0.25. Its menu also needs what the
+crate doesn't have yet: disabled status lines, a tooltip that changes, a
+dimmed icon while paused, and an item that relabels itself. It can adopt the
+crate once the crate grows those and moves to tray-icon 0.25, and if the app
+moves to the run-native loop.
 
 ## fastframe-shell
 
