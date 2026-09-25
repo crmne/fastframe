@@ -795,7 +795,9 @@ fn fontconfig_elements(text: &str) -> Vec<(&'static str, String, String)> {
 }
 
 /// Resolves a path from a configuration file: `~` is the home directory and
-/// a relative path is relative to the file's own directory.
+/// a relative path is relative to the file's own directory. The files are
+/// POSIX, so a leading `/` is absolute on every platform the parser is tested
+/// on (Windows would otherwise put it on the base's drive).
 fn fontconfig_path(value: &str, base: &Path, home: Option<&Path>) -> Option<PathBuf> {
     if value.is_empty() {
         return None;
@@ -804,7 +806,7 @@ fn fontconfig_path(value: &str, base: &Path, home: Option<&Path>) -> Option<Path
         return Some(home?.join(rest.trim_start_matches('/')));
     }
     let path = PathBuf::from(value);
-    Some(if path.is_absolute() {
+    Some(if path.is_absolute() || value.starts_with('/') {
         path
     } else {
         base.join(path)
