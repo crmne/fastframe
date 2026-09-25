@@ -1,0 +1,42 @@
+[package]
+name = "fastframe-macos"
+description = "macOS window chrome for egui apps drawn under the title bar: traffic lights in the app's own bar, and the system's title-bar double-click setting"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["egui", "eframe", "macos", "titlebar", "desktop"]
+categories = ["gui", "os::macos-apis"]
+
+[dependencies]
+# The context's zoom and viewport state.
+egui.workspace = true
+# `Frame`, whose window handle leads to the NSWindow.
+eframe.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# The window handle eframe hands out.
+raw-window-handle.workspace = true
+objc2-app-kit = { workspace = true, features = ["NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { workspace = true, features = ["NSUserDefaults"] }
+
+# The workspace forbids unsafe code. The AppKit calls need it, so this crate
+# carries the workspace's lints with `unsafe_code` lowered to `deny`, allowed
+# only in `appkit.rs`, each block with a SAFETY note.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"

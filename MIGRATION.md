@@ -236,3 +236,46 @@ No other behaviour changes.
 Not moving: RekordFlash and TonePush have no tray or background mode. Chat
 with Work keeps its window alive with `pump_app_events` on one winit loop, a
 different design.
+
+## fastframe-macos
+
+Traffic lights in the app's own title bar, the inset that clears them, and
+the title-bar double-click setting. Each app keeps its header heights, its
+double-click handling (which viewport command or AppKit selector it sends),
+and its application menus.
+
+### ZapFast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/macos.rs`: `update_window` | 55 | `fastframe_macos::align_traffic_lights(frame, ctx, if linked { 60.0 } else { 28.0 / ctx.zoom_factor() })` in `Shell::logic` (the `cfg` can go) |
+| `src/theme.rs` `traffic_light_inset`: the `84.0 / ctx.zoom_factor()` arm | 3 | `fastframe_macos::traffic_light_inset(ctx)` when not previewing; keep the `macos_chrome(ctx)` check for the demo's macOS preview on other platforms, using `fastframe_macos::TRAFFIC_LIGHTS_WIDTH / ctx.zoom_factor()` there |
+| `Cargo.toml`: `NSButton`, `NSControl`, `NSView`, `NSWindow` features of `objc2-app-kit` | 0 | still needed by the rest of `macos.rs`; leave them |
+
+About 55 lines. The menu code in `macos.rs` stays. No behaviour change.
+
+### RekordFlash
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/ui/macos_chrome.rs` | 112 | `fastframe_macos` |
+| `src/ui.rs`: `macos_chrome::update(frame, ui.ctx(), TITLE_BAR_HEIGHT)` | 1 | `fastframe_macos::align_traffic_lights(frame, ui.ctx(), TITLE_BAR_HEIGHT)` |
+| `src/ui.rs` `title_bar_leading_inset`: the macOS arm | 5 | `fastframe_macos::traffic_light_inset(context)` (zero in full screen; keep the 12 fallback) |
+| `src/ui.rs` `title_bar_drag`: `macos_chrome::double_click_action()` and `DoubleClick` | 0 | `fastframe_macos::double_click_action()`, with `DoubleClick::Zoom \| DoubleClick::Fill` on the zoom arm |
+| `Cargo.toml`: the macOS `objc2-app-kit` 0.2 and `raw-window-handle` entries used only by `macos_chrome.rs` | 2 | come with the crate (objc2-app-kit 0.3, as ZapFast and Spotifast use) |
+
+About 115 lines. Differences: a double-click setting the crate does not know
+(a future macOS value) now does nothing, where RekordFlash zoomed.
+
+### Spotifast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/window.rs`: `MacosDoubleClickAction`, `macos_double_click_action` and their test | 30 | `fastframe_macos::double_click_action()` inside `macos_titlebar_should_drag`: `Minimize` to `performMiniaturize:`, `Zoom` to `performZoom:`, `Fill` and `Nothing` ignored as now |
+| `src/window.rs`: the `NSUserDefaults` read | 3 | inside the crate |
+
+About 35 lines. Difference: Spotifast now also honours the older
+`AppleMiniaturizeOnDoubleClick` switch when the newer key is unset.
+Spotifast keeps AppKit's own traffic-light positions (its top bar is laid
+out around them), so `align_traffic_lights` is not needed there.
+

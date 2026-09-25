@@ -863,6 +863,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastframe-macos"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "raw-window-handle",
+]
+
+[[package]]
 name = "fastframe-shell"
 version = "0.1.0"
 dependencies = [
