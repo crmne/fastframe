@@ -27,7 +27,7 @@ tray-icon.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The tray thread's message loop.
-windows-sys.workspace = true
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # The Dock reopen handler and the headless AppKit pump.

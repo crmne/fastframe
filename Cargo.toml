@@ -41,7 +41,16 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDate", "NSGeometry", "NSObjCRuntime", "NSRunLoop", "NSString"] }
 # macOS window chrome (fastframe-macos): the version eframe itself uses.
 raw-window-handle = "0.6"
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+# Win32 calls (fastframe-fonts, fastframe-tray, fastframe-update). arboard,
+# under egui-winit, already brings this version; each crate names the
+# features it calls.
+windows-sys = "0.60"
+
+# Shared by several crates, at the versions every app already builds.
+directories = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

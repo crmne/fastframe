@@ -20,19 +20,19 @@ skrifa = "0.44"
 # Maps font files while probing, so only their headers are read.
 memmap2 = "0.9"
 # The per-user font and home directories. Already in ZapFast and Spotifast.
-directories = "6"
-log = "0.4"
+directories.workspace = true
+log.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The display language, which picks the regional cut of a pan-CJK font.
 # Already in both apps' trees at this version.
-windows-sys = { version = "0.60", features = ["Win32_Globalization"] }
+windows-sys = { workspace = true, features = ["Win32_Globalization"] }
 
 [dev-dependencies]
 # egui's own fonts, as the apps build with, so the fallback order is tested
 # against what they get.
 egui = { workspace = true, features = ["default_fonts"] }
-tempfile = "3"
+tempfile.workspace = true
 
 # The workspace lints, except that unsafe code is denied rather than
 # forbidden: memory-mapping font files and asking CoreText and Win32 need

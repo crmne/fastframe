@@ -31,7 +31,7 @@ include-po = { version = "0.2", optional = true }
 
 [dev-dependencies]
 # Scratch directories for compiling fixture catalogs.
-tempfile = "3"
+tempfile.workspace = true
 
 [lints]
 workspace = true

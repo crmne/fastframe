@@ -22,8 +22,8 @@ reqwest = ["dep:reqwest"]
 # Error type of every fallible call; the apps already report with `{:#}`.
 anyhow = "1"
 # handoff.json, the release listing and the release metadata.
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde.workspace = true
+serde_json.workspace = true
 # Checksums of downloads and staged payloads (0.11 is already in both apps).
 sha2 = "0.11"
 # Ed25519 publisher signatures and the random staging-folder names. ZapFast
@@ -36,10 +36,10 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking"],
 
 [target.'cfg(windows)'.dependencies]
 # Wait on the running app's process handle, as both apps do today.
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 
 # The workspace forbids unsafe code. Waiting for the app to exit on Windows
 # needs OpenProcess and WaitForSingleObject, so this crate denies instead and
