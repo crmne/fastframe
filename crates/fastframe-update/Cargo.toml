@@ -1,0 +1,60 @@
+[package]
+name = "fastframe-update"
+description = "Self-update from GitHub releases: check, detect the installation, verify, hand off to a helper, roll back"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["update", "self-update", "github", "desktop"]
+categories = ["os"]
+
+[features]
+default = []
+# A `Transport` over a reqwest blocking client. Both apps already build
+# reqwest 0.12 with `blocking`; the app's own features pick TLS and proxies.
+reqwest = ["dep:reqwest"]
+
+[dependencies]
+# Error type of every fallible call; the apps already report with `{:#}`.
+anyhow = "1"
+# handoff.json, the release listing and the release metadata.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Checksums of downloads and staged payloads (0.11 is already in both apps).
+sha2 = "0.11"
+# Ed25519 publisher signatures and the random staging-folder names. ZapFast
+# verifies with ring today; using its generator avoids a second RNG crate.
+ring = "0.17"
+# Parse and compare release and redirect URLs. Already in both apps through
+# reqwest, at the same version.
+url = "2.5"
+reqwest = { version = "0.12", default-features = false, features = ["blocking"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# Wait on the running app's process handle, as both apps do today.
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+# The workspace forbids unsafe code. Waiting for the app to exit on Windows
+# needs OpenProcess and WaitForSingleObject, so this crate denies instead and
+# allows it in that one function (`host::wait_for_parent`). Everything else
+# matches the workspace table.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"

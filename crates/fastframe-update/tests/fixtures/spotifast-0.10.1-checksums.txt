@@ -1,0 +1,9 @@
+3ae0114ae4def2265d9228461a70b5c8913e19e2b5e8131e15529f3635c7b401  spotifast-v0.10.1-aarch64-pc-windows-msvc-setup.exe
+ab46015452a745bd7f41d35ba491a5161ca55f56330eae8a3c17e112ba49ed18  spotifast-v0.10.1-aarch64-pc-windows-msvc.zip
+feb8e781b6822b282bfa93d05f033e3253ce62bdce8b6027066072d602898779  spotifast-v0.10.1-aarch64-unknown-linux-gnu.tar.gz
+7bc4f2e7dd1f7b10663ff38dfefad0d72ff9f34b3e7e3296659a9fd8e58abb63  spotifast-v0.10.1-macos-universal.dmg
+8c0aecb9353346203e1d8d2c081f6110ed68b22f7cef1f8177542abce46d4a53  spotifast-v0.10.1-source.tar.gz
+4e89d790228c2eced0c8760cc75277570bc92212383aee6e1c6d8192b31c3e2b  spotifast-v0.10.1-x86_64-pc-windows-msvc-setup.exe
+4f8f975ace064395bc90ee4a0415c6e8505216c8dec2412761a1b28cec6aff58  spotifast-v0.10.1-x86_64-pc-windows-msvc.zip
+49393c43162075544a1dad8e2b053a1530c857e25c71b4a9f6e4a5b30e3136d6  spotifast-v0.10.1-x86_64-unknown-linux-gnu.tar.gz
+b309ee0bfc85e2e4f8fb5baf898542c54ef8763e46e77f8aa19dd290c1d71c7e  spotifast-v0.10.1-x86_64.flatpak

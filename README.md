@@ -32,6 +32,7 @@ written for one of those apps first and moved here once another app needed it.
 | [`fastframe-tray`](crates/fastframe-tray) | A tray item with the app's own menu: StatusNotifier on Linux, the notification area on Windows, the menu bar on macOS. |
 | [`fastframe-macos`](crates/fastframe-macos) | Puts the macOS traffic lights on the centre line of an app's own title bar, and reads the system's title-bar double-click setting. |
 | [`fastframe-shell`](crates/fastframe-shell) | Keeps an app running without a window around `eframe::run_native`, starts hidden, and brings back windows restored off-screen. |
+| [`fastframe-update`](crates/fastframe-update) | Self-update from GitHub releases: detects package-managed installs, verifies signed checksums, installs through a helper with rollback, and keeps the handoff format older app versions use. |
 
 ## Status
 
