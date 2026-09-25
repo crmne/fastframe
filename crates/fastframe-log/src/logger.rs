@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::log_panics;
+use crate::{PanicMessage, log_panics_with};
 
 /// Rewrites a log line before it is written.
 ///
@@ -34,6 +34,7 @@ pub struct Logging {
     filter: String,
     file: Option<PathBuf>,
     panic_log: Option<PathBuf>,
+    panic_message: PanicMessage,
     redact: Option<Redactor>,
 }
 
@@ -50,6 +51,7 @@ impl Logging {
             filter: "warn".to_owned(),
             file: None,
             panic_log: None,
+            panic_message: PanicMessage::Omit,
             redact: None,
         }
     }
@@ -69,9 +71,17 @@ impl Logging {
         self
     }
 
-    /// Appends a line to `path` for every panic. See [`log_panics`].
+    /// Appends a line to `path` for every panic, without its message unless
+    /// [`Logging::panic_message`] says otherwise. See [`crate::log_panics`].
     pub fn panic_log(mut self, path: impl Into<PathBuf>) -> Self {
         self.panic_log = Some(path.into());
+        self
+    }
+
+    /// Whether panic lines keep the panic's message, redacted. The default,
+    /// [`PanicMessage::Omit`], leaves it out.
+    pub fn panic_message(mut self, message: PanicMessage) -> Self {
+        self.panic_message = message;
         self
     }
 
@@ -93,7 +103,7 @@ impl Logging {
         let (logger, file_error) = self.build(rust_log.as_deref());
         let max_level = logger.filter();
         if let Some(path) = &self.panic_log {
-            log_panics(path, self.app, self.version);
+            log_panics_with(path, self.app, self.version, self.panic_message);
         }
         log::set_boxed_logger(Box::new(logger))?;
         log::set_max_level(max_level);

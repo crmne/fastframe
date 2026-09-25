@@ -50,4 +50,4 @@ pub mod redact;
 
 #[cfg(feature = "logger")]
 pub use logger::{Logging, Redactor};
-pub use panic::log_panics;
+pub use panic::{PanicMessage, log_panics, log_panics_with};

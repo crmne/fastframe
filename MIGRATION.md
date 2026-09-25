@@ -405,9 +405,9 @@ be created is reported through the logger (on stderr) instead of
 
 | Delete | Lines | Instead |
 | --- | --- | --- |
-| `src/entrypoint.rs`: the `env_logger::Builder` block, the log-file `match`, `logger.init()`, and the `Starting Spotifast ...` line | 20 | `fastframe_log::Logging::new("spotifast", env!("CARGO_PKG_VERSION")).filter(default_filter).file(dirs.log_file()).panic_log(dirs.panic_log()).init()` |
+| `src/entrypoint.rs`: the `env_logger::Builder` block, the log-file `match`, `logger.init()`, and the `Starting Spotifast ...` line | 20 | `fastframe_log::Logging::new("spotifast", env!("CARGO_PKG_VERSION")).filter(default_filter).file(dirs.log_file()).panic_log(dirs.panic_log()).panic_message(PanicMessage::Redacted(fastframe_log::redact::links)).init()` |
 | `src/entrypoint.rs`: `struct Tee` and its `Write` impl | 15 | inside the crate |
-| `src/entrypoint.rs`: `fn log_panics` | 25 | `.panic_log(..)` |
+| `src/entrypoint.rs`: `fn log_panics` | 25 | `.panic_log(..)` with `.panic_message(..)` above |
 | `Cargo.toml` `env_logger` | 1 | comes with the crate |
 
 About 60 lines. `http.rs` keeps `error.without_url()` (reqwest does it
@@ -416,10 +416,12 @@ strings.
 
 Differences, all deliberate:
 
-- **The panic log no longer records the payload**, and the default hook is no
-  longer chained, so the payload is not printed to stderr either. Spotifast
-  wrote `{info}` (payload included) to `panic.log`. A payload can quote the
-  data being handled; the location is kept.
+- **The panic log keeps the payload, with links removed**
+  (`PanicMessage::Redacted(redact::links)`), on one line after the location.
+  Spotifast wrote `{info}` with the raw payload; a payload can quote the data
+  being handled, such as a URL with a token. The default hook is no longer
+  chained, so the raw payload is not printed to stderr either. (ZapFast keeps
+  `PanicMessage::Omit`, the default.)
 - Log lines use `[time LEVEL target] message` with the level unpadded
   (env_logger's default pads it and colours it on a terminal).
 - The start line says `spotifast` (the name passed to `Logging::new`, which
