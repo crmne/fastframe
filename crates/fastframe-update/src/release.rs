@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::detect::{Kind, Platform, Unsupported};
 use crate::stage::LIMIT;
 use crate::transport::{Source, Transport, fetch};
-use crate::{UpdateConfig, version};
+use crate::{MacTarget, UpdateConfig, version};
 
 /// A newer release than the running app.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -201,14 +201,19 @@ impl Metadata {
 }
 
 /// The target part of release asset names for this operating system and
-/// processor.
-pub(crate) fn target(platform: Platform, arch: &str) -> Result<&'static str, Unsupported> {
-    Ok(match (platform, arch) {
-        (Platform::Windows, "x86_64") => "x86_64-pc-windows-msvc",
-        (Platform::Windows, "aarch64") => "aarch64-pc-windows-msvc",
-        (Platform::Linux, "x86_64") => "x86_64-unknown-linux-gnu",
-        (Platform::Linux, "aarch64") => "aarch64-unknown-linux-gnu",
-        (Platform::MacOs, "aarch64" | "x86_64") => "macos-universal",
+/// processor, given which macOS build the app publishes.
+pub(crate) fn target(
+    platform: Platform,
+    arch: &str,
+    mac: MacTarget,
+) -> Result<&'static str, Unsupported> {
+    Ok(match (platform, arch, mac) {
+        (Platform::Windows, "x86_64", _) => "x86_64-pc-windows-msvc",
+        (Platform::Windows, "aarch64", _) => "aarch64-pc-windows-msvc",
+        (Platform::Linux, "x86_64", _) => "x86_64-unknown-linux-gnu",
+        (Platform::Linux, "aarch64", _) => "aarch64-unknown-linux-gnu",
+        (Platform::MacOs, "aarch64" | "x86_64", MacTarget::Universal) => "macos-universal",
+        (Platform::MacOs, "aarch64", MacTarget::Arm64Only) => "macos-arm64",
         _ => return Err(Unsupported::Platform),
     })
 }
@@ -506,7 +511,7 @@ mod tests {
 
     #[test]
     fn asset_names_follow_the_release_contract() {
-        let target = target(Platform::Linux, "x86_64").unwrap();
+        let target = target(Platform::Linux, "x86_64", MacTarget::Universal).unwrap();
         let stem = stem(&ZAPFAST, "0.17.0", target);
         assert_eq!(stem, "zapfast-v0.17.0-x86_64-unknown-linux-gnu");
         assert_eq!(
@@ -516,7 +521,7 @@ mod tests {
         let stem = super::stem(
             &ZAPFAST,
             "0.17.0",
-            super::target(Platform::Windows, "aarch64").unwrap(),
+            super::target(Platform::Windows, "aarch64", MacTarget::Universal).unwrap(),
         );
         assert_eq!(
             asset_name(&stem, Kind::Portable, Platform::Windows),
@@ -529,7 +534,7 @@ mod tests {
         let stem = super::stem(
             &ZAPFAST,
             "0.17.0",
-            super::target(Platform::MacOs, "x86_64").unwrap(),
+            super::target(Platform::MacOs, "x86_64", MacTarget::Universal).unwrap(),
         );
         assert_eq!(
             asset_name(&stem, Kind::MacBundle, Platform::MacOs),
@@ -541,12 +546,51 @@ mod tests {
         );
         assert_eq!(portable_executable(&ZAPFAST, Platform::Linux), "zapfast");
         assert_eq!(
-            super::target(Platform::Linux, "riscv64"),
+            super::target(Platform::Linux, "riscv64", MacTarget::Universal),
             Err(Unsupported::Platform)
         );
         assert_eq!(
-            super::target(Platform::Other, "x86_64"),
+            super::target(Platform::Other, "x86_64", MacTarget::Universal),
             Err(Unsupported::Platform)
+        );
+    }
+
+    #[test]
+    fn an_apple_silicon_only_app_names_the_arm64_disk_image() {
+        for arch in ["aarch64", "x86_64"] {
+            assert_eq!(
+                target(Platform::MacOs, arch, ZAPFAST.mac_target),
+                Ok("macos-universal"),
+                "the default is unchanged"
+            );
+        }
+        let target = target(Platform::MacOs, "aarch64", MacTarget::Arm64Only).unwrap();
+        let rekordflash = UpdateConfig::new(
+            "crmne/rekordflash",
+            "RekordFlash",
+            "rekordflash",
+            "0.5.0-alpha.2",
+        );
+        assert_eq!(
+            asset_name(
+                &stem(&rekordflash, "0.5.0-alpha.3", target),
+                Kind::MacBundle,
+                Platform::MacOs
+            ),
+            "rekordflash-v0.5.0-alpha.3-macos-arm64.dmg"
+        );
+        assert_eq!(
+            super::target(Platform::MacOs, "x86_64", MacTarget::Arm64Only),
+            Err(Unsupported::Platform)
+        );
+        // Other systems are named as before.
+        assert_eq!(
+            super::target(Platform::Linux, "aarch64", MacTarget::Arm64Only),
+            Ok("aarch64-unknown-linux-gnu")
+        );
+        assert_eq!(
+            super::target(Platform::Windows, "x86_64", MacTarget::Arm64Only),
+            Ok("x86_64-pc-windows-msvc")
         );
     }
 
@@ -598,7 +642,11 @@ mod tests {
             (Platform::Windows, "aarch64", Kind::WindowsInstaller),
             (Platform::MacOs, "aarch64", Kind::MacBundle),
         ] {
-            let stem = stem(&SPOTIFAST, "0.10.1", target(platform, arch).unwrap());
+            let stem = stem(
+                &SPOTIFAST,
+                "0.10.1",
+                target(platform, arch, SPOTIFAST.mac_target).unwrap(),
+            );
             let name = asset_name(&stem, kind, platform);
             assert!(checksum(text, &name).is_ok(), "{name}");
         }

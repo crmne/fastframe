@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+#[cfg(doc)]
+use crate::MacTarget;
 use crate::detect::{self, Installation, Platform, Unsupported};
 use crate::download::{self, Inputs};
 use crate::host::{Host, OsHost};
@@ -87,12 +89,22 @@ impl Updater {
     /// the same rules as [`Updater::installation`]. For packaging checks and
     /// diagnostics; updates only ever replace the running app.
     pub fn installation_at(&self, executable: &Path) -> Result<Installation, Unsupported> {
-        detect::detect(
-            &self.config,
-            self.host.as_ref(),
-            Platform::current(),
-            executable,
-        )
+        self.installation_on(executable, Platform::current(), std::env::consts::ARCH)
+    }
+
+    /// [`Updater::installation_at`] for a given system and processor. A Mac
+    /// without a disk image for its processor ([`MacTarget::Arm64Only`](crate::MacTarget::Arm64Only) on
+    /// x86_64) is refused first, so the app can say so before downloading.
+    fn installation_on(
+        &self,
+        executable: &Path,
+        platform: Platform,
+        arch: &str,
+    ) -> Result<Installation, Unsupported> {
+        if platform == Platform::MacOs {
+            release::target(platform, arch, self.config.mac_target)?;
+        }
+        detect::detect(&self.config, self.host.as_ref(), platform, executable)
     }
 
     /// Downloads and verifies `release` into a new staging folder beside
@@ -175,6 +187,39 @@ mod tests {
             without.installation(),
             Err(Unsupported::Unavailable(_))
         ));
+    }
+
+    #[test]
+    fn an_apple_silicon_only_app_refuses_an_x86_64_mac_up_front() {
+        let arm64_only = UpdateConfig {
+            mac_target: crate::MacTarget::Arm64Only,
+            ..ZAPFAST
+        };
+        let executable = Path::new("/Applications/ZapFast.app/Contents/MacOS/zapfast");
+        let updater =
+            Updater::new(arm64_only, FakeTransport::default()).with_host(FakeHost::default());
+        assert_eq!(
+            updater.installation_on(executable, Platform::MacOs, "x86_64"),
+            Err(Unsupported::Platform)
+        );
+        // On Apple silicon, and for the default universal image, the
+        // bundle rules decide as before.
+        for (config, arch) in [(arm64_only, "aarch64"), (ZAPFAST, "x86_64")] {
+            let updater =
+                Updater::new(config, FakeTransport::default()).with_host(FakeHost::default());
+            assert_ne!(
+                updater.installation_on(executable, Platform::MacOs, arch),
+                Err(Unsupported::Platform),
+                "{arch}"
+            );
+        }
+        // Other systems are not affected.
+        let updater =
+            Updater::new(arm64_only, FakeTransport::default()).with_host(FakeHost::default());
+        assert_ne!(
+            updater.installation_on(Path::new("/opt/zapfast/zapfast"), Platform::Linux, "x86_64"),
+            Err(Unsupported::Platform)
+        );
     }
 
     #[test]

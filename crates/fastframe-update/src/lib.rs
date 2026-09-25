@@ -170,6 +170,24 @@ pub struct UpdateConfig {
     /// [`Prereleases::Never`], reads only GitHub's latest release, which is
     /// never a pre-release.
     pub prereleases: Prereleases,
+    /// Which macOS disk image a release carries. The default,
+    /// [`MacTarget::Universal`], is `<slug>-v<version>-macos-universal.dmg`.
+    pub mac_target: MacTarget,
+}
+
+/// The macOS build a release publishes, which names its disk image.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MacTarget {
+    /// One universal disk image for Apple silicon and Intel Macs:
+    /// `<slug>-v<version>-macos-universal.dmg`.
+    #[default]
+    Universal,
+    /// Apple silicon only: `<slug>-v<version>-macos-arm64.dmg`. A copy
+    /// running as x86_64 is refused with [`Unsupported::Platform`]. That is
+    /// the architecture of the running executable: an Intel Mac, or an x86_64
+    /// build translated by Rosetta. An arm64 executable only runs on Apple
+    /// silicon, so it always receives the update.
+    Arm64Only,
 }
 
 /// Which releases an app running a pre-release may move to.
@@ -213,6 +231,7 @@ impl UpdateConfig {
             publisher_key: None,
             additional_publisher_keys: &[],
             prereleases: Prereleases::Never,
+            mac_target: MacTarget::Universal,
         }
     }
 

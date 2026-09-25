@@ -55,8 +55,8 @@ pub(crate) fn download(
         .map(signing::decode_key)
         .collect::<Result<Vec<_>>>()?;
     let key = keys.first().copied();
+    let target = release::target(platform, arch, config.mac_target)?;
     let metadata = release::metadata(config, transport, source, &release.version)?;
-    let target = release::target(platform, arch)?;
     let stem = release::stem(config, &release.version, target);
     let name = release::asset_name(&stem, installation.kind, platform);
     let package = metadata.asset(&name)?;
@@ -245,6 +245,8 @@ mod tests {
         platform: Platform,
         version: &'static str,
         prerelease: bool,
+        arch: &'static str,
+        mac_target: crate::MacTarget,
     }
 
     impl Default for Fixture {
@@ -259,6 +261,8 @@ mod tests {
                 platform: Platform::Linux,
                 version: VERSION,
                 prerelease: false,
+                arch: "x86_64",
+                mac_target: crate::MacTarget::Universal,
             }
         }
     }
@@ -269,7 +273,7 @@ mod tests {
 
     impl Fixture {
         fn name(&self) -> String {
-            let target = release::target(self.platform, "x86_64").unwrap();
+            let target = release::target(self.platform, self.arch, self.mac_target).unwrap();
             release::asset_name(
                 &release::stem(&ZAPFAST, self.version, target),
                 self.kind,
@@ -344,7 +348,7 @@ mod tests {
                 source: &Source::github(),
                 host,
                 platform: fixture.platform,
-                arch: "x86_64",
+                arch: fixture.arch,
             },
             installation,
             &Release {
@@ -780,6 +784,95 @@ mod tests {
                 .is_err()
             );
         }
+        assert!(transport.requested().is_empty());
+    }
+
+    #[test]
+    fn an_apple_silicon_only_release_is_downloaded_as_its_arm64_disk_image() {
+        let directory = tempfile::tempdir().unwrap();
+        let app = directory.path().join("ZapFast.app");
+        crate::testing::bundle(&app, "zapfast", b"old executable", b"old metadata");
+        let installation = Installation {
+            executable: app.join("Contents/MacOS/zapfast"),
+            kind: Kind::MacBundle,
+        };
+        let config = UpdateConfig {
+            mac_target: crate::MacTarget::Arm64Only,
+            ..config()
+        };
+        let fixture = Fixture {
+            kind: Kind::MacBundle,
+            platform: Platform::MacOs,
+            arch: "aarch64",
+            mac_target: crate::MacTarget::Arm64Only,
+            package: b"disk image".to_vec(),
+            ..Fixture::default()
+        };
+        assert_eq!(fixture.name(), "zapfast-v0.17.0-macos-arm64.dmg");
+        let host = FakeHost::default()
+            .with_image(Path::new(&fixture.name()), |volume| {
+                crate::testing::bundle(
+                    &volume.join("ZapFast.app"),
+                    "zapfast",
+                    b"new executable",
+                    b"new metadata",
+                );
+            })
+            .with_any_bundle("me.paolino.fastsapp", "zapfast", "0.17.0")
+            .with_version_output("zapfast 0.17.0");
+        let transport = fixture.transport();
+        let prepared = download(
+            &Inputs {
+                config: &config,
+                transport: &transport,
+                source: &Source::github(),
+                host: &host,
+                platform: Platform::MacOs,
+                arch: "aarch64",
+            },
+            installation.clone(),
+            &Release {
+                version: VERSION.into(),
+                url: String::new(),
+            },
+            |_, _| {},
+        )
+        .unwrap();
+        assert!(
+            prepared
+                .staged
+                .payload
+                .ends_with("zapfast-v0.17.0-macos-arm64.dmg")
+        );
+        assert!(
+            transport
+                .requested()
+                .contains(&asset_url(VERSION, "zapfast-v0.17.0-macos-arm64.dmg"))
+        );
+
+        // An x86_64 copy is refused before anything is requested.
+        let transport = fixture.transport();
+        let error = download(
+            &Inputs {
+                config: &config,
+                transport: &transport,
+                source: &Source::github(),
+                host: &host,
+                platform: Platform::MacOs,
+                arch: "x86_64",
+            },
+            installation,
+            &Release {
+                version: VERSION.into(),
+                url: String::new(),
+            },
+            |_, _| {},
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<crate::Unsupported>(),
+            Some(&crate::Unsupported::Platform)
+        );
         assert!(transport.requested().is_empty());
     }
 

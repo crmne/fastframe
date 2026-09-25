@@ -899,13 +899,17 @@ the pre-release channel:
 ```rust
 pub const CONFIG: UpdateConfig = UpdateConfig {
     prereleases: Prereleases::WhenRunningPrerelease,
+    mac_target: MacTarget::Arm64Only,
     publisher_key: Some(include_str!("../assets/update-public-key.hex")),
     ..UpdateConfig::new("crmne/rekordflash", "RekordFlash", "rekordflash", env!("CARGO_PKG_VERSION"))
 };
 ```
 
 An alpha is offered the highest newer release, alpha or stable; a stable
-build never sees an alpha. Before it ships:
+build never sees an alpha. Its macOS build is Apple silicon only, so
+`MacTarget::Arm64Only` looks for `rekordflash-v<version>-macos-arm64.dmg`,
+the name its release workflow already uses, and refuses an x86_64 copy with
+`Unsupported::Platform`. Before it ships:
 
 - An expired alpha must still reach the update check, the download, the
   handoff and `Receipt::acknowledge`. Put the expiry gate after `intercept`
@@ -922,6 +926,10 @@ build never sees an alpha. Before it ships:
   ones, or a manual download.
 - Once a stable release exists, publish it as a normal (latest) release:
   a stable build reads only `releases/latest`.
+- The stable Windows installer is published as
+  `rekordflash-v<version>-windows-x86_64-setup.exe`; the updater expects
+  `rekordflash-v<version>-x86_64-pc-windows-msvc-setup.exe`. Rename it in
+  the release workflow before installer copies are meant to update.
 
 ### Deleted lines, both apps
 

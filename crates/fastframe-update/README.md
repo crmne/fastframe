@@ -143,6 +143,18 @@ pub const UPDATES: UpdateConfig = UpdateConfig {
 - A local feed (`Source::local`) serves the list as `<base>/releases.json`
   (one page) and the chosen release's metadata as `<base>/latest.json`.
 
+## Apple silicon only
+
+An app that ships no Intel build publishes `<slug>-v<version>-macos-arm64.dmg`
+instead of the universal image and sets `mac_target: MacTarget::Arm64Only`.
+The default, `MacTarget::Universal`, keeps `macos-universal`. With
+`Arm64Only`, `installation` refuses a copy running as x86_64 with
+`Unsupported::Platform` before anything is downloaded. That is the
+architecture of the running executable (`std::env::consts::ARCH`): an arm64
+executable only runs on Apple silicon, and an x86_64 one (an Intel Mac, or
+an older universal build under Rosetta) has no image to update to. Linux and
+Windows asset names do not change.
+
 ## The contract between versions
 
 An installed version runs the helper (a copy of itself) and the version it
@@ -157,7 +169,7 @@ installs reads the receipt. These must not change without a transition:
 | Files in it | `handoff.json`, `ready`, `started`, `result.txt`, `previous`, `helper`/`helper.exe`/`helper.app`, `helper.log`, `installer.log`, `mounted-<hex>`, `failed.app` |
 | `handoff.json` | compact JSON: `{"prepared":{"installation":{"executable":…,"kind":"Portable"\|"WindowsInstaller"\|"MacBundle"},"directory":…,"payload":…,"sha256":…,"version":…},"parent":<pid>,"arguments":[…]}` |
 | Markers | `<name>-portable.txt` containing `<name>-portable-v1`; `<name>-installer.txt` containing `<name>-installer-v1` |
-| Assets | `<slug>-v<version>-<target>.tar.gz` (Linux), `.zip` (Windows portable), `-setup.exe` (Windows installer), `<slug>-v<version>-macos-universal.dmg`; targets `x86_64`/`aarch64` `-unknown-linux-gnu` and `-pc-windows-msvc` |
+| Assets | `<slug>-v<version>-<target>.tar.gz` (Linux), `.zip` (Windows portable), `-setup.exe` (Windows installer), `<slug>-v<version>-macos-universal.dmg` (or `-macos-arm64.dmg` with `MacTarget::Arm64Only`); targets `x86_64`/`aarch64` `-unknown-linux-gnu` and `-pc-windows-msvc` |
 | Archive layout | `<slug>-v<version>-<target>/<slug>[.exe]`, or `<portable_executable>[.exe]` in place of the second `<slug>` |
 | Checksums | `checksums.txt` in `sha256sum` format; `checksums.txt.sig` is a raw 64-byte Ed25519 signature over its exact bytes |
 | Version probe | `<slug or legacy name> <version>` on standard output |

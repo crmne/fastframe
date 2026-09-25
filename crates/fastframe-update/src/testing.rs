@@ -415,7 +415,14 @@ impl Host for FakeHost {
     }
 
     fn attach(&self, image: &Path, mountpoint: &Path) -> Result<()> {
-        if let Some(fill) = self.images.get(image) {
+        // An image set up by file name alone matches in any folder, for a
+        // download whose staging folder is random.
+        let by_name = || {
+            image
+                .file_name()
+                .and_then(|name| self.images.get(Path::new(name)))
+        };
+        if let Some(fill) = self.images.get(image).or_else(by_name) {
             fill(mountpoint);
         }
         Ok(())
