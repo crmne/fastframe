@@ -84,8 +84,10 @@ mod helper;
 mod host;
 mod macos;
 mod release;
+mod rename;
 #[cfg(feature = "reqwest")]
 mod reqwest_transport;
+mod shortcuts;
 mod signing;
 mod stage;
 mod startup;

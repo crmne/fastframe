@@ -137,6 +137,9 @@ struct BundleInfo {
 
 type Volume = Box<dyn Fn(&Path) + Send + Sync>;
 
+/// The folders, old target and new target of a shortcut repointing.
+pub(crate) type Repointed = (Vec<PathBuf>, PathBuf, PathBuf);
+
 /// The operating system, as the tests want it.
 pub(crate) struct FakeHost {
     current_exe: Option<PathBuf>,
@@ -151,6 +154,7 @@ pub(crate) struct FakeHost {
     waited: Mutex<Vec<u32>>,
     installer_fails: bool,
     installers: Mutex<Vec<(PathBuf, Vec<String>)>>,
+    repointed: Mutex<Vec<Repointed>>,
     bundles: HashMap<PathBuf, BundleInfo>,
     any_bundle: Option<BundleInfo>,
     teams: HashMap<PathBuf, String>,
@@ -174,6 +178,7 @@ impl Default for FakeHost {
             waited: Mutex::default(),
             installer_fails: false,
             installers: Mutex::default(),
+            repointed: Mutex::default(),
             bundles: HashMap::new(),
             any_bundle: None,
             teams: HashMap::new(),
@@ -238,6 +243,10 @@ impl FakeHost {
 
     pub(crate) fn installers(&self) -> Vec<(PathBuf, Vec<String>)> {
         lock(&self.installers).clone()
+    }
+
+    pub(crate) fn repointed_shortcuts(&self) -> Vec<Repointed> {
+        lock(&self.repointed).clone()
     }
 
     pub(crate) fn with_bundle(
@@ -385,6 +394,11 @@ impl Host for FakeHost {
     fn run_installer(&self, installer: &Path, arguments: &[String]) -> Result<bool> {
         lock(&self.installers).push((installer.to_owned(), arguments.to_vec()));
         Ok(!self.installer_fails)
+    }
+
+    fn repoint_windows_shortcuts(&self, folders: &[PathBuf], old: &Path, new: &Path) -> Result<()> {
+        lock(&self.repointed).push((folders.to_vec(), old.to_owned(), new.to_owned()));
+        Ok(())
     }
 
     fn plist(&self, bundle: &Path, key: &str) -> Result<String> {

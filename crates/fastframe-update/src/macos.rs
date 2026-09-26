@@ -274,12 +274,22 @@ pub(crate) fn replace(config: &UpdateConfig, host: &dyn Host, staged: &Staged) -
         &staged.version,
     )?;
     drop(mounted);
+    let destination = renamed_bundle(config, target).unwrap_or_else(|| target.to_owned());
     fs::rename(target, &backup).context("Cannot back up the current app bundle")?;
-    if let Err(error) = fs::rename(&candidate, target) {
+    if let Err(error) = fs::rename(&candidate, &destination) {
         fs::rename(&backup, target).context("Could not restore the previous app bundle")?;
         return Err(error).context("Could not replace the app bundle");
     }
-    executable_path(host, target)
+    executable_path(host, &destination)
+}
+
+/// Where a bundle with a legacy name is updated to: `<app_name>.app` beside
+/// it, unless something already has that name.
+fn renamed_bundle(config: &UpdateConfig, bundle: &Path) -> Option<PathBuf> {
+    let name = bundle.file_name()?.to_str()?;
+    let own = bundle.with_file_name(format!("{}.app", config.app_name));
+    (config.macos.legacy_bundle_names.contains(&name) && fs::symlink_metadata(&own).is_err())
+        .then_some(own)
 }
 
 /// A signed executable is sealed to its bundle's Info.plist and resources,
@@ -303,13 +313,24 @@ pub(crate) fn helper(config: &UpdateConfig, host: &dyn Host, staged: &Staged) ->
 }
 
 /// Puts the previous bundle back, moving a failed one aside.
-pub(crate) fn restore(config: &UpdateConfig, staged: &Staged) -> Result<()> {
+/// Puts the previous bundle back. `installed` is the executable `replace`
+/// returned, if it returned: a renamed bundle is moved aside from its new
+/// name, and the previous one comes back under the old.
+pub(crate) fn restore(
+    config: &UpdateConfig,
+    staged: &Staged,
+    installed: Option<&Path>,
+) -> Result<()> {
     let backup = staged.file(PREVIOUS);
     if backup.is_dir() {
         let target =
             bundle_root(config, &staged.installation.executable).context("Missing app bundle")?;
-        if target.exists() {
-            fs::rename(target, staged.file(FAILED_APP))
+        let failed = installed
+            .and_then(|installed| bundle_root(config, installed))
+            .filter(|bundle| bundle.exists())
+            .unwrap_or(target);
+        if failed.exists() {
+            fs::rename(failed, staged.file(FAILED_APP))
                 .context("Could not move the failed update aside")?;
         }
         fs::rename(backup, target).context("Could not restore the previous app bundle")?;
@@ -611,7 +632,7 @@ mod tests {
             b"old executable"
         );
         assert!(replace(&ZAPFAST, &host, &staged).is_err(), "applied once");
-        restore(&ZAPFAST, &staged).unwrap();
+        restore(&ZAPFAST, &staged, None).unwrap();
         assert_eq!(
             fs::read(app.join("Contents/MacOS/zapfast")).unwrap(),
             b"old executable"

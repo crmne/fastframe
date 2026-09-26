@@ -87,7 +87,10 @@ pub fn intercept(config: &UpdateConfig) -> Launch {
             }
             std::process::exit(if result.is_ok() { 0 } else { 1 })
         }
-        Parsed::Launch(launch) => *launch,
+        Parsed::Launch(launch) => {
+            crate::rename::tidy(config, &OsHost, crate::detect::Platform::current());
+            *launch
+        }
     }
 }
 

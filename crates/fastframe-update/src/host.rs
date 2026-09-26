@@ -72,6 +72,9 @@ pub(crate) trait Host: Send + Sync {
     fn wait_for_parent(&self, parent: u32, ready: &Path) -> Result<()>;
     /// Runs an installer to completion; whether it succeeded.
     fn run_installer(&self, installer: &Path, arguments: &[String]) -> Result<bool>;
+    /// Windows: points the `.lnk` shortcuts in `folders` and below whose
+    /// target is `old` at `new`.
+    fn repoint_windows_shortcuts(&self, folders: &[PathBuf], old: &Path, new: &Path) -> Result<()>;
 
     // macOS tools.
     /// A key of the bundle's Info.plist.
@@ -259,6 +262,44 @@ mod os {
             command.args(arguments);
             hidden(&mut command);
             Ok(command.status()?.success())
+        }
+
+        fn repoint_windows_shortcuts(
+            &self,
+            folders: &[PathBuf],
+            old: &Path,
+            new: &Path,
+        ) -> Result<()> {
+            ensure!(cfg!(windows), "Shortcuts are only repointed on Windows");
+            // Shortcuts are COM objects; Windows PowerShell ships with every
+            // supported Windows and reaches them without another crate.
+            let mut folder_list = OsString::new();
+            for folder in folders {
+                folder_list.push(folder);
+                folder_list.push("\n");
+            }
+            let mut command = Command::new("powershell.exe");
+            command
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    crate::shortcuts::WINDOWS_SCRIPT,
+                ])
+                .env("FASTFRAME_OLD", old)
+                .env("FASTFRAME_NEW", new)
+                .env("FASTFRAME_FOLDERS", folder_list)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            hidden(&mut command);
+            ensure!(
+                command.status()?.success(),
+                "Could not repoint the shortcuts"
+            );
+            Ok(())
         }
 
         fn plist(&self, bundle: &Path, key: &str) -> Result<String> {

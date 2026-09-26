@@ -8,7 +8,8 @@ if the new version does not start.
 Extracted from ZapFast (0.16) and Spotifast (0.10), whose updaters had
 drifted apart. It keeps ZapFast's publisher signatures and whole-bundle macOS
 helper, and Spotifast's legacy names, renamed macOS executables and helper
-log.
+log. Installations under a legacy name move onto the new one as they
+update (see [Renamed apps](#renamed-apps)).
 
 ## Using it
 
@@ -154,6 +155,40 @@ architecture of the running executable (`std::env::consts::ARCH`): an arm64
 executable only runs on Apple silicon, and an x86_64 one (an Intel Mac, or
 an older universal build under Rosetta) has no image to update to. Linux and
 Windows asset names do not change.
+
+## Renamed apps
+
+An app that changed its name lists the old ones in `legacy_names` (and, on
+macOS, `macos.legacy_bundle_names` and `macos.executable_names`). Their
+marker files, staging folders and `--version` answers keep working, and
+each update moves an installation that still runs under an old name onto
+the new one:
+
+- **Windows installer.** The setup program installs `<slug>.exe`. When the
+  helper was started from a legacy executable, it relaunches `<slug>.exe`
+  instead, and deletes the legacy executable once that start is
+  acknowledged. An app that starts as `<slug>.exe` with no update in
+  progress deletes legacy executables beside it too (from `intercept`),
+  since a helper from before this change relaunches the executable it was
+  started from: the app's setup program has to keep installing a copy under
+  the legacy name, which the next start removes.
+- **Portable copy (Linux, Windows).** The update is written as `<slug>`
+  beside the old file, unless something already has that name or the app
+  sets `portable_executable`. On Unix the old name becomes a symbolic link
+  to it, so scripts that name it keep working; on Windows it is deleted.
+- **macOS.** A bundle with a legacy bundle name is installed as
+  `<app_name>.app` in the same folder.
+
+A failed start rolls back under the old name, and removes the new one.
+Once a rename sticks, the launchers that named the old path exactly are
+repointed at the new one: on Linux the `.desktop` files in
+`$XDG_DATA_HOME/applications`, `$XDG_CONFIG_HOME/autostart` and
+`~/Desktop` whose `Exec` or `TryExec` runs it, and the symbolic links in
+`~/.local/bin` and `~/bin`; on Windows the shortcuts in the Start menu
+(with the Startup folder), on the desktop and pinned to the taskbar,
+through Windows PowerShell. Scripts and other files are left alone. A
+launcher that cannot be rewritten keeps its old target, and never fails an
+update.
 
 ## The contract between versions
 

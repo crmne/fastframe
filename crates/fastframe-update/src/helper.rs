@@ -116,22 +116,33 @@ pub(crate) fn run(config: &UpdateConfig, host: &dyn Host, job: &Path) -> Result<
     host.wait_for_parent(handoff.parent, &original.file(READY))?;
     // From here on something may have changed on disk, so every failure
     // rolls back to `original` and restarts the previous app.
-    let fail = |error: anyhow::Error, message: &str, arguments: &[String]| -> Result<()> {
-        restore(config, &original)?;
+    // `installed` is what `replace` put in place, when it got that far: an
+    // update that renamed the app is undone under both names.
+    let fail = |error: anyhow::Error,
+                message: &str,
+                arguments: &[String],
+                installed: Option<&Path>|
+     -> Result<()> {
+        restore(config, &original, installed)?;
         fs::write(original.file(RESULT), format!("{message}: {error:#}"))?;
         restart_with_error(host, &original.installation.executable, arguments)?;
         Err(error)
     };
     let executable = match replace(config, host, &original) {
         Ok(executable) => executable,
-        Err(error) => return fail(error, "Update failed", &handoff.arguments),
+        Err(error) => return fail(error, "Update failed", &handoff.arguments, None),
     };
     if executable != original.installation.executable {
         // The relaunched app reads this same file as its receipt, so it has
         // to name the executable that is now installed.
         handoff.prepared.installation.executable = executable.clone();
         if let Err(error) = stage::rewrite_handoff(job, &handoff) {
-            return fail(error, "Update failed", &handoff.arguments);
+            return fail(
+                error,
+                "Update failed",
+                &handoff.arguments,
+                Some(&executable),
+            );
         }
     }
     let mut arguments: Vec<OsString> = handoff.arguments.iter().map(OsString::from).collect();
@@ -163,7 +174,24 @@ pub(crate) fn run(config: &UpdateConfig, host: &dyn Host, job: &Path) -> Result<
             error,
             "Update failed; restored the previous app",
             &handoff.arguments,
+            Some(&executable),
         );
+    }
+    // The update is kept; the old name's launchers follow the new one.
+    let platform = crate::detect::Platform::current();
+    match original.installation.kind {
+        Kind::Portable if executable != original.installation.executable => {
+            crate::shortcuts::repoint(
+                host,
+                platform,
+                &original.installation.executable,
+                &executable,
+            );
+        }
+        Kind::WindowsInstaller => {
+            crate::rename::remove_legacy(config, host, platform, &executable);
+        }
+        _ => {}
     }
     fs::write(
         original.file(RESULT),
@@ -185,13 +213,24 @@ fn replace(config: &UpdateConfig, host: &dyn Host, staged: &Staged) -> Result<Pa
         Kind::Portable => {
             ensure!(!backup.exists(), "This update was already applied");
             stage::backup_current(target, &backup).context("Cannot back up the current app")?;
+            // A copy under a legacy name comes back under the slug.
+            let installed =
+                crate::rename::portable_target(config, target).unwrap_or_else(|| target.clone());
             // Windows cannot rename over an existing file.
             #[cfg(windows)]
             fs::remove_file(target).context("The app is still running or cannot be replaced")?;
-            if let Err(error) = fs::rename(&staged.payload, target) {
+            if let Err(error) = fs::rename(&staged.payload, &installed) {
                 #[cfg(windows)]
                 fs::copy(&backup, target).context("Could not restore the previous app")?;
                 return Err(error).context("Could not replace the app");
+            }
+            if installed != *target {
+                if let Err(error) = crate::rename::retire(target, &installed) {
+                    crate::rename::undo_portable(target, &installed, &backup)
+                        .context("Could not restore the previous app")?;
+                    return Err(error).context("Could not rename the app");
+                }
+                return Ok(installed);
             }
         }
         Kind::WindowsInstaller => {
@@ -204,17 +243,30 @@ fn replace(config: &UpdateConfig, host: &dyn Host, staged: &Staged) -> Result<Pa
                 )?,
                 "The installer failed. See the update installer log."
             );
+            // An app still running under a legacy name comes back under its
+            // own, which the setup program installed beside it.
+            if let Some(own) = crate::rename::own_executable(config, target) {
+                return Ok(own);
+            }
         }
     }
     Ok(target.clone())
 }
 
-/// Puts the previous version back, if a backup was taken.
-fn restore(config: &UpdateConfig, staged: &Staged) -> Result<()> {
+/// Puts the previous version back, if a backup was taken. `installed` is the
+/// executable `replace` returned, if it returned.
+fn restore(config: &UpdateConfig, staged: &Staged, installed: Option<&Path>) -> Result<()> {
     if staged.installation.kind == Kind::MacBundle {
-        return crate::macos::restore(config, staged);
+        return crate::macos::restore(config, staged, installed);
     }
     let backup = staged.file(PREVIOUS);
+    let target = &staged.installation.executable;
+    if staged.installation.kind == Kind::Portable
+        && let Some(renamed) = installed.filter(|installed| installed != target)
+    {
+        return crate::rename::undo_portable(target, renamed, &backup)
+            .context("Could not restore the previous app");
+    }
     if backup.is_file() {
         fs::copy(&backup, &staged.installation.executable)
             .context("Could not restore the previous app")?;
@@ -574,6 +626,134 @@ mod tests {
         );
     }
 
+    /// Spotifast #582: an installation still running as `fastpotify.exe`
+    /// comes back as the `spotifast.exe` its setup program installed, and
+    /// the old file goes once that start succeeds. A failed start restarts
+    /// the old name, which still works.
+    #[test]
+    fn an_installer_update_moves_a_legacy_name_onto_the_slug() {
+        const SPOTIFAST: UpdateConfig = UpdateConfig {
+            legacy_names: &["fastpotify"],
+            ..UpdateConfig::new("crmne/spotifast", "Spotifast", "spotifast", "0.10.3")
+        };
+        for acknowledges in [true, false] {
+            let root = tempfile::tempdir().unwrap();
+            let root = root.path().canonicalize().unwrap();
+            let legacy = root.join("fastpotify.exe");
+            fs::write(&legacy, b"old executable").unwrap();
+            // What the setup program leaves beside it.
+            let own = root.join("spotifast.exe");
+            fs::write(&own, b"new executable").unwrap();
+            let installation = Installation {
+                executable: legacy.clone(),
+                kind: Kind::WindowsInstaller,
+            };
+            let directory = stage::staging(&SPOTIFAST, &installation).unwrap();
+            let payload = directory.join("spotifast-v0.10.4-x86_64-pc-windows-msvc-setup.exe");
+            fs::write(&payload, b"setup").unwrap();
+            let staged = Staged {
+                sha256: stage::hash(&payload).unwrap(),
+                installation,
+                directory,
+                payload,
+                version: "0.10.4".into(),
+            };
+            let job = write_job(&staged);
+            let host = FakeHost::default().on_spawn(if acknowledges {
+                Behaviour::Acknowledge
+            } else {
+                Behaviour::Exit(false)
+            });
+            let result = run(&SPOTIFAST, &host, &job);
+            let spawned = host.spawned();
+            assert_eq!(spawned[0].executable, own);
+            if acknowledges {
+                result.unwrap();
+                assert_eq!(
+                    stage::read_handoff(&job)
+                        .unwrap()
+                        .prepared
+                        .installation
+                        .executable,
+                    own,
+                    "the receipt names the executable that starts"
+                );
+                assert!(!legacy.exists(), "the old name is gone");
+                assert!(own.is_file());
+            } else {
+                assert!(result.is_err());
+                assert_eq!(spawned.len(), 2);
+                assert_eq!(spawned[1].executable, legacy);
+                assert_eq!(fs::read(&legacy).unwrap(), b"old executable");
+            }
+        }
+    }
+
+    /// A portable copy still called `fastpotify` updates to `spotifast`. On
+    /// Unix the old name stays as a link for scripts; a failed start puts
+    /// the old file back under the old name and removes the new one.
+    #[test]
+    fn a_portable_copy_moves_off_a_legacy_name() {
+        const SPOTIFAST: UpdateConfig = UpdateConfig {
+            legacy_names: &["fastpotify"],
+            ..UpdateConfig::new("crmne/spotifast", "Spotifast", "spotifast", "0.10.3")
+        };
+        let extension = std::env::consts::EXE_SUFFIX;
+        for acknowledges in [true, false] {
+            let root = tempfile::tempdir().unwrap();
+            let root = root.path().canonicalize().unwrap();
+            let legacy = root.join(format!("fastpotify{extension}"));
+            fs::write(&legacy, b"old executable").unwrap();
+            let installation = Installation {
+                executable: legacy.clone(),
+                kind: Kind::Portable,
+            };
+            let directory = stage::staging(&SPOTIFAST, &installation).unwrap();
+            let payload = directory.join(format!("spotifast{extension}"));
+            fs::write(&payload, b"new executable").unwrap();
+            let staged = Staged {
+                sha256: stage::hash(&payload).unwrap(),
+                installation,
+                directory,
+                payload,
+                version: "0.10.4".into(),
+            };
+            let job = write_job(&staged);
+            let host = FakeHost::default().on_spawn(if acknowledges {
+                Behaviour::Acknowledge
+            } else {
+                Behaviour::Exit(false)
+            });
+            let result = run(&SPOTIFAST, &host, &job);
+            let own = root.join(format!("spotifast{extension}"));
+            let spawned = host.spawned();
+            assert_eq!(spawned[0].executable, own);
+            if acknowledges {
+                result.unwrap();
+                assert_eq!(fs::read(&own).unwrap(), b"new executable");
+                assert_eq!(
+                    stage::read_handoff(&job)
+                        .unwrap()
+                        .prepared
+                        .installation
+                        .executable,
+                    own
+                );
+                if cfg!(unix) {
+                    assert_eq!(fs::read(&legacy).unwrap(), b"new executable", "a link");
+                } else {
+                    assert!(!legacy.exists());
+                }
+            } else {
+                assert!(result.is_err());
+                assert_eq!(spawned[1].executable, legacy);
+                assert!(fs::symlink_metadata(&own).is_err());
+                assert!(!fs::symlink_metadata(&legacy).unwrap().is_symlink());
+                assert_eq!(fs::read(&legacy).unwrap(), b"old executable");
+            }
+        }
+    }
+
     #[test]
     fn the_helper_refuses_a_job_from_a_used_or_foreign_folder() {
         for marker in [READY, STARTED, RESULT, PREVIOUS] {
@@ -681,6 +861,77 @@ mod tests {
                     fs::read(staged.file("failed.app/Contents/MacOS/Spotifast")).unwrap(),
                     b"new executable"
                 );
+            }
+        }
+    }
+
+    /// A bundle still called `Fastpotify.app` comes back as `Spotifast.app`,
+    /// and a failed start puts `Fastpotify.app` back.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_legacy_bundle_name_is_renamed_and_rolled_back() {
+        use crate::testing::bundle;
+        const SPOTIFAST: UpdateConfig = UpdateConfig {
+            legacy_names: &["fastpotify"],
+            macos: crate::MacConfig {
+                bundle_ids: &["rocks.spotifast.Spotifast"],
+                executable_names: &["fastpotify", "Spotifast"],
+                legacy_bundle_names: &["Fastpotify.app"],
+            },
+            ..UpdateConfig::new("crmne/spotifast", "Spotifast", "spotifast", "0.10.3")
+        };
+        for acknowledges in [true, false] {
+            let root = tempfile::tempdir().unwrap();
+            let root = root.path().canonicalize().unwrap();
+            let legacy = root.join("Fastpotify.app");
+            bundle(&legacy, "Spotifast", b"old executable", b"old metadata");
+            let installation = Installation {
+                executable: legacy.join("Contents/MacOS/Spotifast"),
+                kind: Kind::MacBundle,
+            };
+            let directory = stage::staging(&SPOTIFAST, &installation).unwrap();
+            let payload = directory.join("spotifast-v0.10.4-macos-universal.dmg");
+            fs::write(&payload, b"disk image").unwrap();
+            let staged = Staged {
+                sha256: stage::hash(&payload).unwrap(),
+                installation: installation.clone(),
+                directory,
+                payload: payload.clone(),
+                version: "0.10.4".into(),
+            };
+            let job = write_job(&staged);
+            let host = FakeHost::default()
+                .with_image(&payload, |volume| {
+                    bundle(
+                        &volume.join("Spotifast.app"),
+                        "Spotifast",
+                        b"new executable",
+                        b"new metadata",
+                    );
+                })
+                .with_any_bundle("rocks.spotifast.Spotifast", "Spotifast", "0.10.4")
+                .with_version_output("spotifast 0.10.4")
+                .on_spawn(if acknowledges {
+                    Behaviour::Acknowledge
+                } else {
+                    Behaviour::Exit(false)
+                });
+            let result = run(&SPOTIFAST, &host, &job);
+            let spawned = host.spawned();
+            let renamed = root.join("Spotifast.app/Contents/MacOS/Spotifast");
+            assert_eq!(spawned[0].executable, renamed);
+            if acknowledges {
+                result.unwrap();
+                assert_eq!(fs::read(&renamed).unwrap(), b"new executable");
+                assert!(!legacy.exists(), "the old bundle name is gone");
+            } else {
+                assert!(result.is_err());
+                assert_eq!(spawned[1].executable, installation.executable);
+                assert_eq!(
+                    fs::read(&installation.executable).unwrap(),
+                    b"old executable"
+                );
+                assert!(!root.join("Spotifast.app").exists());
             }
         }
     }
