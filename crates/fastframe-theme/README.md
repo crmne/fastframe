@@ -137,3 +137,30 @@ can be tested without touching the desktop.
 
 On macOS and Windows the catalogue lists files and presets only;
 `follows_omarchy()` is false and `needs_reload()` never fires.
+
+## Revealing a change of colours
+
+`Transition` reveals new colours from the middle of the window outwards, as
+Omarchy does when its theme changes. Keep one per window. When the palette
+is about to change, call `begin`, and keep drawing the old palette while
+`holding` says so; when it stops holding, apply the new one. Call `paint`
+last in every frame.
+
+```rust
+if app.applied != app.wanted {
+    app.transition.begin(ctx);
+    if !app.transition.holding(ctx) {
+        app.apply(app.wanted);
+    }
+}
+// ... draw the interface, then:
+app.transition.paint(ctx);
+```
+
+`begin` asks the window for a screenshot with the old colours. When it
+arrives, `paint` lays it over the new colours for 0.6 seconds with a
+soft-edged circle cut out of its middle that grows past the corners. A
+window that sends no screenshot (hidden, or a renderer without them) gets
+its new colours after a quarter of a second, without the reveal. Skip
+`begin` for the first palette a window draws.
+

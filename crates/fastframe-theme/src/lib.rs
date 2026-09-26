@@ -44,7 +44,8 @@
 //!
 //! [`Catalog`] lists the palette files in a directory on a background thread,
 //! adds the [`presets`] and, on Linux, the current Omarchy palette
-//! ([`omarchy`]), and watches both for changes.
+//! ([`omarchy`]), and watches both for changes. [`Transition`] reveals a
+//! change of colours from the middle of the window outwards.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -53,6 +54,7 @@ use egui::Color32;
 mod catalog;
 pub mod omarchy;
 pub mod presets;
+mod transition;
 #[cfg(target_os = "linux")]
 mod watch;
 
@@ -60,6 +62,7 @@ pub use catalog::{
     Catalog, DesktopThemes, MAX_DIRECTORY_ENTRIES, MAX_FILE_BYTES, MAX_THEMES, Problem, Status,
     Waker,
 };
+pub use transition::Transition;
 
 /// The colour names every app's palette understands: the sixteen interface
 /// colours Spotifast defined and ZapFast adopted.
