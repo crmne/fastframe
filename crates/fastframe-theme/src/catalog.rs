@@ -257,10 +257,20 @@ impl<P: Palette> Catalog<P> {
             {
                 log::warn!("unable to prepare the optional Omarchy theme: {error}");
             }
-            if presets && let Err(error) = presets::write_examples(&scan.directory) {
-                log::warn!("unable to write the example themes: {error}");
-            }
-            let loaded = with_presets(&scan.directory, scan.selected.as_deref(), presets);
+            let installed = if presets {
+                presets::install(&scan.directory).unwrap_or_else(|error| {
+                    log::warn!("unable to install the shared palettes: {error}");
+                    std::collections::BTreeSet::new()
+                })
+            } else {
+                std::collections::BTreeSet::new()
+            };
+            let loaded = with_presets(
+                &scan.directory,
+                scan.selected.as_deref(),
+                presets,
+                &installed,
+            );
             #[cfg(target_os = "linux")]
             let loaded = {
                 let mut loaded = loaded;
@@ -415,8 +425,15 @@ impl<P: Palette> Catalog<P> {
 }
 
 /// Lists the directory and, when asked, adds the presets it does not
-/// override.
-fn with_presets<P: Palette>(directory: &Path, selected: Option<&str>, presets: bool) -> Loaded<P> {
+/// override. A preset in `installed` was written into the directory and is
+/// the user's file now, read from there like any other: when it is gone,
+/// it was deleted, and it is not added back.
+fn with_presets<P: Palette>(
+    directory: &Path,
+    selected: Option<&str>,
+    presets: bool,
+    installed: &std::collections::BTreeSet<String>,
+) -> Loaded<P> {
     // A preset selected without a local override is added below; reading it
     // from the directory would only log that it is missing.
     let selected_file = selected.filter(|filename| {
@@ -425,6 +442,9 @@ fn with_presets<P: Palette>(directory: &Path, selected: Option<&str>, presets: b
     let mut loaded = discover(directory, selected_file);
     if presets {
         for theme in presets::themes::<P>() {
+            if installed.contains(&theme.filename) {
+                continue;
+            }
             let listed = loaded
                 .themes
                 .iter()
@@ -580,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_palettes_need_no_local_files_and_valid_overrides_win() {
+    fn shared_palettes_are_installed_as_files_and_the_users_override_wins() {
         let directory = tempfile::tempdir().unwrap();
         std::fs::write(
             directory.path().join("Nord.json"),
@@ -609,44 +629,56 @@ mod tests {
             Color32::from_rgb(0x10, 0x20, 0x30)
         );
         assert!(catalog.find("Rose Pine Dawn.json").is_some());
-        // The only palette file where themes are loaded from is the user's
-        // own, unchanged; the shared ones are copied into the examples
-        // folder, which is never loaded.
-        let files: Vec<String> = std::fs::read_dir(directory.path())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|name| name.ends_with(".json"))
-            .collect();
-        assert_eq!(files, ["Nord.json"], "shared palettes create no user files");
+        // The shared palettes are installed as files beside the user's own,
+        // which keeps its override.
+        for (name, _) in presets::FILES {
+            assert!(directory.path().join(name).is_file(), "{name}");
+        }
         assert!(
-            directory
-                .path()
-                .join(presets::EXAMPLES)
-                .join("Rose Pine Dawn.json")
-                .is_file()
+            std::fs::read_to_string(directory.path().join("Nord.json"))
+                .unwrap()
+                .contains("102030"),
+            "the user's Nord is untouched"
         );
-        assert_eq!(catalog.themes().len(), 8, "the examples are not loaded");
+
+        // A deleted palette stays deleted.
+        std::fs::remove_file(directory.path().join("Tokyo Night.json")).unwrap();
+        catalog.start(directory.path().into(), None, &Waker::default());
+        wait(&mut catalog);
+        assert!(catalog.find("Tokyo Night.json").is_none());
+        assert_eq!(catalog.themes().len(), 7);
     }
 
     #[test]
     fn a_broken_override_of_a_selected_preset_keeps_the_selection_unavailable() {
         let directory = tempfile::tempdir().unwrap();
         std::fs::write(directory.path().join("Nord.json"), "broken").unwrap();
-        let loaded: Loaded<Colors> = with_presets(directory.path(), Some("Nord.json"), true);
+        let loaded: Loaded<Colors> = with_presets(
+            directory.path(),
+            Some("Nord.json"),
+            true,
+            &Default::default(),
+        );
         assert!(
             loaded
                 .themes
                 .iter()
                 .all(|theme| theme.filename != "Nord.json")
         );
-        let loaded: Loaded<Colors> = with_presets(directory.path(), Some("Tokyo Night.json"), true);
+        let loaded: Loaded<Colors> = with_presets(
+            directory.path(),
+            Some("Tokyo Night.json"),
+            true,
+            &Default::default(),
+        );
         assert!(
             loaded
                 .themes
                 .iter()
                 .any(|theme| theme.filename == "Nord.json")
         );
-        let loaded: Loaded<Colors> = with_presets(directory.path(), None, false);
+        let loaded: Loaded<Colors> =
+            with_presets(directory.path(), None, false, &Default::default());
         assert!(loaded.themes.is_empty(), "presets only when asked for");
     }
 

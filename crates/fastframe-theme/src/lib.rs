@@ -43,7 +43,8 @@
 //! a file leaves them out ([`Palette::derive`]).
 //!
 //! [`Catalog`] lists the palette files in a directory on a background thread,
-//! adds the [`presets`] and, on Linux, the current Omarchy palette
+//! installs the [`presets`] there as files and, on Linux, adds the current
+//! Omarchy palette
 //! ([`omarchy`]), and watches both for changes. [`Transition`] reveals a
 //! change of colours from the middle of the window outwards.
 

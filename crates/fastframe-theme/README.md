@@ -99,15 +99,18 @@ Catppuccin Latte, Nord, Ristretto, Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn
 and Tokyo Night. With `presets: true` they are listed alongside the user's
 files; a user file with the same name overrides one.
 
-So people can read them and start their own from one, the catalogue also
-keeps a copy of each in an `examples` folder inside the themes directory,
-with a README explaining it. The folder is refreshed on every scan (only
-files whose contents differ are rewritten, through a rename), and the
-catalogue never loads it, so a later version's palettes still arrive and
-nothing there can freeze one. Copying an example up into the themes
-directory makes it the user's own theme. `presets::write_examples` does the
-writing; it creates the folders when missing and never follows a symbolic
-link.
+With presets on, the catalogue also installs them into the app's themes
+directory (for example `~/.config/<app>/themes`) the first time it scans,
+as ordinary palette files people can read, change, copy or delete. From
+then on they are the user's: an installed palette is read from the folder
+like any other and never rewritten, so an edit lasts and a deleted one
+stays deleted. `.installed-palettes` in the folder records which were
+installed, so a palette added in a later version is installed once when it
+arrives, and never over a file that already has its name. Writes go
+through a temporary file and a rename, never through a symbolic link.
+`presets::install` does this; the embedded copies still fill in for any
+palette that could not be written. The `examples` folder 0.1.4 kept is
+removed when nobody changed it.
 
 `display_name` shows a file under its name without `.json` ("Nord",
 "Rose Pine Dawn"), and the Omarchy palette as "Omarchy".
