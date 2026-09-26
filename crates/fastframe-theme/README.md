@@ -97,7 +97,20 @@ if app.custom_themes.poll() { /* re-resolve the selected palette */ }
 `presets` embeds eight palettes in the sixteen base colours: Catppuccin,
 Catppuccin Latte, Nord, Ristretto, Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn
 and Tokyo Night. With `presets: true` they are listed alongside the user's
-files; a user file with the same name overrides one. They create no files.
+files; a user file with the same name overrides one.
+
+So people can read them and start their own from one, the catalogue also
+keeps a copy of each in an `examples` folder inside the themes directory,
+with a README explaining it. The folder is refreshed on every scan (only
+files whose contents differ are rewritten, through a rename), and the
+catalogue never loads it, so a later version's palettes still arrive and
+nothing there can freeze one. Copying an example up into the themes
+directory makes it the user's own theme. `presets::write_examples` does the
+writing; it creates the folders when missing and never follows a symbolic
+link.
+
+`display_name` shows a file under its name without `.json` ("Nord",
+"Rose Pine Dawn"), and the Omarchy palette as "Omarchy".
 
 ## Omarchy
 

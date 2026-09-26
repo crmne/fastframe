@@ -171,14 +171,19 @@ pub struct CustomTheme<P> {
 }
 
 /// The name a theme's filename is shown under: "Omarchy" for the live
-/// desktop palette, the filename otherwise.
+/// desktop palette, and the filename without its `.json` otherwise.
 #[must_use]
 pub fn display_name(filename: &str) -> &str {
     if filename == omarchy::FILENAME {
-        "Omarchy"
-    } else {
-        filename
+        return "Omarchy";
     }
+    let stem = filename.len().checked_sub(".json".len()).and_then(|at| {
+        filename
+            .get(at..)
+            .filter(|extension| extension.eq_ignore_ascii_case(".json"))
+            .and_then(|_| filename.get(..at))
+    });
+    stem.filter(|stem| !stem.is_empty()).unwrap_or(filename)
 }
 
 /// Reads a cached theme from settings, treating a damaged one as absent so
@@ -343,6 +348,10 @@ mod tests {
     #[test]
     fn the_live_desktop_palette_has_a_name() {
         assert_eq!(display_name("omarchy.json"), "Omarchy");
-        assert_eq!(display_name("Nord.json"), "Nord.json");
+        assert_eq!(display_name("Nord.json"), "Nord");
+        assert_eq!(display_name("Rose Pine Dawn.json"), "Rose Pine Dawn");
+        assert_eq!(display_name("mine.JSON"), "mine");
+        assert_eq!(display_name(".json"), ".json", "nothing left to show");
+        assert_eq!(display_name("notes"), "notes");
     }
 }

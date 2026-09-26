@@ -257,6 +257,9 @@ impl<P: Palette> Catalog<P> {
             {
                 log::warn!("unable to prepare the optional Omarchy theme: {error}");
             }
+            if presets && let Err(error) = presets::write_examples(&scan.directory) {
+                log::warn!("unable to write the example themes: {error}");
+            }
             let loaded = with_presets(&scan.directory, scan.selected.as_deref(), presets);
             #[cfg(target_os = "linux")]
             let loaded = {
@@ -606,11 +609,23 @@ mod tests {
             Color32::from_rgb(0x10, 0x20, 0x30)
         );
         assert!(catalog.find("Rose Pine Dawn.json").is_some());
-        assert_eq!(
-            std::fs::read_dir(directory.path()).unwrap().count(),
-            1,
-            "shared palettes neither replace nor create user files"
+        // The only palette file where themes are loaded from is the user's
+        // own, unchanged; the shared ones are copied into the examples
+        // folder, which is never loaded.
+        let files: Vec<String> = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".json"))
+            .collect();
+        assert_eq!(files, ["Nord.json"], "shared palettes create no user files");
+        assert!(
+            directory
+                .path()
+                .join(presets::EXAMPLES)
+                .join("Rose Pine Dawn.json")
+                .is_file()
         );
+        assert_eq!(catalog.themes().len(), 8, "the examples are not loaded");
     }
 
     #[test]
