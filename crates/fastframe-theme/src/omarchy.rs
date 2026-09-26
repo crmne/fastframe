@@ -140,6 +140,9 @@ mod setup {
     pub(crate) struct Setup {
         pub(crate) slug: &'static str,
         pub(crate) template: &'static str,
+        /// Templates earlier versions packaged; see
+        /// [`crate::DesktopThemes::omarchy_previous_templates`].
+        pub(crate) previous: &'static [&'static str],
         pub(crate) assets: PathBuf,
         pub(crate) home: PathBuf,
     }
@@ -147,11 +150,16 @@ mod setup {
     impl Setup {
         /// The set-up for the running executable: packaged assets in
         /// `<prefix>/share/<slug>/omarchy` beside `<prefix>/bin`.
-        pub(crate) fn discover(slug: &'static str, template: &'static str) -> Option<Self> {
+        pub(crate) fn discover(
+            slug: &'static str,
+            template: &'static str,
+            previous: &'static [&'static str],
+        ) -> Option<Self> {
             let executable = std::env::current_exe().ok()?;
             Some(Self {
                 slug,
                 template,
+                previous,
                 assets: executable
                     .parent()?
                     .parent()?
@@ -191,13 +199,19 @@ mod setup {
         ) -> io::Result<CustomTheme<P>> {
             let current = self.watch_directory().join("theme");
             let rendered = current.join(format!("{}.json", self.slug));
-            let text = if rendered.is_file() {
+            let custom = self
+                .home
+                .join(".config/omarchy/themed")
+                .join(format!("{}.json.tpl", self.slug));
+            // Omarchy renders the template when its theme changes, so a
+            // template replaced since then has not been rendered yet.
+            let modified = |path: &Path| fs::metadata(path).and_then(|file| file.modified()).ok();
+            let stale = modified(&custom)
+                .zip(modified(&rendered))
+                .is_some_and(|(template, rendering)| template > rendering);
+            let text = if rendered.is_file() && !stale {
                 read_small(&rendered)?
             } else {
-                let custom = self
-                    .home
-                    .join(".config/omarchy/themed")
-                    .join(format!("{}.json.tpl", self.slug));
                 let template = if custom.is_file() {
                     read_small(&custom)?
                 } else {
@@ -225,13 +239,21 @@ mod setup {
             let template = read_small(&self.assets.join(format!("{slug}.json.tpl")))?;
             let hook = read_small(&self.assets.join(format!("{slug}-theme")))?;
             let template_path = config.join("themed").join(format!("{slug}.json.tpl"));
-            create_only(&template_path, template.as_bytes(), 0o644)?;
-            create_only(
+            upgrade(
+                &template_path,
+                &template,
+                0o644,
+                &themes.join(".omarchy-template"),
+                self.previous,
+            )?;
+            upgrade(
                 &config
                     .join("hooks/theme-set.d")
                     .join(format!("{slug}-theme")),
-                hook.as_bytes(),
+                &hook,
                 0o755,
+                &themes.join(".omarchy-hook"),
+                &[],
             )?;
 
             let destination = themes.join(super::FILENAME);
@@ -253,6 +275,70 @@ mod setup {
             crate::parse_palette::<P>(&palette).map_err(io::Error::other)?;
             create_only(&destination, palette.as_bytes(), 0o644)
         }
+    }
+
+    /// Installs `contents` at `destination`, or replaces what is there when
+    /// the user never changed it: it reads as `record` says this app last
+    /// installed, or as one of `previous`. Anything else there, including a
+    /// symbolic link, is the user's and stays. `record` then holds what is
+    /// installed.
+    fn upgrade(
+        destination: &Path,
+        contents: &str,
+        mode: u32,
+        record: &Path,
+        previous: &[&str],
+    ) -> io::Result<()> {
+        let installed = match fs::symlink_metadata(destination) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                create_only(destination, contents.as_bytes(), mode)?;
+                return remember(record, contents);
+            }
+            Err(error) => return Err(error),
+            Ok(metadata) if !metadata.is_file() => return Ok(()),
+            Ok(_) => read_small(destination)?,
+        };
+        if installed == contents {
+            return remember(record, contents);
+        }
+        let ours = fs::read_to_string(record).is_ok_and(|last| last == installed)
+            || previous.contains(&installed.as_str());
+        if !ours {
+            return Ok(());
+        }
+        replace(destination, contents.as_bytes(), mode)?;
+        remember(record, contents)
+    }
+
+    /// Writes `record` when it does not already hold `contents`.
+    fn remember(record: &Path, contents: &str) -> io::Result<()> {
+        if fs::read_to_string(record).is_ok_and(|last| last == contents) {
+            return Ok(());
+        }
+        replace(record, contents.as_bytes(), 0o644)
+    }
+
+    /// Replaces `destination` with a complete file through a rename.
+    fn replace(destination: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
+        let parent = destination
+            .parent()
+            .ok_or_else(|| io::Error::other("missing parent"))?;
+        fs::create_dir_all(parent)?;
+        let temporary = parent.join(format!(".fastframe-setup-{}", unique()));
+        let result = (|| {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(mode)
+                .open(&temporary)?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            fs::rename(&temporary, destination)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result
     }
 
     /// Omarchy's current colours, from its own tool.
@@ -339,10 +425,14 @@ mod setup {
             ),
         ];
 
+        /// A template an earlier version of the app packaged.
+        const OLD_TEMPLATE: &str = r#"{"base":"dark","colors":{"panel":"{{ background }}"}}"#;
+
         fn setup(root: &Path) -> Setup {
             Setup {
                 slug: "app",
                 template: crate::omarchy::BASE_TEMPLATE,
+                previous: &[OLD_TEMPLATE],
                 assets: root.join("package/share/app/omarchy"),
                 home: root.join("user"),
             }
@@ -472,7 +562,99 @@ mod setup {
                     .count(),
                 1
             );
-            assert_eq!(fs::read_dir(&themes).unwrap().count(), 1);
+            // The palette, and the records of what was installed.
+            let mut names: Vec<String> = fs::read_dir(&themes)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            assert_eq!(
+                names,
+                [".omarchy-hook", ".omarchy-template", "omarchy.json"]
+            );
+        }
+
+        /// Prepares a package and an Omarchy desktop, and returns the
+        /// installed template's path and the app's themes folder.
+        fn desktop(root: &Path, setup: &Setup, template: &str) -> (PathBuf, PathBuf) {
+            let config = setup.home.join(".config/omarchy");
+            let current = setup.watch_directory().join("theme");
+            let themes = root.join("profile/themes");
+            for path in [&setup.assets, &config, &current, &themes] {
+                fs::create_dir_all(path).unwrap();
+            }
+            fs::write(setup.assets.join("app.json.tpl"), template).unwrap();
+            fs::write(
+                setup.assets.join("app-theme"),
+                crate::omarchy::hook_script("app"),
+            )
+            .unwrap();
+            fs::write(current.join("app.json"), "{}").unwrap();
+            (config.join("themed/app.json.tpl"), themes)
+        }
+
+        #[test]
+        fn an_untouched_template_is_replaced_by_the_packaged_one() {
+            let root = tempfile::tempdir().unwrap();
+            let setup = setup(root.path());
+            let (template, themes) = desktop(root.path(), &setup, "first");
+            setup.install::<Colors>(&themes).unwrap();
+            assert_eq!(fs::read_to_string(&template).unwrap(), "first");
+
+            // A later version packages a new template.
+            fs::write(setup.assets.join("app.json.tpl"), "second").unwrap();
+            setup.install::<Colors>(&themes).unwrap();
+            assert_eq!(fs::read_to_string(&template).unwrap(), "second");
+
+            // The user changes it; the next version leaves it alone.
+            fs::write(&template, "mine").unwrap();
+            fs::write(setup.assets.join("app.json.tpl"), "third").unwrap();
+            setup.install::<Colors>(&themes).unwrap();
+            assert_eq!(fs::read_to_string(&template).unwrap(), "mine");
+        }
+
+        #[test]
+        fn a_template_from_before_the_record_is_known_by_its_text() {
+            let root = tempfile::tempdir().unwrap();
+            let setup = setup(root.path());
+            let (template, themes) = desktop(root.path(), &setup, crate::omarchy::BASE_TEMPLATE);
+            fs::create_dir_all(template.parent().unwrap()).unwrap();
+            fs::write(&template, OLD_TEMPLATE).unwrap();
+            setup.install::<Colors>(&themes).unwrap();
+            assert_eq!(
+                fs::read_to_string(&template).unwrap(),
+                crate::omarchy::BASE_TEMPLATE
+            );
+
+            let root = tempfile::tempdir().unwrap();
+            let setup = self::setup(root.path());
+            let (template, themes) = desktop(root.path(), &setup, crate::omarchy::BASE_TEMPLATE);
+            fs::create_dir_all(template.parent().unwrap()).unwrap();
+            fs::write(&template, "someone's own").unwrap();
+            setup.install::<Colors>(&themes).unwrap();
+            assert_eq!(fs::read_to_string(&template).unwrap(), "someone's own");
+        }
+
+        #[test]
+        fn a_rendering_older_than_the_template_is_not_used() {
+            let root = tempfile::tempdir().unwrap();
+            let setup = setup(root.path());
+            let current = setup.watch_directory().join("theme");
+            let themed = setup.home.join(".config/omarchy/themed");
+            fs::create_dir_all(&current).unwrap();
+            fs::create_dir_all(&themed).unwrap();
+            let rendered = current.join("app.json");
+            fs::write(&rendered, r##"{"colors":{"text":"#010203"}}"##).unwrap();
+            fs::File::options()
+                .write(true)
+                .open(&rendered)
+                .unwrap()
+                .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(60))
+                .unwrap();
+            fs::write(themed.join("app.json.tpl"), r#"{"base":"light"}"#).unwrap();
+            let theme: CustomTheme<Colors> =
+                setup.current_theme_with(|_| Ok(String::new())).unwrap();
+            assert!(!theme.palette.dark, "rendered from the newer template");
         }
 
         #[test]
@@ -510,7 +692,7 @@ mod tests {
                 include_str!("../tests/fixtures/omarchy/catppuccin-latte.json"),
             ),
         ] {
-            let actual = render_seed::<Colors>(BASE_TEMPLATE, colors).unwrap();
+            let actual = render_seed::<Colors>(crate::omarchy::BASE_TEMPLATE, colors).unwrap();
             assert_eq!(
                 serde_json::from_str::<serde_json::Value>(&actual).unwrap(),
                 serde_json::from_str::<serde_json::Value>(expected).unwrap()
@@ -520,7 +702,7 @@ mod tests {
 
     #[test]
     fn broken_templates_and_colours_are_refused() {
-        assert!(render_seed::<Colors>(BASE_TEMPLATE, "mode\tdark\n").is_err());
+        assert!(render_seed::<Colors>(crate::omarchy::BASE_TEMPLATE, "mode\tdark\n").is_err());
         assert!(render_seed::<Colors>("{{ missing }}", "").is_err());
         assert!(render_seed::<Colors>("{{", "").is_err());
         assert!(render_seed::<Colors>("{{ mix a b 101% }}", "a\t#000000\nb\t#ffffff").is_err());

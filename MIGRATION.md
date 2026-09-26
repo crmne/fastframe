@@ -293,7 +293,7 @@ Every app does the same:
 | `Cargo.toml` `notify` | 1 | the crate (Linux only) |
 
 About 1,300 lines, less the 45-line `Palette` impl and a 25-line status
-mapping. In `App::new`: `app.custom_themes.enable_desktop_themes(DesktopThemes { slug: "zapfast", omarchy_template: include_str!("../contrib/omarchy/zapfast.json.tpl"), presets: true })`.
+mapping. In `App::new`: `app.custom_themes.enable_desktop_themes(DesktopThemes { slug: "zapfast", omarchy_template: include_str!("../contrib/omarchy/zapfast.json.tpl"), omarchy_previous_templates: &[], presets: true })`.
 Behaviour is unchanged.
 
 ### Spotifast
@@ -305,7 +305,7 @@ Behaviour is unchanged.
 | `tests/fixtures/omarchy/` | 5 files | the crate's fixtures (identical) |
 
 About 950 lines. `entrypoint.rs` calls
-`app.custom_themes.enable_desktop_themes(DesktopThemes { slug: "spotifast", omarchy_template: include_str!("../contrib/omarchy/spotifast.json.tpl"), presets: false })`
+`app.custom_themes.enable_desktop_themes(DesktopThemes { slug: "spotifast", omarchy_template: include_str!("../contrib/omarchy/spotifast.json.tpl"), omarchy_previous_templates: &[], presets: true })`
 (`presets: true` adds the eight shared palettes to its picker, which it does
 not show today). Keep in the app, run before that call on Linux:
 

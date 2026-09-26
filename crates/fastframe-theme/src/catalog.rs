@@ -92,6 +92,10 @@ pub struct DesktopThemes {
     /// has one ([`omarchy::BASE_TEMPLATE`] for apps with only the base
     /// colours).
     pub omarchy_template: &'static str,
+    /// Templates earlier versions of the app packaged. An installed template
+    /// that still reads as one of them, unchanged by the user, is replaced
+    /// by the packaged one; `&[]` when the template never changed.
+    pub omarchy_previous_templates: &'static [&'static str],
     /// Whether to list the [`presets`] too.
     pub presets: bool,
 }
@@ -208,7 +212,11 @@ impl<P: Palette> Catalog<P> {
         self.desktop = Some(desktop);
         #[cfg(target_os = "linux")]
         {
-            self.setup = omarchy::Setup::discover(desktop.slug, desktop.omarchy_template);
+            self.setup = omarchy::Setup::discover(
+                desktop.slug,
+                desktop.omarchy_template,
+                desktop.omarchy_previous_templates,
+            );
             self.setup_pending = true;
         }
     }
@@ -611,6 +619,7 @@ mod tests {
             desktop: Some(DesktopThemes {
                 slug: "app",
                 omarchy_template: omarchy::BASE_TEMPLATE,
+                omarchy_previous_templates: &[],
                 presets: true,
             }),
             ..Catalog::default()

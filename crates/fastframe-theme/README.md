@@ -67,6 +67,8 @@ custom_themes: fastframe_theme::Catalog<Palette>,
 app.custom_themes.enable_desktop_themes(fastframe_theme::DesktopThemes {
     slug: "zapfast",
     omarchy_template: include_str!("../contrib/omarchy/zapfast.json.tpl"),
+    // Templates earlier versions shipped, so an untouched copy is upgraded.
+    omarchy_previous_templates: &[],
     presets: true,
 });
 
@@ -121,7 +123,8 @@ On Linux, when `~/.config/omarchy` and `~/.local/state/omarchy/current`
 exist, the catalogue follows the desktop:
 
 1. It reads the palette Omarchy rendered for the app
-   (`current/theme/<slug>.json`); without one it renders the user's template
+   (`current/theme/<slug>.json`); without one, or when the user's template is
+   newer than that rendering, it renders the user's template
    (`~/.config/omarchy/themed/<slug>.json.tpl`) or the app's own, from
    `omarchy-theme-color --all`. Source and portable builds follow too.
 2. It lists that palette as `omarchy.json` ("Omarchy" in the picker) and
@@ -134,7 +137,12 @@ A native package may also ship `share/<slug>/omarchy/<slug>.json.tpl` and
 the hook `share/<slug>/omarchy/<slug>-theme`. The first scan then copies
 them to `~/.config/omarchy/themed/` and `~/.config/omarchy/hooks/theme-set.d/`
 and seeds `themes/omarchy.json`, never replacing an existing file (or even a
-broken link). Omarchy then renders the palette itself on every theme
+broken link). Later scans upgrade the installed template and hook when the
+package ships a new one and the user never changed theirs: the installed
+file still reads as the app last installed it (recorded in
+`themes/.omarchy-template` and `themes/.omarchy-hook`), or as one of
+`omarchy_previous_templates` for installs from before that record. An edited
+file stays as it is. Omarchy then renders the palette itself on every theme
 change, and the hook asks a running app to reload through
 `<slug> reload-themes`, which the app answers over its single-instance
 channel.
