@@ -46,10 +46,10 @@ pub(super) fn load() -> Vec<Found> {
         // The first answer is the one macOS draws with. The rest are its
         // cascade, in the order it would fall through them, and serve when
         // the first is a face epaint cannot rasterize.
-        let chosen = candidates.iter().find_map(|(family, path)| {
-            face_index(path, family, *probe).map(|index| (family, path, index))
-        });
-        let Some((family, path, index)) = chosen else {
+        let chosen = candidates
+            .iter()
+            .find_map(|(family, path)| face_index(path, family, *probe).map(|index| (path, index)));
+        let Some((path, index)) = chosen else {
             log::debug!("no face CoreText offers for {script} draws {probe} readably");
             continue;
         };
@@ -63,15 +63,12 @@ pub(super) fn load() -> Vec<Found> {
                 continue;
             }
         };
-        log::debug!(
-            "{script} fallback: {family}, {} (face {index})",
-            path.display()
-        );
         taken.push((path.clone(), index));
         found.push(Found {
             script,
             bytes,
             index,
+            path: path.clone(),
         });
     }
     log::debug!(

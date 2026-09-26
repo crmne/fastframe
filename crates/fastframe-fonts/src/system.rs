@@ -110,6 +110,8 @@ pub(crate) struct Found {
     pub(crate) script: &'static str,
     pub(crate) bytes: Vec<u8>,
     pub(crate) index: u32,
+    /// The file it was read from, for the log.
+    pub(crate) path: std::path::PathBuf,
 }
 
 fn adjusted(found: Found) -> Fallback {
@@ -119,9 +121,14 @@ fn adjusted(found: Found) -> Fallback {
         1.0
     };
     let y_offset_factor = baseline_offset(&found.bytes, found.index);
-    log::debug!(
-        "{} fallback: scale {scale:.2}, baseline {y_offset_factor:+.3} em",
-        found.script
+    // At info, so a user's ordinary log says which face draws each script
+    // when one looks wrong.
+    log::info!(
+        "{} fallback: {} ({}, face {}), scale {scale:.2}, baseline {y_offset_factor:+.3} em",
+        found.script,
+        family_name(&found.bytes, found.index).unwrap_or_else(|| "unnamed".into()),
+        found.path.display(),
+        found.index,
     );
     Fallback {
         name: format!("fallback-{}", found.script),
@@ -130,6 +137,15 @@ fn adjusted(found: Found) -> Fallback {
         scale,
         y_offset_factor,
     }
+}
+
+/// A face's family name, as the font names it in English if it can.
+fn family_name(bytes: &[u8], index: u32) -> Option<String> {
+    skrifa::FontRef::from_index(bytes, index)
+        .ok()?
+        .localized_strings(skrifa::string::StringId::FAMILY_NAME)
+        .english_or_first()
+        .map(|name| name.to_string())
 }
 
 /// Every face in a font file, up to [`MAX_FACES`].
@@ -325,16 +341,12 @@ mod scan {
                     continue;
                 }
             };
-            log::debug!(
-                "{script} fallback: {} (face {})",
-                candidate.path.display(),
-                candidate.index
-            );
             taken.push((candidate.path.clone(), candidate.index));
             found.push(Found {
                 script,
                 bytes,
                 index: candidate.index,
+                path: candidate.path.clone(),
             });
         }
         found
@@ -874,6 +886,7 @@ pub(crate) mod tests_support {
             script: "yi",
             bytes: include_bytes!("../tests/fixtures/yi/YiTallLineGap.ttf").to_vec(),
             index: 0,
+            path: std::path::PathBuf::from("test.ttf"),
         })]))
     }
 }
@@ -935,6 +948,7 @@ mod tests {
             script: "yi",
             bytes: include_bytes!("../tests/fixtures/yi/YiTest.ttf").to_vec(),
             index: 0,
+            path: std::path::PathBuf::from("test.ttf"),
         });
         assert_eq!(fallback.name, "fallback-yi");
         assert!((fallback.scale - 1.0).abs() < f32::EPSILON);
