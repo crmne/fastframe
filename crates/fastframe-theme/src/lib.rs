@@ -62,7 +62,7 @@ pub use catalog::{
     Catalog, DesktopThemes, MAX_DIRECTORY_ENTRIES, MAX_FILE_BYTES, MAX_THEMES, Problem, Status,
     Waker,
 };
-pub use transition::Transition;
+pub use transition::{Reveal, Transition};
 
 /// The colour names every app's palette understands: the sixteen interface
 /// colours Spotifast defined and ZapFast adopted.

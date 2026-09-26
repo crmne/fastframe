@@ -5,8 +5,9 @@
 //! [`Transition::begin`] asks the window for a screenshot while it still
 //! shows the old colours, [`Transition::holding`] tells the app to keep them
 //! until the picture arrives, and [`Transition::paint`] then lays the
-//! picture over the new colours with a soft-edged circle cut out of its
-//! middle that grows until the old colours are gone.
+//! picture over the new colours with an opening cut out of its middle that
+//! widens until the old colours are gone. The opening is Omarchy's slanted
+//! band by default ([`Reveal`]).
 //!
 //! ```no_run
 //! # let ctx = egui::Context::default();
@@ -27,15 +28,63 @@ use std::sync::Arc;
 
 use egui::{Color32, Context, Id, LayerId, Mesh, Order, Pos2, Rect, TextureHandle, Vec2};
 
-/// How long the reveal takes, in seconds.
-pub(crate) const DURATION: f64 = 0.6;
 /// How long the old colours are held for a screenshot that may never come
 /// (a hidden window, or a renderer without screenshots), in seconds.
 const WAIT: f64 = 0.25;
+/// How far Omarchy's band leans: its middle moves this share of the
+/// window's height to the right from the bottom edge to the top.
+const SLANT: f32 = -0.18;
+/// The band's anti-aliased edge, in points.
+const EDGE: f32 = 1.0;
 /// How wide the soft edge of the circle is, in points.
 const FEATHER: f32 = 48.0;
 /// How many sides the circle has.
 const SEGMENTS: usize = 96;
+
+/// The shape the new colours open out in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Reveal {
+    /// Omarchy's own theme change: a band leaning slightly to the right,
+    /// opening from the middle towards both sides over 0.42 seconds.
+    #[default]
+    Band,
+    /// A circle growing from the middle past the corners, with a soft
+    /// edge, over 0.6 seconds.
+    Circle,
+}
+
+impl Reveal {
+    /// How long the reveal takes, in seconds.
+    fn duration(self) -> f64 {
+        match self {
+            Self::Band => 0.42,
+            Self::Circle => 0.6,
+        }
+    }
+
+    /// How far along the opening is at `t`, from 0 to 1 of the time.
+    fn progress(self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match self {
+            // Qt's InOutCubic, as Omarchy's animation uses.
+            Self::Band => {
+                if t < 0.5 {
+                    4.0 * t * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+                }
+            }
+            Self::Circle => 1.0 - (1.0 - t).powi(3),
+        }
+    }
+
+    fn mesh(self, screen: Rect, texture: egui::TextureId, progress: f32) -> Mesh {
+        match self {
+            Self::Band => band(screen, texture, progress),
+            Self::Circle => circle(screen, texture, progress),
+        }
+    }
+}
 
 /// Marks the screenshots this transition asked for.
 #[derive(Debug)]
@@ -52,10 +101,12 @@ enum State {
 }
 
 /// A reveal of new colours from the middle of the window outwards. Keep one
-/// per window, for the life of the app.
+/// per window, for the life of the app. `default()` reveals as Omarchy
+/// does; [`Transition::new`] picks another [`Reveal`].
 #[derive(Default)]
 pub struct Transition {
     state: State,
+    reveal: Reveal,
 }
 
 impl std::fmt::Debug for Transition {
@@ -68,11 +119,20 @@ impl std::fmt::Debug for Transition {
         formatter
             .debug_struct("Transition")
             .field("state", &state)
+            .field("reveal", &self.reveal)
             .finish()
     }
 }
 
 impl Transition {
+    /// A transition that reveals new colours in `reveal`'s shape.
+    pub fn new(reveal: Reveal) -> Self {
+        Self {
+            state: State::Idle,
+            reveal,
+        }
+    }
+
     /// Asks for a picture of the window as this frame draws it, with the old
     /// colours. Call it when the colours are about to change; while a
     /// picture is already on its way it does nothing.
@@ -147,30 +207,95 @@ impl Transition {
             return;
         };
         let elapsed = ctx.input(|input| input.time) - start;
-        if elapsed >= DURATION {
+        let duration = self.reveal.duration();
+        if elapsed >= duration {
             self.state = State::Idle;
             return;
         }
         let screen = ctx.viewport_rect();
-        let progress = ease_out((elapsed / DURATION) as f32);
+        let progress = self.reveal.progress((elapsed / duration) as f32);
         let painter = ctx.layer_painter(LayerId::new(
             Order::Debug,
             Id::new("fastframe-theme-transition"),
         ));
-        painter.add(reveal(screen, picture.id(), progress));
+        painter.add(self.reveal.mesh(screen, picture.id(), progress));
         ctx.request_repaint();
     }
 }
 
-/// Starts fast and settles, as a reveal should.
-fn ease_out(t: f32) -> f32 {
-    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
+/// Adds a vertex of the old picture at `position`, which the picture covers
+/// as `screen` does, with `alpha` of it showing.
+fn vertex(mesh: &mut Mesh, screen: Rect, position: Pos2, alpha: f32) {
+    let size = screen.size().max(Vec2::splat(1.0));
+    mesh.vertices.push(egui::epaint::Vertex {
+        pos: position,
+        uv: Pos2::new(
+            (position.x - screen.min.x) / size.x,
+            (position.y - screen.min.y) / size.y,
+        ),
+        color: Color32::WHITE.gamma_multiply(alpha),
+    });
+}
+
+/// Adds the quadrilateral through the last four vertices.
+fn quad(mesh: &mut Mesh) {
+    let first = mesh.vertices.len() as u32 - 4;
+    mesh.add_triangle(first, first + 1, first + 2);
+    mesh.add_triangle(first, first + 2, first + 3);
+}
+
+/// Omarchy's reveal: the old picture on both sides of a band that leans by
+/// [`SLANT`] and has opened `progress` (0 to 1) of the way past both edges
+/// of `screen`, as its background shell draws it.
+fn band(screen: Rect, texture: egui::TextureId, progress: f32) -> Mesh {
+    let (width, height) = (screen.width(), screen.height());
+    let top = screen.min.x + width / 2.0 - SLANT * height / 2.0;
+    let bottom = screen.min.x + width / 2.0 + SLANT * height / 2.0;
+    let reach = width / 2.0 + SLANT.abs() * height / 2.0 + 4.0;
+    let spread = reach * progress;
+    let (y0, y1) = (screen.min.y, screen.max.y);
+    let far = reach + EDGE;
+    let mut mesh = Mesh::with_texture(texture);
+    for side in [-1.0f32, 1.0] {
+        // From the band's edge outwards: the anti-aliased edge, then solid
+        // picture past the side of the window.
+        let edge_top = top + side * spread;
+        let edge_bottom = bottom + side * spread;
+        for (from, to, alpha) in [(0.0, EDGE, (0.0, 1.0)), (EDGE, far + spread, (1.0, 1.0))] {
+            vertex(
+                &mut mesh,
+                screen,
+                Pos2::new(edge_top + side * from, y0),
+                alpha.0,
+            );
+            vertex(
+                &mut mesh,
+                screen,
+                Pos2::new(edge_top + side * to, y0),
+                alpha.1,
+            );
+            vertex(
+                &mut mesh,
+                screen,
+                Pos2::new(edge_bottom + side * to, y1),
+                alpha.1,
+            );
+            vertex(
+                &mut mesh,
+                screen,
+                Pos2::new(edge_bottom + side * from, y1),
+                alpha.0,
+            );
+            quad(&mut mesh);
+        }
+    }
+    mesh
 }
 
 /// The old picture covering `screen`, with a circle cleared from its middle
 /// that has grown `progress` (0 to 1) of the way past the farthest corner.
 /// The circle's edge fades over [`FEATHER`] points.
-fn reveal(screen: Rect, texture: egui::TextureId, progress: f32) -> Mesh {
+fn circle(screen: Rect, texture: egui::TextureId, progress: f32) -> Mesh {
     let centre = screen.center();
     let corner = centre.distance(screen.min);
     let hole = progress * (corner + FEATHER);
@@ -227,8 +352,8 @@ mod tests {
     }
 
     #[test]
-    fn at_the_start_the_old_picture_covers_everything() {
-        let mesh = reveal(screen(), egui::TextureId::default(), 0.0);
+    fn at_the_start_the_circle_leaves_the_old_picture_whole() {
+        let mesh = circle(screen(), egui::TextureId::default(), 0.0);
         let corner = screen().center().distance(screen().min);
         assert!(mesh.vertices.iter().all(|vertex| vertex.color.a() == 0
             || vertex.pos.distance(screen().center()) >= FEATHER - 0.01));
@@ -240,8 +365,8 @@ mod tests {
     }
 
     #[test]
-    fn at_the_end_nothing_of_the_old_picture_is_on_screen() {
-        let mesh = reveal(screen(), egui::TextureId::default(), 1.0);
+    fn at_the_end_the_circle_has_cleared_the_screen() {
+        let mesh = circle(screen(), egui::TextureId::default(), 1.0);
         let corner = screen().center().distance(screen().min);
         for vertex in &mesh.vertices {
             if vertex.color.a() > 0 {
@@ -252,7 +377,7 @@ mod tests {
 
     #[test]
     fn the_picture_lines_up_with_the_screen() {
-        let mesh = reveal(screen(), egui::TextureId::default(), 0.5);
+        let mesh = circle(screen(), egui::TextureId::default(), 0.5);
         for vertex in &mesh.vertices {
             let expected = Pos2::new(vertex.pos.x / 800.0, vertex.pos.y / 600.0);
             assert!((vertex.uv - expected).length() < 1e-4);
@@ -261,10 +386,63 @@ mod tests {
     }
 
     #[test]
-    fn the_reveal_starts_fast_and_settles() {
-        assert_eq!(ease_out(0.0), 0.0);
-        assert_eq!(ease_out(1.0), 1.0);
-        assert!(ease_out(0.25) > 0.5);
+    fn each_reveal_runs_from_closed_to_open() {
+        for reveal in [Reveal::Band, Reveal::Circle] {
+            assert_eq!(reveal.progress(0.0), 0.0);
+            assert!((reveal.progress(1.0) - 1.0).abs() < 1e-6);
+            assert!((reveal.progress(0.5) - 0.5).abs() < 0.4);
+        }
+        // Omarchy's band eases in and out; the circle starts fast.
+        assert!((Reveal::Band.progress(0.5) - 0.5).abs() < 1e-6);
+        assert!(Reveal::Band.progress(0.2) < 0.05);
+        assert!(Reveal::Circle.progress(0.25) > 0.5);
+        assert_eq!(Transition::default().reveal, Reveal::Band);
+    }
+
+    /// Where the band's opening is at height `y`: its two edges, the only
+    /// vertices at that height where the old picture is fully transparent.
+    fn opening(mesh: &Mesh, y: f32) -> (f32, f32) {
+        let edges: Vec<f32> = mesh
+            .vertices
+            .iter()
+            .filter(|vertex| (vertex.pos.y - y).abs() < 0.01 && vertex.color.a() == 0)
+            .map(|vertex| vertex.pos.x)
+            .collect();
+        assert_eq!(edges.len(), 2, "{edges:?}");
+        (edges[0].min(edges[1]), edges[0].max(edges[1]))
+    }
+
+    #[test]
+    fn omarchys_band_opens_from_the_middle_leaning_right() {
+        let closed = band(screen(), egui::TextureId::default(), 0.0);
+        let (left, right) = opening(&closed, 0.0);
+        assert!((right - left).abs() < 1e-3, "closed at the start");
+        // The band's middle sits right of centre at the top, left at the
+        // bottom.
+        let (top_left, _) = opening(&closed, 0.0);
+        let (bottom_left, _) = opening(&closed, 600.0);
+        assert!(top_left > 400.0 && bottom_left < 400.0);
+
+        // Halfway down, the opening lies midway between its top and bottom.
+        let half = band(screen(), egui::TextureId::default(), 0.5);
+        let ((top_left, top_right), (bottom_left, bottom_right)) =
+            (opening(&half, 0.0), opening(&half, 600.0));
+        let (left, right) = (
+            (top_left + bottom_left) / 2.0,
+            (top_right + bottom_right) / 2.0,
+        );
+        assert!(left < 400.0 && right > 400.0, "the middle is open");
+        assert!(left > 0.0 && right < 800.0, "the sides are not yet");
+
+        let open = band(screen(), egui::TextureId::default(), 1.0);
+        for y in [0.0, 600.0] {
+            let (left, right) = opening(&open, y);
+            assert!(left <= 0.0 && right >= 800.0, "open past both sides at {y}");
+        }
+        for vertex in &open.vertices {
+            let expected = Pos2::new(vertex.pos.x / 800.0, vertex.pos.y / 600.0);
+            assert!((vertex.uv - expected).length() < 1e-4);
+        }
     }
 
     /// One frame at `time` with `events`, running `draw`.
@@ -325,7 +503,7 @@ mod tests {
         );
         assert!(transition.active());
 
-        let output = frame(&ctx, 0.05 + DURATION + 0.01, vec![], |ui| {
+        let output = frame(&ctx, 0.05 + Reveal::Band.duration() + 0.01, vec![], |ui| {
             transition.paint(ui.ctx());
         });
         assert!(!transition.active(), "gone after the reveal");

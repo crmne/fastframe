@@ -158,9 +158,14 @@ app.transition.paint(ctx);
 ```
 
 `begin` asks the window for a screenshot with the old colours. When it
-arrives, `paint` lays it over the new colours for 0.6 seconds with a
-soft-edged circle cut out of its middle that grows past the corners. A
-window that sends no screenshot (hidden, or a renderer without them) gets
-its new colours after a quarter of a second, without the reveal. Skip
-`begin` for the first palette a window draws.
-
+arrives, `paint` lays it over the new colours with an opening cut out of its
+middle that widens until the old colours are gone. The default,
+`Reveal::Band`, is Omarchy's own theme change, taken from its background
+shell: a band leaning slightly to the right (a slant of -0.18 of the
+window's height) opens from the middle towards both sides over 0.42
+seconds, easing in and out, with a sharp anti-aliased edge.
+`Transition::new(Reveal::Circle)` grows a soft-edged circle from the middle
+past the corners over 0.6 seconds instead. A window that sends no
+screenshot (hidden, or a renderer without them) gets its new colours after
+a quarter of a second, without the reveal. Skip `begin` for the first
+palette a window draws.
