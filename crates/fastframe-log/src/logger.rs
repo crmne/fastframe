@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::io::Write;
 use std::path::PathBuf;
 
+use crate::panic::make_folder;
 use crate::{PanicMessage, log_panics_with};
 
 /// Rewrites a log line before it is written.
@@ -64,7 +65,8 @@ impl Logging {
     }
 
     /// Also writes every line to `path`, replacing what an earlier run left
-    /// there. If the file cannot be created, logging continues on stderr and
+    /// there. The folder it is in is made when it is missing, as on a first
+    /// run. If the file cannot be created, logging continues on stderr and
     /// says why.
     pub fn file(mut self, path: impl Into<PathBuf>) -> Self {
         self.file = Some(path.into());
@@ -137,7 +139,7 @@ impl Logging {
         builder.parse_filters(rust_log.unwrap_or(&self.filter));
         let mut file_error = None;
         if let Some(path) = &self.file {
-            match std::fs::File::create(path) {
+            match make_folder(path).and_then(|()| std::fs::File::create(path)) {
                 Ok(file) => {
                     builder.target(env_logger::Target::Pipe(Box::new(Tee {
                         stderr: std::io::stderr(),
@@ -322,12 +324,26 @@ mod tests {
     }
 
     #[test]
-    fn an_unwritable_log_file_is_reported_not_fatal() {
-        let path = std::env::temp_dir()
-            .join(format!("fastframe-log-missing-{}", std::process::id()))
-            .join("no-such-dir")
-            .join("app.log");
+    fn the_log_files_folder_is_made_on_a_first_run() {
+        let dir = std::env::temp_dir().join(format!("fastframe-log-fresh-{}", std::process::id()));
+        let path = dir.join("state").join("app.log");
         let (_, error) = Logging::new("zapfast", "1.0.0").file(&path).build(None);
+        assert!(error.is_none(), "{error:?}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_unwritable_log_file_is_reported_not_fatal() {
+        // A file where the folder should be: nothing can be made inside it.
+        let dir =
+            std::env::temp_dir().join(format!("fastframe-log-unwritable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let blocker = dir.join("not-a-folder");
+        std::fs::write(&blocker, "").unwrap();
+        let path = blocker.join("app.log");
+        let (_, error) = Logging::new("zapfast", "1.0.0").file(&path).build(None);
+        std::fs::remove_dir_all(dir).unwrap();
         assert_eq!(error.map(|(failed, _)| failed), Some(path));
     }
 }

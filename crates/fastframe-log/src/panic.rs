@@ -27,12 +27,18 @@ pub enum PanicMessage {
 /// on purpose, from the file and from stderr: an `expect` or a formatted
 /// panic message can quote the data being handled.
 ///
+/// The folder `path` is in is made when a panic finds it missing, as on a
+/// first run.
+///
 /// This replaces the default hook, which would print the payload to stderr.
 pub fn log_panics(path: impl AsRef<Path>, app: &'static str, version: &'static str) {
     log_panics_with(path, app, version, PanicMessage::Omit);
 }
 
 /// Records every panic in `path`, with its message as `message` says.
+///
+/// The folder `path` is in is made when a panic finds it missing, as on a
+/// first run.
 ///
 /// This replaces the default hook, which would print the raw payload to
 /// stderr; with [`PanicMessage::Redacted`] only the redacted message is
@@ -59,6 +65,9 @@ pub fn log_panics_with(
             detail.as_deref(),
         );
         report_panic(&entry);
+        // A first run may not have made the folder yet; without it the line
+        // would only reach stderr.
+        let _ = make_folder(&path);
         let file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -67,6 +76,15 @@ pub fn log_panics_with(
             let _ = file.write_all(entry.as_bytes());
         }
     }));
+}
+
+/// Makes the folder `path` is in, with the folders above it, when it is not
+/// there yet.
+pub(crate) fn make_folder(path: &Path) -> std::io::Result<()> {
+    match path.parent() {
+        Some(folder) => std::fs::create_dir_all(folder),
+        None => Ok(()),
+    }
 }
 
 /// The panic's message when it is text, as `panic!` and `expect` produce.
@@ -146,9 +164,9 @@ mod tests {
     /// The real hook, end to end: the file gets the line, never the payload.
     #[test]
     fn a_panic_is_recorded_without_its_payload() {
+        // No folder yet, as on a first run: the hook makes it.
         let dir = std::env::temp_dir().join(format!("fastframe-log-panic-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("panic.log");
+        let path = dir.join("state").join("panic.log");
         let previous = std::panic::take_hook();
         log_panics(&path, "zapfast", "0.16.3");
         let result = std::thread::Builder::new()
