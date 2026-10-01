@@ -125,10 +125,10 @@ grayscale coverage only, so `rgba` antialiasing counts as grayscale.
 
 Each Linux source answers only if it holds a known value; a source that is
 missing (no session bus, no portal, no `fc-match`) is skipped. Portal calls
-time out after a second. Coverage is not a desktop setting: it comes from
-the platform. The portal does not describe sub-pixel positioning,
-so it stays on, as in GTK 4. Only the portal is watched for changes; edits to
-fontconfig files are not.
+time out after a second, and `fc-match` is stopped when it has not answered
+in one. Coverage is not a desktop setting: it comes from the platform. The
+portal does not describe sub-pixel positioning, so it stays on, as in GTK 4.
+Only the portal is watched for changes; edits to fontconfig files are not.
 
 fontconfig is read through `fc-match` rather than a binding because no
 fontconfig crate is common to the apps' dependency trees and linking the C

@@ -60,9 +60,11 @@ any companions, and the system fallbacks come last.
 | Linux | `fc-match 'system-ui:weight=N'` for each weight, so the desktop's configuration decides (Adwaita Sans on GNOME, a user's own `sans-serif`) | fontconfig's answer, with `wght` set on a variable face |
 
 A face must draw upright Latin outlines; otherwise, or when nothing is
-found, Inter draws the interface. The script fallbacks move onto the chosen
-face's baseline. San Francisco and Segoe UI draw proportional figures,
-unlike Inter's tabular ones, so a counting timer changes width as it counts.
+found, Inter draws the interface. On Linux the `fc-match` runs get a second
+between them, so a fontconfig that does not answer cannot hold up startup.
+The script fallbacks move onto the chosen face's baseline. San Francisco and
+Segoe UI draw proportional figures, unlike Inter's tabular ones, so a
+counting timer changes width as it counts.
 
 The bundled Inter is the default `inter` feature. An app that always draws
 with the system's face can turn it off (`default-features = false`) to

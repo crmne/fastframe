@@ -9,6 +9,8 @@
 //!   weight, asked through `fc-match` as `fastframe-text` asks for hinting.
 //!   The desktop's configuration decides: GNOME's Adwaita Sans, a user's
 //!   own `sans-serif`, or whatever else it prefers.
+//!   An `fc-match` that has not answered within a second is stopped, and
+//!   Inter stays.
 //!
 //! Files are memory-mapped and kept for the life of the process, so only the
 //! pages epaint reads are loaded. A face must draw Latin outlines, or Inter
@@ -16,6 +18,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use skrifa::MetadataProvider as _;
 
@@ -331,16 +334,11 @@ fn resolve() -> Option<Interface> {
                 .ok()
         })
         .collect();
+    // One deadline for all four: they run side by side.
+    let deadline = Instant::now() + FC_MATCH_LIMIT;
     let answers: Vec<Option<(String, Choice)>> = asking
         .into_iter()
-        .map(|child| {
-            let output = child?.wait_with_output().ok()?;
-            output
-                .status
-                .success()
-                .then(|| parse_fc_match(&String::from_utf8_lossy(&output.stdout)))
-                .flatten()
-        })
+        .map(|child| parse_fc_match(&printed(child?, deadline)?))
         .collect();
     let (family, regular) = answers.first()?.clone()?;
     // A weight fontconfig answers from another family (it has no bold, so
@@ -353,6 +351,64 @@ fn resolve() -> Option<Interface> {
         })
         .collect();
     assemble(family, &choices)
+}
+
+/// How long the `fc-match` runs get, all four together. They answer in a
+/// few milliseconds, but the caller is the app's startup, and a fontconfig
+/// that is scanning its font folders again, or cannot reach one of them, can
+/// take far longer.
+#[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
+const FC_MATCH_LIMIT: Duration = Duration::from_secs(1);
+
+/// The pause between two looks at a process that has not ended.
+#[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
+const PAUSE: Duration = Duration::from_millis(1);
+
+/// What `child` printed, when it has ended well by `deadline`. One that has
+/// not ended is killed and reaped, so it neither keeps running nor stays a
+/// zombie. Only the process itself is stopped: what a wrapper script in
+/// `fc-match`'s place started is not followed.
+///
+/// The output is read once the process has ended, which is enough for the
+/// one line `fc-match` prints: a process that filled the pipe would wait for
+/// a reader, and be stopped at the deadline.
+#[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
+fn printed(mut child: std::process::Child, deadline: Instant) -> Option<String> {
+    use std::io::Read as _;
+
+    let status = match wait_until(deadline, || child.try_wait().transpose()) {
+        Some(Ok(status)) => status,
+        given_up => {
+            match given_up {
+                Some(Err(error)) => log::warn!("could not wait for fc-match: {error}"),
+                _ => log::warn!("fc-match did not answer in time and was stopped"),
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
+    if !status.success() {
+        return None;
+    }
+    let mut output = Vec::new();
+    child.stdout.take()?.read_to_end(&mut output).ok()?;
+    Some(String::from_utf8_lossy(&output).into_owned())
+}
+
+/// Asks `finished` until it answers or `deadline` passes. It is asked at
+/// least once, so what has already ended is never given up on.
+#[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
+fn wait_until<T>(deadline: Instant, mut finished: impl FnMut() -> Option<T>) -> Option<T> {
+    loop {
+        if let Some(answer) = finished() {
+            return Some(answer);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(PAUSE);
+    }
 }
 
 /// The `fc-match` format [`parse_fc_match`] reads.
@@ -445,6 +501,28 @@ mod tests {
             .map(fontconfig_weight),
             [80, 100, 180, 200]
         );
+    }
+
+    #[test]
+    fn waiting_ends_with_the_answer_or_at_the_deadline() {
+        let far = Instant::now() + Duration::from_secs(60);
+        let mut looks = 0;
+        let answer = wait_until(far, || {
+            looks += 1;
+            (looks == 3).then_some("ended")
+        });
+        assert_eq!(answer, Some("ended"));
+        assert_eq!(looks, 3);
+
+        // No answer ever: it gives up, and not before the deadline.
+        let started = Instant::now();
+        let limit = Duration::from_millis(20);
+        assert_eq!(wait_until(started + limit, || None::<()>), None);
+        assert!(started.elapsed() >= limit);
+
+        // A deadline already past still gets one look: the runs share one
+        // deadline, and those that ended while another was waited for count.
+        assert_eq!(wait_until(started, || Some("ended")), Some("ended"));
     }
 
     #[test]

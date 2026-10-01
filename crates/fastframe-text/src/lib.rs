@@ -233,9 +233,10 @@ pub fn resolve(readers: &[Reader<'_>], fallback: TextRendering) -> TextRendering
 
 /// Reads the desktop's font rendering settings.
 ///
-/// On Linux this asks the desktop portal, then fontconfig for `sans-serif`,
-/// and blocks for at most about a second when the portal does not answer.
-/// Elsewhere it returns [`TextRendering::platform_default`] without any I/O.
+/// On Linux this asks the desktop portal, then fontconfig for `sans-serif`.
+/// Neither can stall it for long: a portal call that gets no answer gives up
+/// after about a second, and so does `fc-match`. Elsewhere it returns
+/// [`TextRendering::platform_default`] without any I/O.
 ///
 /// Do not call it from inside a tokio runtime: the D-Bus client blocks on
 /// its own.

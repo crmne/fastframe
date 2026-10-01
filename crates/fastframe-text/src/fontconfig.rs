@@ -3,13 +3,16 @@
 //! No fontconfig binding is common to the apps' dependency trees, and the C
 //! library would add a build dependency, so `read` runs
 //! `fc-match -f '%{hintstyle}|%{hinting}|%{antialias}' <family>` and parses
-//! its one line with [`parse_fc_match`]. When `fc-match` is not installed, or
-//! fails, the reader has no answer. `rgba` is not asked for: egui renders
-//! grayscale only.
+//! its one line with [`parse_fc_match`]. When `fc-match` is not installed,
+//! fails, or has not answered within a second, the reader has no answer.
+//! `rgba` is not asked for: egui renders grayscale only.
 //!
 //! `hintstyle` is fontconfig's integer: 0 none, 1 slight, 2 medium, 3 full.
 //! `hinting` false means no hinting whatever the style. A field fontconfig
 //! leaves empty keeps its default.
+
+#[cfg(any(unix, test))]
+use std::time::{Duration, Instant};
 
 use crate::{Hinting, TextRendering};
 
@@ -80,25 +83,74 @@ fn pattern(family: &str) -> String {
     out
 }
 
+/// How long `read` waits for `fc-match`: as long as a portal call gets. It
+/// answers in a few milliseconds, but the caller is the app's startup, and a
+/// fontconfig that is scanning its font folders again, or cannot reach one
+/// of them, can take far longer.
+#[cfg(unix)]
+const LIMIT: Duration = Duration::from_secs(1);
+
+/// The pause between two looks at a process that has not ended.
+#[cfg(any(unix, test))]
+const PAUSE: Duration = Duration::from_millis(1);
+
 /// Asks fontconfig how `family` is rendered, through `fc-match`.
 ///
-/// Returns `None` when `fc-match` is missing, fails, or prints nothing
-/// useful.
+/// Returns `None` when `fc-match` is missing, fails, prints nothing useful,
+/// or has not answered within a second.
 #[cfg(unix)]
 #[must_use]
 pub fn read(family: &str) -> Option<TextRendering> {
-    let output = std::process::Command::new("fc-match")
+    let child = std::process::Command::new("fc-match")
         .arg("-f")
         .arg(FORMAT)
         .arg(pattern(family))
         .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
-        .output()
+        .spawn()
         .ok()?;
-    if !output.status.success() {
+    parse_fc_match(&printed(child, Instant::now() + LIMIT)?)
+}
+
+/// What `child` printed, when it has ended well by `deadline`. One that has
+/// not ended is killed and reaped, so it neither keeps running nor stays a
+/// zombie. Only the process itself is stopped: what a wrapper script in
+/// `fc-match`'s place started is not followed.
+///
+/// The output is read once the process has ended, which is enough for the
+/// one line `fc-match` prints: a process that filled the pipe would wait for
+/// a reader, and be stopped at the deadline.
+#[cfg(unix)]
+fn printed(mut child: std::process::Child, deadline: Instant) -> Option<String> {
+    use std::io::Read as _;
+
+    let Some(Ok(status)) = wait_until(deadline, || child.try_wait().transpose()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    if !status.success() {
         return None;
     }
-    parse_fc_match(&String::from_utf8_lossy(&output.stdout))
+    let mut output = Vec::new();
+    child.stdout.take()?.read_to_end(&mut output).ok()?;
+    Some(String::from_utf8_lossy(&output).into_owned())
+}
+
+/// Asks `finished` until it answers or `deadline` passes. It is asked at
+/// least once, so what has already ended is never given up on.
+#[cfg(any(unix, test))]
+fn wait_until<T>(deadline: Instant, mut finished: impl FnMut() -> Option<T>) -> Option<T> {
+    loop {
+        if let Some(answer) = finished() {
+            return Some(answer);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(PAUSE);
+    }
 }
 
 #[cfg(test)]
@@ -182,5 +234,26 @@ mod tests {
         assert_eq!(parse_fc_match(""), None);
         assert_eq!(parse_fc_match("||"), None);
         assert_eq!(parse_fc_match("Fontconfig error"), None);
+    }
+
+    #[test]
+    fn waiting_ends_with_the_answer_or_at_the_deadline() {
+        let far = Instant::now() + Duration::from_secs(60);
+        let mut looks = 0;
+        let answer = wait_until(far, || {
+            looks += 1;
+            (looks == 3).then_some("ended")
+        });
+        assert_eq!(answer, Some("ended"));
+        assert_eq!(looks, 3);
+
+        // No answer ever: it gives up, and not before the deadline.
+        let started = Instant::now();
+        let limit = Duration::from_millis(20);
+        assert_eq!(wait_until(started + limit, || None::<()>), None);
+        assert!(started.elapsed() >= limit);
+
+        // A deadline already past still gets one look.
+        assert_eq!(wait_until(started, || Some("ended")), Some("ended"));
     }
 }
