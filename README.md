@@ -70,43 +70,47 @@ same fixes. Copy this into the app's root `Cargo.toml`:
 
 ```toml
 [patch.crates-io]
-ecolor = { git = "https://github.com/crmne/egui", rev = "61a38149a4010ff9b8257dc6a03b98818b98fd02" }
-eframe = { git = "https://github.com/crmne/egui", rev = "61a38149a4010ff9b8257dc6a03b98818b98fd02" }
-egui = { git = "https://github.com/crmne/egui", rev = "61a38149a4010ff9b8257dc6a03b98818b98fd02" }
-egui-wgpu = { git = "https://github.com/crmne/egui", rev = "61a38149a4010ff9b8257dc6a03b98818b98fd02" }
-egui-winit = { git = "https://github.com/crmne/egui", rev = "61a38149a4010ff9b8257dc6a03b98818b98fd02" }
-egui_extras = { git = "https://github.com/crmne/egui", rev = "61a38149a4010ff9b8257dc6a03b98818b98fd02" }
-egui_glow = { git = "https://github.com/crmne/egui", rev = "61a38149a4010ff9b8257dc6a03b98818b98fd02" }
-emath = { git = "https://github.com/crmne/egui", rev = "61a38149a4010ff9b8257dc6a03b98818b98fd02" }
-epaint = { git = "https://github.com/crmne/egui", rev = "61a38149a4010ff9b8257dc6a03b98818b98fd02" }
-epaint_default_fonts = { git = "https://github.com/crmne/egui", rev = "61a38149a4010ff9b8257dc6a03b98818b98fd02" }
-winit = { git = "https://github.com/crmne/winit", rev = "fb8b24c3ec3f2c499daa92aeb4e783a8efa2e973" }
+ecolor = { git = "https://github.com/crmne/egui", rev = "ba6790fe7cf46e58e8d27ce1524cbfdee745e938" }
+eframe = { git = "https://github.com/crmne/egui", rev = "ba6790fe7cf46e58e8d27ce1524cbfdee745e938" }
+egui = { git = "https://github.com/crmne/egui", rev = "ba6790fe7cf46e58e8d27ce1524cbfdee745e938" }
+egui-wgpu = { git = "https://github.com/crmne/egui", rev = "ba6790fe7cf46e58e8d27ce1524cbfdee745e938" }
+egui-winit = { git = "https://github.com/crmne/egui", rev = "ba6790fe7cf46e58e8d27ce1524cbfdee745e938" }
+egui_extras = { git = "https://github.com/crmne/egui", rev = "ba6790fe7cf46e58e8d27ce1524cbfdee745e938" }
+egui_glow = { git = "https://github.com/crmne/egui", rev = "ba6790fe7cf46e58e8d27ce1524cbfdee745e938" }
+emath = { git = "https://github.com/crmne/egui", rev = "ba6790fe7cf46e58e8d27ce1524cbfdee745e938" }
+epaint = { git = "https://github.com/crmne/egui", rev = "ba6790fe7cf46e58e8d27ce1524cbfdee745e938" }
+epaint_default_fonts = { git = "https://github.com/crmne/egui", rev = "ba6790fe7cf46e58e8d27ce1524cbfdee745e938" }
+winit = { git = "https://github.com/crmne/winit", rev = "ed7caa9023f10b397f5b6ec8284a840cbd8a6f65" }
 ```
 
 Patch every egui crate the app uses from the same revision, so they share one
 `emath` and `epaint` (add `egui_kittest` if the app's tests use it), and move
 egui and winit together: the egui revision is built against that winit, and
-moving one alone does not build. Cargo warns about a patch for a crate the
-app does not use (`egui_extras`, say); leave that line out.
+moving one alone does not build. An app that compensated for the zoom shrink
+itself (a `window_builder` that scales the restored size) drops that code when
+it moves to egui `ba6790fe` or later, or the size is scaled twice. Cargo warns
+about a patch for a crate the app does not use (`egui_extras`, say); leave
+that line out.
 
-What the forks fix:
+What the forks carry, and where each patch stands upstream. Each patch goes
+upstream as a pull request and stays in the fork until an egui or winit
+release includes it; then the fork drops it.
 
-- **Paste and file drops together on Wayland.** winit offers the clipboard and
-  reports dropped files through one data device, and egui-winit uses it:
-  Hyprland sends the selection and drags only to a client's first data device,
-  so a second one for the clipboard broke paste (crmne/spotifast#614).
-- **No freeze when a Wayland window is hidden.** eframe paces frames by the
-  compositor's frame callbacks and keeps running when they stop, and winit
-  reports the xdg-shell `suspended` state as `Occluded` (emilk/egui#8631,
-  rust-windowing/winit#4709, rust-windowing/winit#4710).
-- **No busy loop while waiting for a redraw** (emilk/egui#8398).
-- **Right-to-left text shaped in its direction** (emilk/egui#8577).
-- **Each emoji one emoji wide.** Families, skin tones, keycaps and flags are laid
-  out as one emoji, so `fastframe-emoji`'s pictures, the cursor and widget sizes
-  agree.
-- **No runaway resizing when a window is dragged between monitors of different
-  scale** on Windows.
-- **macOS Quit through close requests**, behind a winit feature an app opts into.
+| Fix | Fork | Upstream |
+| --- | --- | --- |
+| Right-to-left text shaped in its direction | egui `6147de7b`, `8e592348` | [emilk/egui#8577](https://github.com/emilk/egui/pull/8577), open |
+| No busy loop while waiting for a redraw | egui `f14640be` | [emilk/egui#8398](https://github.com/emilk/egui/pull/8398), merged, not yet released |
+| No freeze when a Wayland window is hidden: frames paced by the compositor's callbacks | egui `41ff9ddf` | [emilk/egui#8631](https://github.com/emilk/egui/pull/8631), open |
+| The same, eframe's side of winit's `Occluded` | egui `0b431145` | needs a pull request |
+| The xdg-shell `suspended` state reported as `Occluded` | winit `a51e41b2` | [rust-windowing/winit#4709](https://github.com/rust-windowing/winit/pull/4709) and [#4710](https://github.com/rust-windowing/winit/pull/4710) (0.30), open |
+| Paste and file drops together on Wayland: one data device for both (crmne/spotifast#614) | winit `1a8306ad`, `fb8b24c3`; egui `2ab31332` | needs pull requests in winit and egui |
+| Each emoji one emoji wide (families, skin tones, keycaps, flags) | egui `73e8b6c3` | needs a pull request |
+| No runaway resizing on Windows when a window moves between monitors of different scale | winit `f4fed12c` | on winit's main branch (`39c4009c`); the fork carries it for 0.30 |
+| macOS Quit through close requests, behind a feature | winit `a7b78b27` | [rust-windowing/winit#4692](https://github.com/rust-windowing/winit/pull/4692), open |
+| A focus request for a widget not drawn yet no longer crashes accessibility on Windows and macOS | egui `4c143c1d` | [emilk/egui#8621](https://github.com/emilk/egui/pull/8621), merged, not yet released |
+| Windows starts on OpenGL drivers older than 3.3: a compatibility-profile fallback | egui `57eb5714` | [emilk/egui#8655](https://github.com/emilk/egui/pull/8655), open |
+| A window keeps its size across restarts at any interface zoom | egui `56e7ac3c` | [emilk/egui#8656](https://github.com/emilk/egui/pull/8656), open |
+| A closed window leaves the screen on Touch Bar Macs | winit `ed7caa90` | [rust-windowing/winit#4728](https://github.com/rust-windowing/winit/pull/4728), a draft until confirmed on a Touch Bar Mac |
 
 On stock egui and winit, fastframe still builds and works, without these
 fixes.
