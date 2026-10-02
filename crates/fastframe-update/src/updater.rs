@@ -71,6 +71,7 @@ impl Updater {
     /// The newest release, when it is newer than
     /// [`UpdateConfig::current_version`].
     pub fn check(&self) -> Result<Option<Release>> {
+        self.require_publisher_key()?;
         release::newer(&self.config, self.transport.as_ref(), &self.source)
     }
 
@@ -110,6 +111,7 @@ impl Updater {
     /// Downloads and verifies `release` into a new staging folder beside
     /// the app. `progress` receives bytes received and the published size.
     pub fn download(&self, release: &Release, progress: impl FnMut(u64, u64)) -> Result<Prepared> {
+        self.require_publisher_key()?;
         let installation = self.installation()?;
         download::download(
             &Inputs {
@@ -124,6 +126,16 @@ impl Updater {
             release,
             progress,
         )
+    }
+
+    /// An app's own feed ([`Source::feed`]) is only used with a publisher
+    /// key: otherwise whoever controls the server controls the update.
+    fn require_publisher_key(&self) -> Result<()> {
+        anyhow::ensure!(
+            !self.source.needs_publisher_key() || self.config.publisher_key.is_some(),
+            "An update feed needs a publisher key: set UpdateConfig::publisher_key"
+        );
+        Ok(())
     }
 
     /// Starts the helper and returns once it is watching this process. Quit
@@ -159,6 +171,35 @@ mod tests {
                 url: "http://127.0.0.1:9/notes".into()
             })
         );
+    }
+
+    #[test]
+    fn an_update_feed_is_only_used_with_a_publisher_key() {
+        let latest = "https://updates.example.com/app/latest.json";
+        let listing = br#"{"tag_name":"v0.17.0","html_url":"https://updates.example.com/app"}"#;
+        let feed = Source::feed("https://updates.example.com/app").unwrap();
+
+        let unsigned = UpdateConfig {
+            publisher_key: None,
+            ..ZAPFAST
+        };
+        let updater = Updater::new(unsigned, FakeTransport::default().serve(latest, listing))
+            .with_source(feed.clone());
+        let error = updater.check().unwrap_err().to_string();
+        assert!(error.contains("publisher key"), "{error}");
+        let release = Release {
+            version: "0.17.0".into(),
+            url: "https://updates.example.com/app".into(),
+        };
+        let error = updater
+            .download(&release, |_, _| {})
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("publisher key"), "{error}");
+
+        let signed = Updater::new(ZAPFAST, FakeTransport::default().serve(latest, listing))
+            .with_source(feed);
+        assert_eq!(signed.check().unwrap(), Some(release));
     }
 
     #[test]

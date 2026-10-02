@@ -1,4 +1,5 @@
-//! Self-update from GitHub releases for fastframe apps.
+//! Self-update from GitHub releases, or from the app's own HTTPS feed, for
+//! fastframe apps.
 //!
 //! The app describes itself once in an [`UpdateConfig`], gives an
 //! [`Updater`] its own HTTP client as a [`Transport`], and keeps every
@@ -122,6 +123,8 @@ pub const UPDATE_ERROR_FLAG: &str = "--update-error";
 #[derive(Clone, Copy, Debug)]
 pub struct UpdateConfig {
     /// The GitHub repository, `owner/name`, for example `crmne/zapfast`.
+    /// Not read when releases come from [`Source::local`] or
+    /// [`Source::feed`], but it must still be `owner/name`.
     pub repository: &'static str,
     /// The display name, for example `ZapFast`. Used in the user agent and
     /// as the macOS bundle name (`ZapFast.app`).
@@ -161,7 +164,8 @@ pub struct UpdateConfig {
     /// `include_str!` of a key file. With a key, a release must carry
     /// `checksums.txt.sig`, a raw 64-byte signature over the exact bytes of
     /// `checksums.txt`, or nothing is downloaded. `None` trusts the checksum
-    /// file as served by GitHub, which only protects against corruption.
+    /// file as served by GitHub, which only protects against corruption, and
+    /// is refused with the app's own feed ([`Source::feed`]).
     pub publisher_key: Option<&'static str>,
     /// More publisher keys a release may be signed with, for rotating keys:
     /// ship the next key here, keep signing with `publisher_key`, then sign

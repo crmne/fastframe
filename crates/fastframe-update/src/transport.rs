@@ -79,6 +79,7 @@ enum Origin {
     #[default]
     GitHub,
     Local(Url),
+    Feed(Url),
 }
 
 const GITHUB_HOSTS: [&str; 4] = [
@@ -117,7 +118,35 @@ impl Source {
         Ok(Self(Origin::Local(url)))
     }
 
-    /// Whether this is GitHub rather than a local feed.
+    /// The app's own release feed, for apps whose releases are not public on
+    /// GitHub: the same files as [`Source::local`] (`<base>/latest.json`, and
+    /// `<base>/releases.json` on the pre-release channel), served over HTTPS
+    /// from any host. Downloads may not leave the feed's origin, so the
+    /// server streams the assets itself rather than redirecting elsewhere.
+    /// Signatures are still required when the configuration has a publisher
+    /// key, and the updater refuses a feed without one: a feed is trusted by
+    /// the signature, not by the server that serves it.
+    pub fn feed(base: &str) -> Result<Self> {
+        let url = Url::parse(base.trim_end_matches('/'))?;
+        ensure!(
+            url.scheme() == "https"
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none(),
+            "The update feed must be an HTTPS address without credentials, a query or a fragment"
+        );
+        Ok(Self(Origin::Feed(url)))
+    }
+
+    /// Whether releases may only be taken with a publisher signature: the
+    /// app's own feed, where the server alone vouches for nothing.
+    pub(crate) fn needs_publisher_key(&self) -> bool {
+        matches!(self.0, Origin::Feed(_))
+    }
+
+    /// Whether this is GitHub rather than a local feed or the app's own feed.
     pub fn is_github(&self) -> bool {
         matches!(self.0, Origin::GitHub)
     }
@@ -128,7 +157,7 @@ impl Source {
                 "https://api.github.com/repos/{}/releases/latest",
                 config.repository
             ),
-            Origin::Local(base) => feed(base),
+            Origin::Local(base) | Origin::Feed(base) => feed(base),
         }
     }
 
@@ -145,7 +174,7 @@ impl Source {
                 "https://api.github.com/repos/{}/releases?per_page={per_page}&page={page}",
                 config.repository
             )),
-            Origin::Local(base) => (page == 1)
+            Origin::Local(base) | Origin::Feed(base) => (page == 1)
                 .then(|| format!("{}/releases.json", base.as_str().trim_end_matches('/'))),
         }
     }
@@ -156,7 +185,7 @@ impl Source {
                 "https://api.github.com/repos/{}/releases/tags/v{version}",
                 config.repository
             ),
-            Origin::Local(base) => feed(base),
+            Origin::Local(base) | Origin::Feed(base) => feed(base),
         }
     }
 
@@ -172,7 +201,7 @@ impl Source {
                         .host_str()
                         .is_some_and(|host| GITHUB_HOSTS.contains(&host))
             }
-            Origin::Local(base) => url.origin() == base.origin(),
+            Origin::Local(base) | Origin::Feed(base) => url.origin() == base.origin(),
         }
     }
 
@@ -191,7 +220,7 @@ impl Source {
                         && url.path()
                             == format!("/{}/releases/download/v{version}/{name}", config.repository)
                 }
-                Origin::Local(_) => true,
+                Origin::Local(_) | Origin::Feed(_) => true,
             }
     }
 }
@@ -307,6 +336,47 @@ mod tests {
             "http://127.0.0.1:8123/?next=x",
         ] {
             assert!(Source::local(address).is_err(), "{address}");
+        }
+    }
+
+    #[test]
+    fn a_feed_is_https_and_downloads_stay_on_its_origin() {
+        let feed = Source::feed("https://updates.example.com/app/").unwrap();
+        assert!(!feed.is_github());
+        assert_eq!(
+            feed.latest(&ZAPFAST),
+            "https://updates.example.com/app/latest.json"
+        );
+        assert_eq!(
+            feed.release(&ZAPFAST, "0.17.0"),
+            "https://updates.example.com/app/latest.json"
+        );
+        assert_eq!(
+            feed.releases(&ZAPFAST, 1, 100).as_deref(),
+            Some("https://updates.example.com/app/releases.json")
+        );
+        assert!(
+            feed.allowed(&Url::parse("https://updates.example.com/app/v0.17.0/app.dmg").unwrap())
+        );
+        for elsewhere in [
+            "http://updates.example.com/app/app.dmg",
+            "https://cdn.example.com/app.dmg",
+            "https://updates.example.com:8443/app.dmg",
+            "https://github.com/crmne/zapfast/releases/download/v0.17.0/app.dmg",
+        ] {
+            assert!(
+                !feed.allowed(&Url::parse(elsewhere).unwrap()),
+                "{elsewhere}"
+            );
+        }
+        for address in [
+            "http://updates.example.com/app",
+            "https://user:secret@updates.example.com/app",
+            "https://updates.example.com/app?channel=beta",
+            "https://updates.example.com/app#top",
+            "file:///tmp/feed",
+        ] {
+            assert!(Source::feed(address).is_err(), "{address}");
         }
     }
 

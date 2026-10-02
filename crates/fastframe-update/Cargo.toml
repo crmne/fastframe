@@ -1,6 +1,6 @@
 [package]
 name = "fastframe-update"
-description = "Self-update from GitHub releases: check, detect the installation, verify, hand off to a helper, roll back"
+description = "Self-update from GitHub releases or an HTTPS feed: check, detect the installation, verify, hand off to a helper, roll back"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
