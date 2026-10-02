@@ -90,7 +90,9 @@ moving one alone does not build. An app that compensated for the zoom shrink
 itself (a `window_builder` that scales the restored size) drops that code when
 it moves to egui `ba6790fe` or later, or the size is scaled twice. Cargo warns
 about a patch for a crate the app does not use (`egui_extras`, say); leave
-that line out.
+that line out. With egui `ba6790fe` or later (emilk/egui#8621), a window or
+menu is left out of the accessibility tree on the frame that sizes it, so a
+test that reads the tree right after opening one runs one more frame first.
 
 What the forks carry, and where each patch stands upstream. Each patch goes
 upstream as a pull request and stays in the fork until an egui or winit
