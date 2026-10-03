@@ -40,6 +40,7 @@ written for one of those apps first and moved here once another app needed it.
 | [`fastframe-macos`](crates/fastframe-macos) | Puts the macOS traffic lights on the centre line of an app's own title bar, and reads the system's title-bar double-click setting. |
 | [`fastframe-shell`](crates/fastframe-shell) | Keeps an app running without a window around `eframe::run_native`, starts hidden, and brings back windows restored off-screen. |
 | [`fastframe-audio`](crates/fastframe-audio) | Audio output with the app's own renderer: a stream that gets no callbacks while paused, follows the default device, reopens after failures, and keeps a clock of what has played. |
+| [`fastframe-scroll`](crates/fastframe-scroll) | Scrolling that feels like the platform's: a 120-point wheel step, and Linux touchpad gestures that keep their speed, glide after the lift, and hold one axis. |
 | [`fastframe-update`](crates/fastframe-update) | Self-update from GitHub releases: detects package-managed installs, verifies signed checksums, installs through a helper with rollback, keeps the handoff format older app versions use, moves renamed installations onto the new name with their launchers, and offers an opt-in pre-release channel. |
 
 ## Status

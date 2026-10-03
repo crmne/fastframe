@@ -1294,6 +1294,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastframe-scroll"
+version = "0.3.1"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "fastframe-shell"
 version = "0.3.1"
 dependencies = [

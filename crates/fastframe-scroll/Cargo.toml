@@ -1,0 +1,20 @@
+[package]
+name = "fastframe-scroll"
+description = "Scrolling for egui apps that feels like the platform's: a wheel step like other apps', and touchpad gestures on Linux that keep their speed, glide after the lift, and hold one axis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["egui", "scroll", "touchpad", "kinetic", "desktop"]
+categories = ["gui"]
+
+[dependencies]
+# Reads the frame's wheel events and rewrites its smooth scroll delta.
+egui.workspace = true
+
+[lints]
+workspace = true
