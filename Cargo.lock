@@ -1274,6 +1274,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastframe-instance"
+version = "0.3.1"
+dependencies = [
+ "directories",
+ "getrandom 0.4.3",
+ "log",
+ "tempfile",
+]
+
+[[package]]
 name = "fastframe-log"
 version = "0.3.1"
 dependencies = [

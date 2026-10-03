@@ -1,0 +1,30 @@
+[package]
+name = "fastframe-instance"
+description = "One running copy of an egui app per user: a crash-safe lock, and a private channel a second launch hands its request over"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["single-instance", "lock", "ipc", "egui", "desktop"]
+categories = ["gui", "os"]
+
+[dependencies]
+# The per-user runtime (or local data) directory a slot lives in.
+directories.workspace = true
+# A warning when the lock or the channel cannot be set up.
+log.workspace = true
+# The token that guards the loopback channel on Windows. This version is
+# already in ZapFast's, Spotifast's and fastframe's trees.
+getrandom = "0.4"
+
+
+[dev-dependencies]
+# Slots in throwaway directories.
+tempfile.workspace = true
+
+[lints]
+workspace = true
