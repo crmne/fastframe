@@ -69,8 +69,6 @@ enum Axis {
 pub struct Scrolling {
     /// Whether Linux touchpad gestures get the scale and the glide.
     touchpad_help: bool,
-    /// Whether the wheel step was looked at yet.
-    wheel_checked: bool,
     /// Whether the latest scroll input came in points, from a touchpad.
     from_trackpad: bool,
     /// Recent positions of the gesture, for its speed at the lift.
@@ -98,7 +96,6 @@ impl Scrolling {
     fn with_touchpad_help(touchpad_help: bool) -> Self {
         Self {
             touchpad_help,
-            wheel_checked: false,
             from_trackpad: false,
             history: egui::util::History::new(2..16, 0.1),
             travelled: Vec2::ZERO,
@@ -123,19 +120,27 @@ impl Scrolling {
         self.glide.is_some()
     }
 
+    /// Ends the gesture in progress: its glide stops and its axis is free.
+    /// For an app that takes scrolling over, as middle-click autoscroll
+    /// does. What the platform has said about lifts is kept.
+    pub fn stop(&mut self) {
+        self.glide = None;
+        self.history.clear();
+        self.travelled = Vec2::ZERO;
+        self.last_movement = None;
+        self.lock = None;
+    }
+
     /// Applies this frame's scrolling: the wheel step, the touchpad scale and
     /// glide, and the axis lock. Call it once per frame, before anything
     /// scrolls.
     pub fn apply(&mut self, ctx: &Context) {
-        if !self.wheel_checked {
-            self.wheel_checked = true;
-            // The app's own step wins: only egui's default is replaced.
-            ctx.options_mut(|options| {
-                let default = egui::InputOptions::default().line_scroll_speed;
-                if options.input_options.line_scroll_speed == default {
-                    options.input_options.line_scroll_speed = WHEEL_STEP;
-                }
-            });
+        // Checked each frame, so a window made again (with a new context)
+        // gets the step too. The app's own step wins: only egui's default is
+        // replaced.
+        let default = egui::InputOptions::default().line_scroll_speed;
+        if ctx.options(|options| options.input_options.line_scroll_speed) == default {
+            ctx.options_mut(|options| options.input_options.line_scroll_speed = WHEEL_STEP);
         }
 
         let options = ctx.options(|options| options.input_options);

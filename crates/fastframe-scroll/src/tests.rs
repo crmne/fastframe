@@ -268,3 +268,43 @@ fn elsewhere_the_system_scales_and_glides_touchpads_itself() {
     assert!(scrolling.from_trackpad());
     assert!(!scrolling.gliding());
 }
+
+#[test]
+fn stop_ends_a_glide_and_frees_the_axis() {
+    let ctx = Context::default();
+    let mut scrolling = linux();
+    swipe(&ctx, &mut scrolling, TouchPhase::Start);
+    frame(&ctx, &mut scrolling, 0.1, vec![touch(TouchPhase::End, 0.0)]);
+    assert!(scrolling.gliding());
+    scrolling.stop();
+    assert!(!scrolling.gliding());
+    assert_eq!(frame(&ctx, &mut scrolling, 0.12, Vec::new()), Vec2::ZERO);
+    // A sideways gesture right after is not held to the old axis.
+    let sideways = wheel(
+        MouseWheelUnit::Point,
+        vec2(30.0, 0.0),
+        TouchPhase::Start,
+        Modifiers::NONE,
+    );
+    frame(&ctx, &mut scrolling, 0.13, vec![sideways]);
+    let sideways = wheel(
+        MouseWheelUnit::Point,
+        vec2(30.0, 0.0),
+        TouchPhase::Move,
+        Modifiers::NONE,
+    );
+    let scrolled = frame(&ctx, &mut scrolling, 0.146, vec![sideways]);
+    assert!(scrolled.x > 0.0, "{scrolled:?}");
+}
+
+#[test]
+fn a_window_made_again_gets_the_wheel_step_too() {
+    let mut scrolling = Scrolling::default();
+    frame(&Context::default(), &mut scrolling, 0.0, Vec::new());
+    let again = Context::default();
+    frame(&again, &mut scrolling, 0.016, Vec::new());
+    assert_eq!(
+        again.options(|o| o.input_options.line_scroll_speed),
+        WHEEL_STEP
+    );
+}

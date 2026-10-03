@@ -50,6 +50,11 @@ impl App {
 `apply` rewrites the frame's `smooth_scroll_delta`, so every `ScrollArea`
 gets the change without knowing about it. Keep one `Scrolling` per window.
 
+`stop()` ends the gesture in progress, its glide and its axis, for an app
+that takes scrolling over (middle-click autoscroll, say). The wheel step is
+checked every frame, so a window made again with a new egui context gets it
+too.
+
 `from_trackpad()` says whether the latest scroll input came from a touchpad,
 for a view that pans with one and zooms with a wheel. `gliding()` says
 whether a lifted gesture is still carrying the page, for an app that routes
