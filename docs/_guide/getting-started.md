@@ -103,7 +103,7 @@ release includes it; then the fork drops it.
 | Right-to-left text shaped in its direction | egui `6147de7b`, `8e592348` | [emilk/egui#8577](https://github.com/emilk/egui/pull/8577), open |
 | No busy loop while waiting for a redraw | egui `f14640be` | [emilk/egui#8398](https://github.com/emilk/egui/pull/8398), merged, not yet released |
 | No freeze when a Wayland window is hidden: frames paced by the compositor's callbacks | egui `41ff9ddf` | [emilk/egui#8631](https://github.com/emilk/egui/pull/8631), open |
-| The same, eframe's side of winit's `Occluded` | egui `0b431145` | needs a pull request |
+| The same, eframe's side of winit's `Occluded` | egui `0b431145` | [emilk/egui#8660](https://github.com/emilk/egui/pull/8660), a draft that waits for winit#4710 |
 | The xdg-shell `suspended` state reported as `Occluded` | winit `a51e41b2` | [rust-windowing/winit#4709](https://github.com/rust-windowing/winit/pull/4709) and [#4710](https://github.com/rust-windowing/winit/pull/4710) (0.30), open |
 | Paste and file drops together on Wayland: one data device for both (crmne/spotifast#614) | winit `1a8306ad`, `fb8b24c3`; egui `2ab31332` | [rust-windowing/winit#4729](https://github.com/rust-windowing/winit/pull/4729) (0.30), open; on winit's main branch, the clipboard pull request [#4658](https://github.com/rust-windowing/winit/pull/4658) uses the same data device. [emilk/egui#8657](https://github.com/emilk/egui/pull/8657), a draft that waits for winit#4729 |
 | Each emoji one emoji wide (families, skin tones, keycaps, flags) | egui `73e8b6c3` | not proposed: egui's main branch already draws each of these one emoji wide through the system's colour emoji fonts, and the patch only changes the monochrome fonts an app opts into |
