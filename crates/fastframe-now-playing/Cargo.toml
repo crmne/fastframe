@@ -1,0 +1,44 @@
+[package]
+name = "fastframe-now-playing"
+description = "The desktop's media controls for an egui app: what is playing, with artwork, in MPRIS, the Windows media overlay and the macOS Now Playing panel, and the media keys and buttons back"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["mpris", "media-keys", "now-playing", "egui", "desktop"]
+categories = ["gui", "multimedia::audio"]
+
+[dependencies]
+# A warning when the controls cannot be set up.
+log.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# MPRIS, as Spotifast and Solco already serve it.
+mpris-server = { version = "0.10", features = ["tokio"] }
+# mpris-server speaks zbus with the tokio executor, which fastframe's other
+# Linux crates already turn on. It runs on a current-thread runtime on the
+# controls' own thread, whatever runtime the app uses.
+tokio = { version = "1", default-features = false, features = ["rt", "sync", "macros"] }
+
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+# The System Media Transport Controls and MPNowPlayingInfoCenter, as
+# Spotifast already uses them.
+souvlaki = { version = "0.8", default-features = false }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# The hidden window and message loop the Windows controls belong to.
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
+# The workspace forbids unsafe code. The Windows controls need a Win32 window
+# and message loop, so this crate carries the workspace's lints with
+# `unsafe_code` lowered to `deny`, allowed only in `windows.rs`, each block
+# with a SAFETY note.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
