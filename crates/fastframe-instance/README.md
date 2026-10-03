@@ -44,7 +44,7 @@ let guard = match slot.claim(request, move |request| match request {
 }) {
     Claim::First(guard) => guard,       // this is the running copy
     Claim::Running(_reply) => return,   // the running copy took the request
-    Claim::Unanswered => return,        // it is running, but did not answer
+    Claim::Unanswered => return,        // running, but no answer in ANSWER_WAIT
 };
 // Keep `guard` for the life of the process.
 ```
@@ -59,8 +59,10 @@ while the app runs (`app reload-themes`). An error of kind `NotFound` or
 ## Slots
 
 - `Slot::new(app_id)` is the one slot per user: `$XDG_RUNTIME_DIR/<app_id>`
-  on Linux (the app's own runtime directory inside Flatpak), and the user's
-  local data directory on macOS and Windows.
+  on Linux (the app's own runtime directory inside Flatpak), the user's
+  private `$TMPDIR` on macOS (an Application Support path can outgrow the
+  104 bytes a socket path has there), and the user's local data directory on
+  Windows.
 - `.scoped("demo")` is a separate slot beside it, for a copy that should run
   alongside the real app, such as a demo or a test.
 - `Slot::at(dir, name)` puts the slot in a directory the app already uses,

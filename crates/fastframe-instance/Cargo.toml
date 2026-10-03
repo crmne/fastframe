@@ -17,14 +17,18 @@ categories = ["gui", "os"]
 directories.workspace = true
 # A warning when the lock or the channel cannot be set up.
 log.workspace = true
+
+
+[target.'cfg(not(unix))'.dependencies]
 # The token that guards the loopback channel on Windows. This version is
 # already in ZapFast's, Spotifast's and fastframe's trees.
 getrandom = "0.4"
 
-
 [dev-dependencies]
 # Slots in throwaway directories.
 tempfile.workspace = true
+# The token's tests run on every platform.
+getrandom = "0.4"
 
 [lints]
 workspace = true

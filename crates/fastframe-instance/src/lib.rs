@@ -52,8 +52,9 @@ const REQUEST_LIMIT: usize = 16 * 1024;
 const REQUEST_TIME: Duration = Duration::from_secs(1);
 /// The time a client waits for the reply, which may queue behind a stray one.
 const REPLY_TIME: Duration = Duration::from_secs(5);
-/// How long a later launch waits for a starting copy to listen.
-const STARTUP_WAIT: Duration = Duration::from_secs(3);
+/// How long a second launch waits for the running copy to answer, which it
+/// may not yet while it is still starting, before [`Claim::Unanswered`].
+pub const ANSWER_WAIT: Duration = Duration::from_secs(3);
 
 /// Where one running copy lives: a private directory for the lock and the
 /// channel, and the name every request and reply starts with.
@@ -74,7 +75,8 @@ pub enum Claim {
     First(Guard),
     /// Another copy is running and took the request; this is its reply.
     Running(String),
-    /// Another copy holds the slot but did not answer in time.
+    /// Another copy holds the slot but did not answer within
+    /// [`ANSWER_WAIT`].
     Unanswered,
 }
 
@@ -87,9 +89,10 @@ pub struct Guard {
 
 impl Slot {
     /// The one slot per user for `app_id` (a reverse-DNS name such as
-    /// `rocks.example.App`): the per-user runtime directory where the system
-    /// has one (`$XDG_RUNTIME_DIR` on Linux, or the app's own inside a
-    /// Flatpak sandbox), and a directory in the user's local data elsewhere.
+    /// `rocks.example.App`): the per-user runtime directory on Linux
+    /// (`$XDG_RUNTIME_DIR`, or the app's own inside a Flatpak sandbox), the
+    /// user's private temporary directory on macOS (`$TMPDIR`, short enough
+    /// for a socket path), and the user's local data on Windows.
     #[must_use]
     pub fn new(app_id: &str) -> Self {
         Self::at(default_dir(app_id), app_id)
@@ -103,7 +106,7 @@ impl Slot {
         Self {
             dir: dir.into(),
             prefix: format!("{name}:"),
-            startup_wait: STARTUP_WAIT,
+            startup_wait: ANSWER_WAIT,
         }
     }
 
@@ -202,6 +205,15 @@ fn default_dir(app_id: &str) -> PathBuf {
     ) {
         return runtime.join("app").join(id);
     }
+    // A socket path has room for 104 bytes on macOS, which a directory in
+    // Application Support under a long user name can use up. The user's
+    // temporary directory is private to them, and short.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = project;
+        std::env::temp_dir().join(file_name_safe(app_id))
+    }
+    #[cfg(not(target_os = "macos"))]
     match &project {
         Some(project) => match project.runtime_dir() {
             Some(runtime) => runtime.to_path_buf(),
