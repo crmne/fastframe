@@ -1211,7 +1211,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-audio"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "cpal",
  "log",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-emoji"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "egui",
  "fastframe-fonts",
@@ -1237,7 +1237,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-fonts"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "directories",
  "egui",
@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-i18n"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "include-po",
  "polib",
@@ -1261,21 +1261,21 @@ dependencies = [
 
 [[package]]
 name = "fastframe-i18n-app"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "fastframe-i18n",
 ]
 
 [[package]]
 name = "fastframe-icons"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "egui",
 ]
 
 [[package]]
 name = "fastframe-log"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "env_logger",
  "jiff",
@@ -1284,7 +1284,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-macos"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "eframe",
  "egui",
@@ -1295,7 +1295,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-shell"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "eframe",
  "egui",
@@ -1304,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-text"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "egui",
  "zbus",
@@ -1312,7 +1312,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-theme"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "directories",
  "egui",
@@ -1325,7 +1325,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-tray"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ksni",
  "log",
@@ -1338,7 +1338,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-update"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "reqwest",
