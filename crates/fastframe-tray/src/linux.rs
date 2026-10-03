@@ -148,7 +148,7 @@ impl ksni::Tray for Item {
                 MenuItem::Action { id, label, visible } => {
                     let id: &'static str = id;
                     ksni::menu::StandardItem {
-                        label: label.clone(),
+                        label: dbusmenu_label(label),
                         visible: *visible,
                         activate: Box::new(move |item: &mut Self| {
                             item.router.send(Event::Menu(id));
@@ -161,6 +161,13 @@ impl ksni::Tray for Item {
             })
             .collect()
     }
+}
+
+/// A label as DBusMenu reads it: a single `_` marks the next letter as the
+/// keyboard shortcut and disappears, so a literal one is doubled. Labels
+/// carry names such as `q3_plan.md`, never shortcuts.
+fn dbusmenu_label(label: &str) -> String {
+    label.replace('_', "__")
 }
 
 /// RGBA pixels as the network-byte-order ARGB32 ksni expects.
@@ -241,6 +248,14 @@ mod tests {
             events.try_iter().collect::<Vec<_>>(),
             [Event::Menu("quit"), Event::Toggle]
         );
+    }
+
+    /// DBusMenu takes `_` for a shortcut marker and drops it, so a file name
+    /// in the menu would lose its underscores.
+    #[test]
+    fn underscores_in_labels_are_shown_as_written() {
+        assert_eq!(dbusmenu_label("Open q3_plan.md"), "Open q3__plan.md");
+        assert_eq!(dbusmenu_label("Quit"), "Quit");
     }
 
     /// ksni keeps hidden entries in the menu with `visible` off, so the host
