@@ -19,7 +19,7 @@ use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType};
 use objc2_foundation::{NSObjectNSDelayedPerforming, NSPoint};
 
 use crate::native::Item;
-use crate::{Config, Event, Router};
+use crate::{Config, DrawIcon, Event, Router};
 
 thread_local! {
     /// The status item, which only the main thread may touch.
@@ -31,6 +31,8 @@ thread_local! {
 pub(crate) struct Host {
     /// What the item needs, until the first window lets it be made.
     pending: Option<(Config, Router)>,
+    /// A tooltip set before the item was made.
+    pending_tooltip: Option<String>,
 }
 
 impl Host {
@@ -42,6 +44,7 @@ impl Host {
     pub(crate) fn start(config: Config, router: Router) -> Result<Self, String> {
         Ok(Self {
             pending: Some((config, router)),
+            pending_tooltip: None,
         })
     }
 
@@ -69,16 +72,53 @@ impl Host {
         });
     }
 
+    pub(crate) fn set_enabled(&mut self, id: &str, enabled: bool) {
+        if let Some((config, _)) = &mut self.pending {
+            crate::set_enabled(&mut config.menu, id, enabled);
+            return;
+        }
+        with_item(|item| item.set_enabled(id, enabled));
+    }
+
+    pub(crate) fn set_icon(&mut self, icon: DrawIcon, template_icon: Option<DrawIcon>) {
+        if let Some((config, _)) = &mut self.pending {
+            config.icon = icon;
+            config.template_icon = template_icon;
+            return;
+        }
+        with_item(|item| item.set_icon(icon, template_icon));
+    }
+
+    pub(crate) fn set_tooltip(&mut self, text: String) {
+        if self.pending.is_some() {
+            self.pending_tooltip = Some(text);
+            return;
+        }
+        with_item(|item| item.set_tooltip(&text));
+    }
+
     /// Makes the item if this is the first window, and brings the app
     /// forward.
     pub(crate) fn attach(&mut self) {
         if let Some((config, router)) = self.pending.take() {
             create(&config, router);
+            if let Some(text) = self.pending_tooltip.take() {
+                with_item(|item| item.set_tooltip(&text));
+            }
         }
         if ITEM.with(|slot| slot.borrow().is_some()) {
             activate();
         }
     }
+}
+
+/// Acts on the item, once it exists.
+fn with_item(act: impl FnOnce(&Item)) {
+    ITEM.with(|slot| {
+        if let Some(item) = slot.borrow().as_ref() {
+            act(item);
+        }
+    });
 }
 
 /// Makes the item, once, on the main thread.
@@ -279,15 +319,22 @@ mod tests {
             title: "Spotifast".into(),
             icon: |size| vec![0; size * size * 4],
             template_icon: None,
+            themed_icon: true,
+            menu_on_click: false,
             menu,
         };
         let mut host = Host::start(config, router).unwrap();
         host.set_label("play", "Pause".into());
         host.set_visible("play", false);
+        host.set_enabled("play", false);
+        host.set_tooltip("Spotifast\nPaused".into());
         let (config, _) = host.pending.as_ref().unwrap();
         assert_eq!(
             config.menu[0],
-            crate::MenuItem::action("play", "Pause").visible(false)
+            crate::MenuItem::action("play", "Pause")
+                .visible(false)
+                .enabled(false)
         );
+        assert_eq!(host.pending_tooltip.as_deref(), Some("Spotifast\nPaused"));
     }
 }

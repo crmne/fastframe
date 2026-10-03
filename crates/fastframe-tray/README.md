@@ -18,6 +18,8 @@ let tray = Tray::spawn(
         title: "Spotifast".into(),
         icon: util::app_icon_rgba,                 // fn(usize) -> Vec<u8>, RGBA
         template_icon: Some(util::tray_template_rgba), // macOS menu bar
+        themed_icon: true,     // Linux: also name the installed app icon
+        menu_on_click: false,  // macOS: any click opens the menu
         menu: vec![
             MenuItem::action("show", "Show or hide Spotifast"),
             MenuItem::Separator,
@@ -30,7 +32,9 @@ let tray = Tray::spawn(
     },
     move || waker.wake(),
 );
-// None: no tray on this desktop, so closing the window should quit.
+// None: the tray could not be made at all. On Linux a panel may come later
+// (an app started at login beats it), so ask before keeping the app running:
+let keep_running_on_close = tray.as_ref().is_some_and(Tray::is_shown);
 
 // Every frame and every headless tick:
 for event in tray.events() {
@@ -43,9 +47,13 @@ for event in tray.events() {
     }
 }
 
-// Labels can change, and entries can come and go, keeping their place:
+// Labels can change, entries can be greyed out or come and go, keeping
+// their place, and the icon and tooltip can change:
 tray.set_label("play-pause", if playing { "Pause" } else { "Play" });
+tray.set_enabled("play-pause", connected);
 tray.set_visible("lock", password_set);
+tray.set_icon(if online { util::tray_rgba } else { util::tray_dimmed_rgba }, None);
+tray.set_tooltip("Spotifast\nPlaying: Song, by Band"); // Linux: title, then detail
 
 // When a window is made (the macOS item is created by the first call):
 tray.attach();
@@ -54,17 +62,25 @@ tray.attach();
 fastframe_tray::idle(std::time::Duration::from_millis(150));
 ```
 
-Labels and visibility change while the app runs, on every platform. On Linux
+Labels, greying, visibility, the icon and the tooltip change while the app
+runs, on every platform. A disabled entry (`MenuItem::enabled(false)`) is
+greyed out, as for a status line. On Linux
 a hidden entry stays in the StatusNotifier menu with its `visible` flag off;
 tray-icon's menus have no hidden entries, so on Windows and macOS it is taken
 out and put back after the shown entries before it.
 
 ## Platforms
 
-- **Linux**: ksni on its own thread. `spawn` returns `None` without a
-  StatusNotifier host. Inside Flatpak (`/.flatpak-info` or `FLATPAK_ID`) the
-  item registers its unique bus name, since the sandbox does not let it own
-  one. A left click is `Event::Toggle`.
+- **Linux**: ksni on its own thread. The item registers even before a
+  StatusNotifier host is up, and appears once one is; `is_shown` says
+  whether one shows it now (false on a desktop without a tray, such as
+  stock GNOME). Inside Flatpak (`/.flatpak-info` or `FLATPAK_ID`) the item
+  registers its unique bus name, since the sandbox does not let it own one.
+  With `themed_icon`, the item also names the installed app icon, for hosts
+  that draw only named icons; turn it off when the tray icon is a glyph or
+  changes, or those hosts draw the app icon instead. Labels escape `_`,
+  which DBusMenu would read as a shortcut marker. A left click is
+  `Event::Toggle`.
 - **Windows**: tray-icon on its own thread with a message loop. A left click
   is `Event::Show`: the two releases of a double-click arrive separately,
   possibly on both sides of window creation, and a toggle would hide the
@@ -72,7 +88,7 @@ out and put back after the shown entries before it.
 - **macOS**: status items only exist on the main thread while AppKit's loop
   runs, so the first `attach` makes the item, and each `attach` brings the
   app forward. A left click is `Event::Toggle`; the menu opens on right
-  click. A click on the Dock icon is `Event::Show`, even for a minimized
+  click, or on any click with `menu_on_click`. A click on the Dock icon is `Event::Show`, even for a minimized
   window (AppKit calls that visible). While headless, `idle` runs
   `-[NSApplication run]` in slices, which catches Objective-C exceptions
   raised while handling an event; a hand-written event loop let them unwind

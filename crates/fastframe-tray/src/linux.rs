@@ -1,5 +1,8 @@
 //! The Linux StatusNotifierItem, on ksni's own thread.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use ksni::blocking::TrayMethods;
 
 use crate::{Config, DrawIcon, Event, MenuItem, Router};
@@ -9,6 +12,8 @@ const ICON_SIZE: usize = 64;
 
 pub(crate) struct Host {
     handle: ksni::blocking::Handle<Item>,
+    /// Whether a StatusNotifier watcher has the item now.
+    shown: Arc<AtomicBool>,
 }
 
 impl Host {
@@ -17,21 +22,51 @@ impl Host {
             std::path::Path::new("/.flatpak-info").exists(),
             std::env::var_os("FLATPAK_ID").is_some(),
         );
-        let icon_name = icon_name(config.id, sandbox, &icon_dirs());
+        let icon_name = if config.themed_icon {
+            icon_name(config.id, sandbox, &icon_dirs())
+        } else {
+            String::new()
+        };
+        let shown = Arc::new(AtomicBool::new(true));
         let item = Item {
             id: config.id,
             icon_name,
             title: config.title,
+            tooltip: None,
             icon: config.icon,
             menu: config.menu,
             router,
+            shown: Arc::clone(&shown),
         };
         // Flatpak lets an app talk to the watcher but not own ksni's
         // generated StatusNotifierItem name; register the unique connection
         // name instead, as ksni requires for sandboxed apps (Spotifast
-        // 1c03c21).
-        let handle = item.disable_dbus_name(sandbox).spawn()?;
-        Ok(Self { handle })
+        // 1c03c21). An app started at login can beat the panel, so a missing
+        // watcher is not an error: the item registers when one appears, and
+        // `shown` tracks it.
+        let handle = item
+            .disable_dbus_name(sandbox)
+            .assume_sni_available(true)
+            .spawn()?;
+        Ok(Self { handle, shown })
+    }
+
+    pub(crate) fn is_shown(&self) -> bool {
+        self.shown.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn set_enabled(&mut self, id: &str, enabled: bool) {
+        self.handle.update(|item| {
+            crate::set_enabled(&mut item.menu, id, enabled);
+        });
+    }
+
+    pub(crate) fn set_icon(&mut self, icon: DrawIcon, _template_icon: Option<DrawIcon>) {
+        self.handle.update(|item| item.icon = icon);
+    }
+
+    pub(crate) fn set_tooltip(&mut self, text: String) {
+        self.handle.update(|item| item.tooltip = Some(text));
     }
 
     pub(crate) fn set_label(&mut self, id: &str, label: String) {
@@ -111,9 +146,22 @@ struct Item {
     id: &'static str,
     icon_name: String,
     title: String,
+    tooltip: Option<String>,
     icon: DrawIcon,
     menu: Vec<MenuItem>,
     router: Router,
+    shown: Arc<AtomicBool>,
+}
+
+/// A tooltip as StatusNotifier hosts show it: the first line is its title,
+/// the rest its detail.
+fn tool_tip(text: &str) -> ksni::ToolTip {
+    let (title, description) = text.split_once('\n').unwrap_or((text, ""));
+    ksni::ToolTip {
+        title: title.to_owned(),
+        description: description.to_owned(),
+        ..ksni::ToolTip::default()
+    }
 }
 
 impl ksni::Tray for Item {
@@ -127,6 +175,20 @@ impl ksni::Tray for Item {
 
     fn icon_name(&self) -> String {
         self.icon_name.clone()
+    }
+
+    fn tool_tip(&self) -> ksni::ToolTip {
+        self.tooltip.as_deref().map(tool_tip).unwrap_or_default()
+    }
+
+    fn watcher_online(&self) {
+        self.shown.store(true, Ordering::Release);
+    }
+
+    fn watcher_offline(&self, _reason: ksni::OfflineReason) -> bool {
+        // Keep the item: it registers again when a watcher comes back.
+        self.shown.store(false, Ordering::Release);
+        true
     }
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
@@ -145,11 +207,17 @@ impl ksni::Tray for Item {
         self.menu
             .iter()
             .map(|item| match item {
-                MenuItem::Action { id, label, visible } => {
+                MenuItem::Action {
+                    id,
+                    label,
+                    visible,
+                    enabled,
+                } => {
                     let id: &'static str = id;
                     ksni::menu::StandardItem {
                         label: dbusmenu_label(label),
                         visible: *visible,
+                        enabled: *enabled,
                         activate: Box::new(move |item: &mut Self| {
                             item.router.send(Event::Menu(id));
                         }),
@@ -226,9 +294,11 @@ mod tests {
             id: "zapfast",
             icon_name: String::new(),
             title: "ZapFast".into(),
+            tooltip: None,
             icon: |size| vec![0; size * size * 4],
             menu,
             router,
+            shown: Arc::new(AtomicBool::new(true)),
         };
         assert_eq!(item.id(), "zapfast");
         assert_eq!(item.title(), "ZapFast");
@@ -248,6 +318,50 @@ mod tests {
             events.try_iter().collect::<Vec<_>>(),
             [Event::Menu("quit"), Event::Toggle]
         );
+    }
+
+    #[test]
+    fn greyed_entries_tooltips_and_the_panel_coming_and_going() {
+        use ksni::Tray as _;
+        let (sender, _events) = std::sync::mpsc::channel();
+        let menu = vec![
+            MenuItem::action("status", "Agent online").enabled(false),
+            MenuItem::action("pause", "Pause"),
+        ];
+        let router = Router::new(sender, Arc::new(|| {}), &menu);
+        let item = Item {
+            id: "cww-app",
+            icon_name: String::new(),
+            title: "Chat with Work".into(),
+            tooltip: Some("Chat with Work\nOnline, 3 files indexed".into()),
+            icon: |size| vec![0; size * size * 4],
+            menu,
+            router,
+            shown: Arc::new(AtomicBool::new(true)),
+        };
+        let entries = item.menu();
+        let ksni::MenuItem::Standard(status) = &entries[0] else {
+            panic!("an entry");
+        };
+        assert!(!status.enabled, "a status line is greyed out");
+        let ksni::MenuItem::Standard(pause) = &entries[1] else {
+            panic!("an entry");
+        };
+        assert!(pause.enabled);
+
+        let tip = item.tool_tip();
+        assert_eq!(tip.title, "Chat with Work");
+        assert_eq!(tip.description, "Online, 3 files indexed");
+        assert_eq!(tool_tip("Paused").description, "");
+
+        // The panel goes away (or was never up, as at login) and comes back.
+        assert!(
+            item.watcher_offline(ksni::OfflineReason::No),
+            "the item stays"
+        );
+        assert!(!item.shown.load(Ordering::Acquire));
+        item.watcher_online();
+        assert!(item.shown.load(Ordering::Acquire));
     }
 
     /// DBusMenu takes `_` for a shortcut marker and drops it, so a file name
@@ -273,9 +387,11 @@ mod tests {
             id: "zapfast",
             icon_name: String::new(),
             title: "ZapFast".into(),
+            tooltip: None,
             icon: |size| vec![0; size * size * 4],
             menu,
             router,
+            shown: Arc::new(AtomicBool::new(true)),
         };
         let shown = |item: &Item| -> Vec<bool> {
             item.menu()

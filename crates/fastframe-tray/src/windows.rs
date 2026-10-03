@@ -11,12 +11,15 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, MSG, PostThreadMessageW, TranslateMessage, WM_APP, WM_QUIT,
 };
 
-use crate::{Config, Router};
+use crate::{Config, DrawIcon, Router};
 
-/// A change to the menu, carried to the tray thread.
+/// A change to the item, carried to the tray thread.
 enum Change {
     Label(String, String),
     Visible(String, bool),
+    Enabled(String, bool),
+    Icon(DrawIcon, Option<DrawIcon>),
+    Tooltip(String),
 }
 
 pub(crate) struct Host {
@@ -45,6 +48,18 @@ impl Host {
 
     pub(crate) fn set_visible(&mut self, id: &str, visible: bool) {
         self.change(Change::Visible(id.to_owned(), visible));
+    }
+
+    pub(crate) fn set_enabled(&mut self, id: &str, enabled: bool) {
+        self.change(Change::Enabled(id.to_owned(), enabled));
+    }
+
+    pub(crate) fn set_icon(&mut self, icon: DrawIcon, template_icon: Option<DrawIcon>) {
+        self.change(Change::Icon(icon, template_icon));
+    }
+
+    pub(crate) fn set_tooltip(&mut self, text: String) {
+        self.change(Change::Tooltip(text));
     }
 
     fn change(&self, change: Change) {
@@ -101,6 +116,9 @@ fn serve(
             match change {
                 Change::Label(id, label) => item.set_label(&id, &label),
                 Change::Visible(id, visible) => item.set_visible(&id, visible),
+                Change::Enabled(id, enabled) => item.set_enabled(&id, enabled),
+                Change::Icon(icon, template) => item.set_icon(icon, template),
+                Change::Tooltip(text) => item.set_tooltip(&text),
             }
         }
         if message.message == WM_APP {

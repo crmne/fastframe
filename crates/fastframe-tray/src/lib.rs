@@ -17,14 +17,19 @@
 //!     title: "ZapFast".into(),
 //!     icon,
 //!     template_icon: None,
+//!     themed_icon: true,
+//!     menu_on_click: false,
 //!     menu: vec![
 //!         MenuItem::action("show", "Show or hide ZapFast"),
 //!         MenuItem::Separator,
 //!         MenuItem::action("quit", "Quit"),
 //!     ],
 //! };
-//! // `None` when the desktop has no tray: closing the window should quit.
+//! // `None` when the tray cannot be made at all.
 //! let mut tray = Tray::spawn(config, || { /* repaint the window */ });
+//! // Whether closing the window should keep the app running: a panel shows
+//! // the item now (on Linux one may appear later, as at login).
+//! let keep_running = tray.as_ref().is_some_and(Tray::is_shown);
 //!
 //! // Each frame, and each headless tick:
 //! if let Some(tray) = &tray {
@@ -37,10 +42,14 @@
 //!         }
 //!     }
 //! }
-//! // Entries can change their label, or come and go in their place:
+//! // Entries can change their label, be greyed out, or come and go in their
+//! // place, and the item can change its icon and tooltip:
 //! if let Some(tray) = &mut tray {
 //!     tray.set_label("show", "Show ZapFast");
+//!     tray.set_enabled("show", true);
 //!     tray.set_visible("show", true);
+//!     tray.set_icon(icon, None);
+//!     tray.set_tooltip("ZapFast\nConnected");
 //! }
 //! // When a window has been made (macOS creates the item then):
 //! if let Some(tray) = &mut tray {
@@ -53,9 +62,11 @@
 //!
 //! Per platform:
 //!
-//! - **Linux**: ksni on its own thread. Without a StatusNotifier host,
-//!   [`Tray::spawn`] returns `None`. Inside Flatpak the item registers its
-//!   unique bus name, since the sandbox does not let it own one.
+//! - **Linux**: ksni on its own thread. The item registers even before the
+//!   panel is up (an app started at login can beat it), and shows once a
+//!   StatusNotifier host appears; [`Tray::is_shown`] says whether one shows
+//!   it now. Inside Flatpak the item registers its unique bus name, since the
+//!   sandbox does not let it own one.
 //! - **Windows**: tray-icon on its own thread with a message loop. A left
 //!   click asks to [`Event::Show`] (each release of a double-click arrives
 //!   separately, possibly on both sides of window creation, so a toggle
@@ -63,7 +74,8 @@
 //! - **macOS**: status items live on the main thread and only while AppKit's
 //!   event loop runs, so the item is made by the first [`Tray::attach`], and
 //!   [`idle`] runs AppKit's loop while no window exists. A Dock click asks to
-//!   [`Event::Show`]. The menu opens on right click; left click toggles.
+//!   [`Event::Show`]. The menu opens on right click and left click toggles,
+//!   or any click opens the menu with [`Config::menu_on_click`].
 //!
 //! The menu handler of tray-icon (muda) is process-wide, and muda keeps the
 //! first one installed, ignoring the rest. An app that builds its own muda
@@ -99,6 +111,15 @@ pub struct Config {
     /// A macOS template image: black on transparent, which macOS recolours
     /// to match the menu bar. `None` uses [`Config::icon`] as it is.
     pub template_icon: Option<DrawIcon>,
+    /// On Linux, also name the app's installed icon to the panel, for the
+    /// hosts that draw only icons they look up by name. Turn it off for an
+    /// app whose tray icon differs from its app icon (a glyph, or one that
+    /// changes with [`Tray::set_icon`]), since a host that has the name
+    /// draws that instead of the pixels.
+    pub themed_icon: bool,
+    /// On macOS, open the menu on any click, as menu-bar items do, rather
+    /// than toggling the window on a left click.
+    pub menu_on_click: bool,
     /// The menu, top to bottom.
     pub menu: Vec<MenuItem>,
 }
@@ -114,19 +135,32 @@ pub enum MenuItem {
         label: String,
         /// Whether the menu shows it. Change it with [`Tray::set_visible`].
         visible: bool,
+        /// Whether it can be chosen; a disabled entry is greyed out, as for a
+        /// status line. Change it with [`Tray::set_enabled`].
+        enabled: bool,
     },
     /// A line between groups of entries.
     Separator,
 }
 
 impl MenuItem {
-    /// A clickable entry, shown.
+    /// A clickable entry, shown and enabled.
     pub fn action(id: &'static str, label: impl Into<String>) -> Self {
         Self::Action {
             id,
             label: label.into(),
             visible: true,
+            enabled: true,
         }
+    }
+
+    /// The same entry, enabled or greyed out from the start.
+    #[must_use]
+    pub fn enabled(mut self, can_choose: bool) -> Self {
+        if let Self::Action { enabled, .. } = &mut self {
+            *enabled = can_choose;
+        }
+        self
     }
 
     /// The same entry, shown or hidden from the start. A separator is always
@@ -168,9 +202,10 @@ impl std::fmt::Debug for Tray {
 }
 
 impl Tray {
-    /// Registers the item, or returns `None` when the desktop has none to
-    /// offer (no StatusNotifier host, or an OS error), in which case closing
-    /// the window should quit.
+    /// Registers the item, or returns `None` when it cannot be made (no
+    /// session bus, or an OS error). On Linux the item registers even while
+    /// no panel shows it yet; ask [`is_shown`](Self::is_shown) before letting
+    /// a closed window keep the app running.
     ///
     /// `wake` is called after each event is queued, from the tray's thread.
     pub fn spawn(config: Config, wake: impl Fn() + Send + Sync + 'static) -> Option<Self> {
@@ -214,6 +249,46 @@ impl Tray {
         self.host.set_visible(id, visible);
         #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
         let _ = (id, visible);
+    }
+
+    /// Greys out the entry `id`, or lets it be chosen again. Unknown ids are
+    /// ignored.
+    pub fn set_enabled(&mut self, id: &str, enabled: bool) {
+        #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+        self.host.set_enabled(id, enabled);
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+        let _ = (id, enabled);
+    }
+
+    /// Changes the icon (dimmed while offline, say), with its macOS template
+    /// image as in [`Config`].
+    pub fn set_icon(&mut self, icon: DrawIcon, template_icon: Option<DrawIcon>) {
+        #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+        self.host.set_icon(icon, template_icon);
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+        let _ = (icon, template_icon);
+    }
+
+    /// Changes the tooltip, which is the app's title until this is called.
+    /// On Linux the first line is the tooltip's title and the rest its
+    /// detail; elsewhere the text is shown as it is.
+    pub fn set_tooltip(&mut self, text: impl Into<String>) {
+        #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+        self.host.set_tooltip(text.into());
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+        let _ = text;
+    }
+
+    /// Whether a panel shows the item now, so closing the window can keep
+    /// the app running. On Linux a panel may come and go (it starts after an
+    /// app launched at login, or a desktop has none); on Windows and macOS
+    /// the item is always shown.
+    #[must_use]
+    pub fn is_shown(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        return self.host.is_shown();
+        #[cfg(not(target_os = "linux"))]
+        true
     }
 
     /// A window exists. On macOS the first call makes the item, and each
@@ -357,6 +432,22 @@ fn set_label(menu: &mut [MenuItem], id: &str, new: String) -> bool {
     false
 }
 
+/// Enables or greys out `id` in `menu`; whether it was there.
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
+fn set_enabled(menu: &mut [MenuItem], id: &str, can_choose: bool) -> bool {
+    for item in menu {
+        if let MenuItem::Action {
+            id: known, enabled, ..
+        } = item
+            && *known == id
+        {
+            *enabled = can_choose;
+            return true;
+        }
+    }
+    false
+}
+
 /// Shows or hides `id` in `menu`; whether its visibility changed.
 #[cfg(any(target_os = "linux", target_os = "macos", windows, test))]
 fn set_visible(menu: &mut [MenuItem], id: &str, shown: bool) -> bool {
@@ -480,9 +571,25 @@ mod tests {
                 id: "lock",
                 label: "Lock".into(),
                 visible: false,
+                enabled: true,
             }
         );
         assert_eq!(MenuItem::Separator.visible(false), MenuItem::Separator);
+    }
+
+    #[test]
+    fn entries_can_be_greyed_out_from_the_start_or_later() {
+        let mut menu = vec![
+            MenuItem::action("status", "Online").enabled(false),
+            MenuItem::action("pause", "Pause"),
+        ];
+        assert!(matches!(menu[0], MenuItem::Action { enabled: false, .. }));
+        assert!(set_enabled(&mut menu, "pause", false));
+        assert!(set_enabled(&mut menu, "status", true));
+        assert!(!set_enabled(&mut menu, "missing", false));
+        assert_eq!(menu[0], MenuItem::action("status", "Online"));
+        assert_eq!(menu[1], MenuItem::action("pause", "Pause").enabled(false));
+        assert_eq!(MenuItem::Separator.enabled(false), MenuItem::Separator);
     }
 
     #[test]

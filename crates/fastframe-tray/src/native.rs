@@ -3,14 +3,14 @@
 use tray_icon::menu::{Menu, MenuEvent, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
-use crate::{Config, MenuItem, Router};
+use crate::{Config, DrawIcon, MenuItem, Router};
 
 /// The icon's size in pixels; the system scales it for the tray.
 const ICON_SIZE: usize = 32;
 
 /// The item and its menu. Dropping it removes the item.
 pub(crate) struct Item {
-    _icon: TrayIcon,
+    icon: TrayIcon,
     entries: Entries,
 }
 
@@ -23,6 +23,48 @@ impl Item {
     /// Shows or hides an entry in its place; unknown ids are ignored.
     pub(crate) fn set_visible(&mut self, id: &str, visible: bool) {
         self.entries.set_visible(id, visible);
+    }
+
+    /// Greys an entry out or lets it be chosen; unknown ids are ignored.
+    pub(crate) fn set_enabled(&self, id: &str, enabled: bool) {
+        if let Some(entry) = self.entries.entry(id) {
+            entry.set_enabled(enabled);
+        }
+    }
+
+    /// Changes the icon, the macOS template image when there is one.
+    pub(crate) fn set_icon(&self, icon: DrawIcon, template_icon: Option<DrawIcon>) {
+        let (draw, template) = pick_icon(icon, template_icon);
+        let size = ICON_SIZE as u32;
+        let result = Icon::from_rgba(draw(ICON_SIZE), size, size)
+            .map_err(|error| error.to_string())
+            .and_then(|icon| {
+                self.icon
+                    .set_icon(Some(icon))
+                    .map_err(|error| error.to_string())
+            });
+        #[cfg(target_os = "macos")]
+        self.icon.set_icon_as_template(template);
+        #[cfg(not(target_os = "macos"))]
+        let _ = template;
+        if let Err(error) = result {
+            log::warn!("the tray icon could not be changed: {error}");
+        }
+    }
+
+    /// Changes the tooltip.
+    pub(crate) fn set_tooltip(&self, text: &str) {
+        if let Err(error) = self.icon.set_tooltip(Some(text)) {
+            log::warn!("the tray tooltip could not be changed: {error}");
+        }
+    }
+}
+
+/// The icon to draw, and whether it is a macOS template image.
+fn pick_icon(icon: DrawIcon, template_icon: Option<DrawIcon>) -> (DrawIcon, bool) {
+    match template_icon {
+        Some(template) if cfg!(target_os = "macos") => (template, true),
+        _ => (icon, false),
     }
 }
 
@@ -43,9 +85,18 @@ impl Entries {
         let mut entries = Vec::new();
         for item in model {
             match item {
-                MenuItem::Action { id, label, visible } => {
-                    let entry =
-                        tray_icon::menu::MenuItem::with_id(crate::menu_id(id), label, true, None);
+                MenuItem::Action {
+                    id,
+                    label,
+                    visible,
+                    enabled,
+                } => {
+                    let entry = tray_icon::menu::MenuItem::with_id(
+                        crate::menu_id(id),
+                        label,
+                        *enabled,
+                        None,
+                    );
                     if *visible {
                         menu.append(&entry)?;
                     }
@@ -96,20 +147,19 @@ impl Entries {
 /// Makes the item on the current thread and routes its events to `router`.
 pub(crate) fn build(config: &Config, router: Router) -> Result<Item, Box<dyn std::error::Error>> {
     let size = ICON_SIZE as u32;
-    let (draw, template) = match config.template_icon {
-        Some(template) if cfg!(target_os = "macos") => (template, true),
-        _ => (config.icon, false),
-    };
+    let (draw, template) = pick_icon(config.icon, config.template_icon);
     let icon = Icon::from_rgba(draw(ICON_SIZE), size, size)?;
     let entries = Entries::new(&config.menu)?;
     // Left click toggles (macOS) or shows (Windows) the window; the menu
-    // opens on right click (Spotifast #310).
+    // opens on right click (Spotifast #310), or on any click on macOS when
+    // the app asks for the menu-bar habit.
+    let menu_on_click = config.menu_on_click && cfg!(target_os = "macos");
     let icon = TrayIconBuilder::new()
         .with_icon(icon)
         .with_icon_as_template(template)
         .with_tooltip(&config.title)
         .with_menu(Box::new(entries.menu.clone()))
-        .with_menu_on_left_click(false)
+        .with_menu_on_left_click(menu_on_click)
         .build()?;
 
     router.install();
@@ -122,15 +172,13 @@ pub(crate) fn build(config: &Config, router: Router) -> Result<Item, Box<dyn std
             button_state: MouseButtonState::Up,
             ..
         } = event
+            && !menu_on_click
         {
             router.send(crate::left_click(cfg!(windows)));
         }
     }));
 
-    Ok(Item {
-        _icon: icon,
-        entries,
-    })
+    Ok(Item { icon, entries })
 }
 
 // muda menus can be made off the main thread on Windows only; macOS needs
