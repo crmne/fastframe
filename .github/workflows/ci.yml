@@ -33,6 +33,11 @@ jobs:
       - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: quality-v1
+      # fastframe-audio: cpal needs ALSA's headers on Linux, and its
+      # pipewire feature (all features) builds bindings with clang.
+      - name: Linux audio headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libpipewire-0.3-dev clang libclang-dev
       - name: Formatting
         run: cargo fmt --all --check
       - name: Clippy (default features)
@@ -62,6 +67,11 @@ jobs:
       - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: test-v1
+      # fastframe-audio: cpal needs ALSA's headers on Linux, and its
+      # pipewire feature (all features) builds bindings with clang.
+      - name: Linux audio headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libpipewire-0.3-dev clang libclang-dev
       # Platform code sits behind cfg blocks, so lint each platform too.
       - name: Clippy (all features)
         run: mbx clippy --locked --all-targets --all-features -- -D warnings

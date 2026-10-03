@@ -1,0 +1,31 @@
+[package]
+name = "fastframe-audio"
+description = "Audio output for egui apps: a device stream that really idles when paused, follows the default device and reopens after failures"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["audio", "cpal", "output", "egui", "desktop"]
+categories = ["multimedia::audio"]
+
+[features]
+# cpal's native PulseAudio backend (pure Rust), which Solco uses so its fixed
+# buffer replaces PulseAudio's ~2 s default target.
+pulseaudio = ["cpal/pulseaudio"]
+# cpal's PipeWire backend. Builds bindings against libpipewire, so it needs
+# its headers and clang; off by default.
+pipewire = ["cpal/pipewire"]
+
+[dependencies]
+# The device stream. 0.18 is the version Solco builds with and kira 0.12
+# requires; Spotifast and ZapFast reach cpal through rodio today.
+cpal = "0.18.1"
+# Device changes, reopens and errors are logged as the other crates log.
+log.workspace = true
+
+[lints]
+workspace = true
