@@ -40,10 +40,11 @@ let guard = match slot.claim(request, move |request| match request {
         Some("ok".to_owned())
     }
     "ping" => Some("ok".to_owned()),
-    _ => None, // refused: the launch gets no reply
+    _ => None, // declined: the launch gets Claim::Declined
 }) {
     Claim::First(guard) => guard,       // this is the running copy
     Claim::Running(_reply) => return,   // the running copy took the request
+    Claim::Declined => return,          // the running copy declined it
     Claim::Unanswered => return,        // running, but no answer in ANSWER_WAIT
 };
 // Keep `guard` for the life of the process.

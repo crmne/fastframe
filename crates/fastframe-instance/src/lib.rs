@@ -25,6 +25,7 @@
 //! }) {
 //!     Claim::First(guard) => guard,
 //!     Claim::Running(_reply) => return, // the running copy took it
+//!     Claim::Declined => return,        // the running copy declined it
 //!     Claim::Unanswered => return,      // running, but it did not answer
 //! };
 //! // Keep `guard` until the process exits.
@@ -75,6 +76,9 @@ pub enum Claim {
     First(Guard),
     /// Another copy is running and took the request; this is its reply.
     Running(String),
+    /// Another copy is running and declined the request: its handler
+    /// returned `None`.
+    Declined,
     /// Another copy holds the slot but did not answer within
     /// [`ANSWER_WAIT`].
     Unanswered,
@@ -130,7 +134,8 @@ impl Slot {
     ///
     /// The running copy calls `handle` on a thread of its own for each
     /// request a later launch sends, in order, and sends back what it
-    /// returns. `None` refuses the request: the launch gets no reply. Keep
+    /// returns. `None` declines the request, and the launch is told so
+    /// ([`Claim::Declined`]). Keep
     /// `handle` quick (queue the request and wake the app), since requests
     /// wait their turn.
     ///
@@ -149,8 +154,12 @@ impl Slot {
                 return Claim::First(Guard { _lock: None });
             }
         };
+        // Holding the lock without listening would leave every later launch
+        // waiting for an answer that never comes, so a slot that cannot
+        // listen lets the lock go and runs unguarded.
         if let Err(error) = listen(&self.dir, self.prefix.clone(), handle) {
-            log::warn!("cannot listen for other launches: {error}");
+            log::warn!("cannot listen for other launches; running unguarded: {error}");
+            return Claim::First(Guard { _lock: None });
         }
         Claim::First(Guard { _lock: Some(lock) })
     }
@@ -158,7 +167,8 @@ impl Slot {
     /// Sends `request` to the running copy and returns its reply, without
     /// becoming the running copy when there is none: for a command-line
     /// action that only makes sense while the app runs. An error of kind
-    /// `NotFound` or `ConnectionRefused` means no copy is running.
+    /// `NotFound` or `ConnectionRefused` means no copy is running, and
+    /// `PermissionDenied` that the running copy declined the request.
     pub fn send(&self, request: &str) -> std::io::Result<String> {
         if request.contains('\n') {
             return Err(std::io::Error::new(
@@ -176,6 +186,9 @@ impl Slot {
         loop {
             match self.send(request) {
                 Ok(reply) => return Claim::Running(reply),
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    return Claim::Declined;
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
                     log::warn!("cannot hand the request over: {error}");
                     return Claim::Unanswered;
@@ -401,17 +414,27 @@ fn exchange(
     stream
         .take(REQUEST_LIMIT as u64)
         .read_to_string(&mut reply)?;
-    match reply
-        .lines()
-        .next()
-        .and_then(|line| line.strip_prefix(prefix))
-    {
+    let line = reply.lines().next().unwrap_or_default();
+    if line == declined(prefix) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "the running copy declined the request",
+        ));
+    }
+    match line.strip_prefix(prefix) {
         Some(reply) => Ok(reply.to_owned()),
         None => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "the running copy refused the request, or the channel is not the app's",
+            "the channel is not the app's",
         )),
     }
+}
+
+/// The line that declines a request: the app's name and `!declined`, which
+/// no reply can be, since every reply starts with the name and `:`. Copies
+/// from before it never send it, and their silence reads as before.
+fn declined(prefix: &str) -> String {
+    format!("{}!declined", prefix.strip_suffix(':').unwrap_or(prefix))
 }
 
 /// Handles one request and reply per connection until the listener closes.
@@ -426,10 +449,11 @@ fn serve<C: Connection>(
         let Some(request) = receive(&mut stream, token, prefix) else {
             continue;
         };
-        if let Some(reply) = handle(&request) {
-            let reply = reply.replace('\n', " ");
-            let _ = stream.write_all(format!("{prefix}{reply}\n").as_bytes());
-        }
+        let line = match handle(&request) {
+            Some(reply) => format!("{prefix}{}", reply.replace('\n', " ")),
+            None => declined(prefix),
+        };
+        let _ = stream.write_all(format!("{line}\n").as_bytes());
     }
 }
 

@@ -45,15 +45,20 @@ fn a_second_launch_hands_its_request_to_the_first() {
 }
 
 #[test]
-fn a_refused_request_gets_no_reply() {
+fn a_declined_request_is_told_apart_from_a_silent_copy() {
     let (_dir, slot) = slot();
     let (seen, handle) = recorder();
     let Claim::First(_guard) = slot.claim("show", handle) else {
         panic!("the first launch is the running copy");
     };
-    let refused = slot.send("frobnicate").unwrap_err();
-    assert_eq!(refused.kind(), std::io::ErrorKind::InvalidData);
-    assert_eq!(*seen.lock().unwrap(), ["frobnicate"]);
+    let declined = slot.send("frobnicate").unwrap_err();
+    assert_eq!(declined.kind(), std::io::ErrorKind::PermissionDenied);
+    // A launch is told at once, rather than waiting out ANSWER_WAIT.
+    let (_, unused) = recorder();
+    let started = Instant::now();
+    assert!(matches!(slot.claim("frobnicate", unused), Claim::Declined));
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(*seen.lock().unwrap(), ["frobnicate", "frobnicate"]);
     let two_lines = slot.send("show\nshow").unwrap_err();
     assert_eq!(two_lines.kind(), std::io::ErrorKind::InvalidInput);
 }
@@ -194,7 +199,8 @@ fn loopback_requests_need_the_token_and_the_prefix() {
     let wrong = new_token().unwrap();
     assert!(exchange(connect(port), Some(&wrong), "test.app:", "show").is_err());
     assert!(exchange(connect(port), None, "test.app:", "show").is_err());
-    assert!(exchange(connect(port), Some(&token), "other.app:", "show").is_err());
+    let other = exchange(connect(port), Some(&token), "other.app:", "show").unwrap_err();
+    assert_eq!(other.kind(), std::io::ErrorKind::InvalidData, "not ours");
     // Browsers reaching localhost send HTTP, which never carries the token.
     let mut browser = connect(port);
     browser
@@ -252,4 +258,21 @@ fn the_key_file_round_trips_and_stays_private() {
             .mode();
         assert_eq!(mode & 0o777, 0o600);
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_slot_that_cannot_listen_lets_the_lock_go() {
+    // A socket path longer than the system allows (108 bytes on Linux, 104
+    // on macOS) cannot be bound.
+    let dir = tempfile::tempdir().unwrap();
+    let deep = dir.path().join("d".repeat(120));
+    let slot = Slot::at(&deep, "test.app");
+    let (_, handle) = recorder();
+    let Claim::First(_guard) = slot.claim("show", handle) else {
+        panic!("the first launch runs");
+    };
+    // The lock is free, so a later launch runs too rather than waiting for
+    // an answer that cannot come.
+    assert!(lock(slot.dir()).unwrap().is_some());
 }
