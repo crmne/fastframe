@@ -57,6 +57,9 @@ tray.set_tooltip("Spotifast\nPlaying: Song, by Band"); // Linux: title, then det
 
 // When a window is made (the macOS item is created by the first call):
 tray.attach();
+// Or, for an app that starts with no window (at login), make the macOS item
+// now without bringing the app forward:
+tray.create_item();
 
 // While no window exists (runs AppKit's loop on macOS, sleeps elsewhere):
 fastframe_tray::idle(std::time::Duration::from_millis(150));
@@ -87,7 +90,9 @@ out and put back after the shown entries before it.
   window again. The menu opens on right click only.
 - **macOS**: status items only exist on the main thread while AppKit's loop
   runs, so the first `attach` makes the item, and each `attach` brings the
-  app forward. A left click is `Event::Toggle`; the menu opens on right
+  app forward; `create_item` makes it without activating the app, for a
+  start with no window. The icon is drawn at 36 pixels, the menu bar's
+  18 points at 2x. A left click is `Event::Toggle`; the menu opens on right
   click, or on any click with `menu_on_click`. A click on the Dock icon is `Event::Show`, even for a minimized
   window (AppKit calls that visible). While headless, `idle` runs
   `-[NSApplication run]` in slices, which catches Objective-C exceptions

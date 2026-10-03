@@ -72,7 +72,8 @@
 //!   separately, possibly on both sides of window creation, so a toggle
 //!   would flicker); the menu opens on right click.
 //! - **macOS**: status items live on the main thread and only while AppKit's
-//!   event loop runs, so the item is made by the first [`Tray::attach`], and
+//!   event loop runs, so the item is made by the first [`Tray::attach`] (or,
+//!   for an app with no window yet, [`Tray::create_item`]), and
 //!   [`idle`] runs AppKit's loop while no window exists. A Dock click asks to
 //!   [`Event::Show`]. The menu opens on right click and left click toggles,
 //!   or any click opens the menu with [`Config::menu_on_click`].
@@ -289,6 +290,17 @@ impl Tray {
         return self.host.is_shown();
         #[cfg(not(target_os = "linux"))]
         true
+    }
+
+    /// Makes the item now, without bringing the app forward, for an app that
+    /// starts with no window (in the background at login). On macOS the item
+    /// is otherwise made by the first [`attach`](Self::attach), which also
+    /// activates the app; keep AppKit running with [`idle`] meanwhile.
+    /// Elsewhere the item exists from [`spawn`](Self::spawn), and this does
+    /// nothing.
+    pub fn create_item(&mut self) {
+        #[cfg(target_os = "macos")]
+        self.host.create_item();
     }
 
     /// A window exists. On macOS the first call makes the item, and each

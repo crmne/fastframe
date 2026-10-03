@@ -5,8 +5,10 @@ use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, 
 
 use crate::{Config, DrawIcon, MenuItem, Router};
 
-/// The icon's size in pixels; the system scales it for the tray.
-const ICON_SIZE: usize = 32;
+/// The icon's size in pixels, which the system scales for the tray: the
+/// macOS menu bar draws 18-point icons, 36 pixels on the Retina screens it
+/// mostly runs on, so a smaller image would be scaled up and soft.
+const ICON_SIZE: usize = if cfg!(target_os = "macos") { 36 } else { 32 };
 
 /// The item and its menu. Dropping it removes the item.
 pub(crate) struct Item {

@@ -97,15 +97,20 @@ impl Host {
         with_item(|item| item.set_tooltip(&text));
     }
 
-    /// Makes the item if this is the first window, and brings the app
-    /// forward.
-    pub(crate) fn attach(&mut self) {
+    /// Makes the item if it does not exist yet, without activating the app.
+    pub(crate) fn create_item(&mut self) {
         if let Some((config, router)) = self.pending.take() {
             create(&config, router);
             if let Some(text) = self.pending_tooltip.take() {
                 with_item(|item| item.set_tooltip(&text));
             }
         }
+    }
+
+    /// Makes the item if this is the first window, and brings the app
+    /// forward.
+    pub(crate) fn attach(&mut self) {
+        self.create_item();
         if ITEM.with(|slot| slot.borrow().is_some()) {
             activate();
         }
