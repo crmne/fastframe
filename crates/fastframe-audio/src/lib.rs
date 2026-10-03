@@ -135,7 +135,10 @@ pub struct OutputOptions {
     /// PulseAudio move the stream themselves).
     pub follow_default: bool,
     /// Let the device go after the output has been paused this long; the next
-    /// [`Output::resume`] opens it again.
+    /// [`Output::resume`] opens it again. The device is let go by
+    /// [`Output::maintain`], so an app whose audio thread sleeps while paused
+    /// has to call it now and then during the pause (every few seconds is
+    /// enough), or the device stays open, still costing nothing.
     pub release_after: Option<Duration>,
 }
 
@@ -390,7 +393,9 @@ impl<R: Render> Output<R> {
     ///
     /// It reopens a stream that failed or whose device went away, moves to a
     /// new default output, and lets the device go after a long pause. A
-    /// failed reopen is not remembered: the next call tries again.
+    /// failed reopen is not remembered: the next call tries again. Nothing
+    /// happens between calls, so keep calling it while paused for
+    /// [`OutputOptions::release_after`] to take effect.
     pub fn maintain(&mut self) -> Maintained {
         if std::mem::take(&mut self.resumed) {
             return self.reopened(Reason::Resumed);

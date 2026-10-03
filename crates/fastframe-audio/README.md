@@ -73,7 +73,9 @@ the same sample.
   themselves). On by default.
 - `release_after`: let the device go after a pause this long (five minutes by
   default); the next `resume()` opens it again, and `maintain()` then reports
-  `Reopened`.
+  `Reopened`. `maintain()` is what lets it go, so an app whose audio thread
+  sleeps while paused calls it every few seconds during the pause, or the
+  device stays open (still with no callbacks).
 
 The output opens at the preferred rate, then at the device's own, each with
 the fixed buffer when one was asked for, then with the driver's buffer, then
@@ -84,7 +86,8 @@ from the renderer's `f32`.
 
 `maintain()` is cheap when nothing changed. It reopens a stream that failed
 or whose device went away, moves to a new default output, and lets the device
-go after a long pause. It returns what it did:
+go after a long pause; nothing happens between calls, so keep calling it
+while paused. It returns what it did:
 
 - `Unchanged`;
 - `Reopened { device, sample_rate, channels, reason }`, with `reason` one of
