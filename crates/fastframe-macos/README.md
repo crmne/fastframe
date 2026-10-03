@@ -39,10 +39,8 @@ fn header(ui: &mut egui::Ui) {
 }
 ```
 
-`Fill` (and `Maximize`, its older name) is separate because AppKit performs
-it itself when the double-click starts a native window drag
-(`ViewportCommand::StartDrag` on mouse down, as Spotifast does). An app that
-starts dragging only after movement treats it like `Zoom`. A value the crate
+macOS stores Zoom as `Maximize`, which the crate reads as `Zoom`. `Fill`
+fills the screen; the usage above treats it like `Zoom`. A value the crate
 does not know does nothing.
 
 ## Not here: application menus

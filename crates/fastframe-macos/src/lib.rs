@@ -112,11 +112,7 @@ fn button_origin(index: usize, bar: f64, button_height: f64) -> (f64, f64) {
 pub enum DoubleClick {
     /// Zoom the window (the default).
     Zoom,
-    /// Fill the screen (`Fill`, or `Maximize` on older systems).
-    ///
-    /// AppKit performs this itself when the double-click starts a native
-    /// window drag (`ViewportCommand::StartDrag` on mouse down, as Spotifast
-    /// does); an app that drags only after movement zooms instead.
+    /// Fill the screen.
     Fill,
     /// Minimize the window into the Dock.
     Minimize,
@@ -126,6 +122,9 @@ pub enum DoubleClick {
 
 /// The system's title-bar double-click setting. [`DoubleClick::Zoom`] off
 /// macOS, where double-clicking a title bar maximizes.
+///
+/// AppKit performs the setting only on its own title bar, so on a header
+/// drawn under a hidden one the app performs it.
 pub fn double_click_action() -> DoubleClick {
     #[cfg(target_os = "macos")]
     {
@@ -136,13 +135,14 @@ pub fn double_click_action() -> DoubleClick {
     DoubleClick::Zoom
 }
 
-/// Reads `AppleActionOnDoubleClick`, falling back to the older
-/// `AppleMiniaturizeOnDoubleClick` switch when it is unset. A value this does
-/// not know does nothing rather than something unexpected.
+/// Reads `AppleActionOnDoubleClick`, where System Settings stores Zoom as
+/// `Maximize`, falling back to the older `AppleMiniaturizeOnDoubleClick`
+/// switch when it is unset. A value this does not know does nothing rather
+/// than something unexpected.
 pub fn parse_double_click(action: Option<&str>, legacy_minimize: bool) -> DoubleClick {
     match action {
-        Some("Zoom") => DoubleClick::Zoom,
-        Some("Fill" | "Maximize") => DoubleClick::Fill,
+        Some("Maximize") => DoubleClick::Zoom,
+        Some("Fill") => DoubleClick::Fill,
         Some("Minimize") => DoubleClick::Minimize,
         Some(_) => DoubleClick::Nothing,
         None if legacy_minimize => DoubleClick::Minimize,
@@ -181,9 +181,8 @@ mod tests {
     #[test]
     fn every_known_setting_maps_to_its_action() {
         for (value, action) in [
-            (Some("Zoom"), DoubleClick::Zoom),
+            (Some("Maximize"), DoubleClick::Zoom),
             (Some("Fill"), DoubleClick::Fill),
-            (Some("Maximize"), DoubleClick::Fill),
             (Some("Minimize"), DoubleClick::Minimize),
             (Some("None"), DoubleClick::Nothing),
             (Some("FutureAction"), DoubleClick::Nothing),
@@ -196,7 +195,10 @@ mod tests {
     #[test]
     fn the_older_minimize_switch_counts_only_when_the_new_key_is_unset() {
         assert_eq!(parse_double_click(None, true), DoubleClick::Minimize);
-        assert_eq!(parse_double_click(Some("Zoom"), true), DoubleClick::Zoom);
+        assert_eq!(
+            parse_double_click(Some("Maximize"), true),
+            DoubleClick::Zoom
+        );
     }
 
     #[test]
