@@ -46,6 +46,11 @@ for error in output.take_errors() {
 }
 ```
 
+A renderer whose engine is made from the output, as kira's `Renderer` is
+made with its manager, can be opened empty and take the engine afterwards:
+have `render` write silence until the engine arrives over a one-shot channel
+it checks without blocking (`try_recv`), as Solco does.
+
 The renderer runs on the audio thread and must not block. The app reaches it
 through its own handles (rodio's mixer, kira's manager, a channel), never
 through the output, so nothing the app does can make the callback wait. It
