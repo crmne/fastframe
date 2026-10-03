@@ -107,8 +107,9 @@ pub enum Buffer {
     /// The driver's own size.
     #[default]
     Driver,
-    /// A fixed size on every platform, clamped to the range the device
-    /// reports. PulseAudio otherwise targets about two seconds.
+    /// A fixed size on every platform, asked for as given and clamped to
+    /// the range the device reports only if it refuses that. PulseAudio
+    /// otherwise targets about two seconds.
     Fixed(BufferSize),
     /// A fixed size on Windows, where shared-mode output underruns with the
     /// driver's; the driver's own elsewhere.

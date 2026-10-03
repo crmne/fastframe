@@ -21,6 +21,12 @@ pub(crate) struct Attempt {
 /// those with the driver's buffer, which a device that rejects the size still
 /// accepts. Duplicates are left out. The device's other listed configurations
 /// come after these, from the caller.
+///
+/// A fixed buffer is tried as asked before it is clamped to the range the
+/// device reported, because a range is not always a limit: WASAPI in shared
+/// mode reports its period as both ends and takes any size, and Spotifast
+/// needs its 100 ms there against underruns. CoreAudio rejects a size out of
+/// its range, and then gets the clamped one.
 pub(crate) fn attempts(
     preferred_rate: Option<u32>,
     device_rate: u32,
@@ -42,10 +48,12 @@ pub(crate) fn attempts(
     };
     if let Some(size) = buffer {
         for &rate in &rates {
-            push(Attempt {
-                sample_rate: rate,
-                buffer_frames: Some(buffer_frames(size, rate, buffer_range)),
-            });
+            for range in [None, buffer_range] {
+                push(Attempt {
+                    sample_rate: rate,
+                    buffer_frames: Some(buffer_frames(size, rate, range)),
+                });
+            }
         }
     }
     for &rate in &rates {
@@ -57,8 +65,8 @@ pub(crate) fn attempts(
     out
 }
 
-/// A buffer size in frames at `sample_rate`, clamped to the range the device
-/// reported, since CoreAudio rejects any other size. At least one frame.
+/// A buffer size in frames at `sample_rate`, clamped to `range` when there is
+/// one. At least one frame.
 pub(crate) fn buffer_frames(size: BufferSize, sample_rate: u32, range: Option<(u32, u32)>) -> u32 {
     let frames = match size {
         BufferSize::Frames(frames) => frames,
@@ -186,6 +194,47 @@ mod tests {
                 Attempt {
                     sample_rate: 48_000,
                     buffer_frames: Some(512)
+                },
+                Attempt {
+                    sample_rate: 44_100,
+                    buffer_frames: None
+                },
+                Attempt {
+                    sample_rate: 48_000,
+                    buffer_frames: None
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_fixed_buffer_is_tried_as_asked_before_it_is_clamped() {
+        // WASAPI in shared mode reports its 10 ms period as the whole range,
+        // and takes Spotifast's 100 ms anyway.
+        let tried = attempts(
+            Some(44_100),
+            48_000,
+            Some(BufferSize::Duration(Duration::from_millis(100))),
+            Some((480, 480)),
+        );
+        assert_eq!(
+            tried,
+            [
+                Attempt {
+                    sample_rate: 44_100,
+                    buffer_frames: Some(4410)
+                },
+                Attempt {
+                    sample_rate: 44_100,
+                    buffer_frames: Some(480)
+                },
+                Attempt {
+                    sample_rate: 48_000,
+                    buffer_frames: Some(4800)
+                },
+                Attempt {
+                    sample_rate: 48_000,
+                    buffer_frames: Some(480)
                 },
                 Attempt {
                     sample_rate: 44_100,

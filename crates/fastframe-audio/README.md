@@ -65,7 +65,9 @@ the same sample.
 - `buffer`: the driver's own size, `Buffer::Fixed(size)` everywhere (PulseAudio
   otherwise targets about two seconds), or `Buffer::FixedOnWindows(size)`,
   for Windows' shared-mode underruns. A size is `BufferSize::Frames(n)` or a
-  `BufferSize::Duration`, clamped to the range the device reports.
+  `BufferSize::Duration`. It is asked for as given, and clamped to the range
+  the device reports only if the device refuses it: WASAPI in shared mode
+  reports its 10 ms period as the range but takes any size.
 - `max_block_frames`: render in blocks of at most this many frames, whatever
   the device's buffer, so a renderer's own clock moves in small steps.
 - `follow_default`: move to a new default output (on macOS and Windows,
@@ -132,9 +134,11 @@ in every case.
 ## Example
 
 `cargo run -p fastframe-audio --example idle` opens the default output with
-a renderer that writes silence, and prints the render calls and the clock
-while playing, paused and resumed. On Linux, a paused output got no calls on
-ALSA, PulseAudio and PipeWire alike.
+a renderer that writes silence, and prints the render calls, the largest
+callback and the clock while playing, paused and resumed, and how soon the
+first callback follows `resume()`. `-- --buffer-ms 100` asks for a fixed
+100 ms buffer instead of Solco's 512 frames. A paused output got no calls on
+ALSA, PulseAudio, PipeWire and WASAPI alike.
 
 ## Not in this crate
 
