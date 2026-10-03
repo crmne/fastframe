@@ -83,7 +83,9 @@ next track, nothing to seek in).
 ## Platform notes
 
 - **Linux:** the player appears as `org.mpris.MediaPlayer2.<bus_name>`.
-  Inside a Flatpak, the desktop entry is the sandbox's app id. The track id a
+  Inside a Flatpak, the desktop entry is the sandbox's app id;
+  `desktop_entry(own)` gives the same name for the window's app id, so the
+  two always match. The track id a
   `SetPosition` names is the app's own `Track::id`, whatever its shape.
 - **Windows:** the controls belong to a hidden window on their own thread,
   with a message loop.

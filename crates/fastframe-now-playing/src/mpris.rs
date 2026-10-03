@@ -79,13 +79,9 @@ async fn run(
     commands: Sender<Command>,
     wake: Wake,
 ) -> mpris_server::zbus::Result<()> {
-    let flatpak_id = std::env::var("FLATPAK_ID").ok();
     let player = Player::builder(&app.bus_name)
         .identity(app.identity.clone())
-        .desktop_entry(crate::desktop_entry(
-            flatpak_id.as_deref(),
-            &app.desktop_entry,
-        ))
+        .desktop_entry(crate::desktop_entry(&app.desktop_entry))
         .can_raise(app.can_raise)
         .can_quit(app.can_quit)
         .can_control(true)
