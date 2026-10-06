@@ -43,8 +43,8 @@ pub struct Fallback {
     /// The font data key: `fallback-<script>`, after the first script that
     /// chose the face.
     pub name: String,
-    /// The font file.
-    pub bytes: Vec<u8>,
+    /// The font file, memory-mapped for the life of the process.
+    pub bytes: &'static [u8],
     /// The face within a collection.
     pub index: u32,
     /// Size relative to Inter, so the script reads as large as Latin text
@@ -119,7 +119,7 @@ pub fn fallbacks() -> &'static [Fallback] {
 /// A face found for `script`, before adjusting it to Inter.
 pub(crate) struct Found {
     pub(crate) script: &'static str,
-    pub(crate) bytes: Vec<u8>,
+    pub(crate) bytes: &'static [u8],
     pub(crate) index: u32,
     /// The file it was read from, for the log.
     pub(crate) path: std::path::PathBuf,
@@ -127,17 +127,17 @@ pub(crate) struct Found {
 
 fn adjusted(found: Found) -> Fallback {
     let scale = if found.script == "arabic" {
-        arabic_scale(&found.bytes, found.index)
+        arabic_scale(found.bytes, found.index)
     } else {
         1.0
     };
-    let y_offset_factor = baseline_offset(&found.bytes, found.index);
+    let y_offset_factor = baseline_offset(found.bytes, found.index);
     // At info, so a user's ordinary log says which face draws each script
     // when one looks wrong.
     log::info!(
         "{} fallback: {} ({}, face {}), scale {scale:.2}, baseline {y_offset_factor:+.3} em",
         found.script,
-        family_name(&found.bytes, found.index).unwrap_or_else(|| "unnamed".into()),
+        family_name(found.bytes, found.index).unwrap_or_else(|| "unnamed".into()),
         found.path.display(),
         found.index,
     );
@@ -211,10 +211,23 @@ pub(crate) fn draws(font: &skrifa::FontRef<'_>, character: char) -> bool {
 )]
 pub(crate) fn map(path: &Path) -> Option<memmap2::Mmap> {
     let file = std::fs::File::open(path).ok()?;
-    // SAFETY: the mapping is read-only and callers drop it before returning.
-    // A font file rewritten underneath it during that window could fault,
-    // the same bet every font enumerator on the platform makes.
+    // SAFETY: the mapping is read-only. Probing drops it before returning;
+    // `map_for_life` keeps it. A font file rewritten underneath it while it is
+    // held could fault, the same bet every font enumerator on the platform
+    // makes.
     unsafe { memmap2::Mmap::map(&file) }.ok()
+}
+
+/// Maps a font file and keeps the mapping for the life of the process.
+///
+/// epaint borrows a face's bytes for as long as the fonts are installed, and
+/// every window installs them. Mapping instead of reading means the process
+/// holds only the pages it draws from, as clean file-backed memory the system
+/// can drop and reload: a Hangul fallback is a 55 MB collection on macOS.
+/// A font file truncated in place while the app runs could fault on a later
+/// glyph; package managers and font installers replace files instead.
+pub(crate) fn map_for_life(path: &Path) -> Option<&'static [u8]> {
+    Some(Box::leak(Box::new(map(path)?)))
 }
 
 /// Inter's baseline measured from the centre of its line box, in ems:
@@ -319,7 +332,7 @@ pub(crate) use scan::scan;
 /// call it.
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 mod scan {
-    use super::{FONT_SCAN_DEPTH, Found, SCRIPTS, draws, faces, is_font_file, map};
+    use super::{FONT_SCAN_DEPTH, Found, SCRIPTS, draws, faces, is_font_file, map, map_for_life};
     use skrifa::MetadataProvider as _;
     use skrifa::raw::TableProvider as _;
     use std::collections::BTreeMap;
@@ -373,12 +386,9 @@ mod scan {
             if taken.contains(&(candidate.path.clone(), candidate.index)) {
                 continue;
             }
-            let bytes = match std::fs::read(&candidate.path) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    log::warn!("cannot read {}: {error}", candidate.path.display());
-                    continue;
-                }
+            let Some(bytes) = map_for_life(&candidate.path) else {
+                log::warn!("cannot map {}", candidate.path.display());
+                continue;
             };
             taken.push((candidate.path.clone(), candidate.index));
             found.push(Found {
@@ -997,7 +1007,7 @@ pub(crate) mod tests_support {
     pub(crate) fn tall_yi_fallback() -> &'static [Fallback] {
         Box::leak(Box::new([adjusted(Found {
             script: "yi",
-            bytes: include_bytes!("../tests/fixtures/yi/YiTallLineGap.ttf").to_vec(),
+            bytes: include_bytes!("../tests/fixtures/yi/YiTallLineGap.ttf"),
             index: 0,
             path: std::path::PathBuf::from("test.ttf"),
         })]))
@@ -1015,6 +1025,14 @@ mod tests {
         assert!(is_font_file(Path::new("/x/PingFang.otf")));
         assert!(!is_font_file(Path::new("/x/fonts.dir")));
         assert!(!is_font_file(Path::new("/x/README")));
+    }
+
+    #[test]
+    fn a_face_mapped_for_life_reads_as_its_file() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/yi/YiTest.ttf");
+        let bytes = map_for_life(&path).unwrap();
+        assert_eq!(bytes, include_bytes!("../tests/fixtures/yi/YiTest.ttf"));
+        assert!(map_for_life(Path::new("/no/such/font.ttf")).is_none());
     }
 
     #[test]
@@ -1075,7 +1093,7 @@ mod tests {
     fn adjusting_names_the_first_script() {
         let fallback = adjusted(Found {
             script: "yi",
-            bytes: include_bytes!("../tests/fixtures/yi/YiTest.ttf").to_vec(),
+            bytes: include_bytes!("../tests/fixtures/yi/YiTest.ttf"),
             index: 0,
             path: std::path::PathBuf::from("test.ttf"),
         });

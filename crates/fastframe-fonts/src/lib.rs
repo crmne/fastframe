@@ -306,7 +306,7 @@ impl FontSetup {
         // Installed fonts come last, so they never replace the interface
         // face's Latin or the companions' glyphs.
         for fallback in fallbacks {
-            let mut data = FontData::from_static(&fallback.bytes);
+            let mut data = FontData::from_static(fallback.bytes);
             data.index = fallback.index;
             data.tweak.scale = fallback.scale;
             data.tweak.y_offset_factor = fallback.y_offset_factor + realign;
@@ -513,7 +513,7 @@ mod tests {
     fn system_fallbacks_come_last_with_their_adjustments() {
         let fallbacks: &'static [system::Fallback] = Box::leak(Box::new([system::Fallback {
             name: "fallback-arabic".into(),
-            bytes: INTER.to_vec(),
+            bytes: INTER,
             index: 0,
             scale: 1.1,
             y_offset_factor: 0.05,

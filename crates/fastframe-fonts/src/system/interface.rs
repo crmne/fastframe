@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use skrifa::MetadataProvider as _;
 
-use super::{draws, faces, map};
+use super::{draws, faces, map, map_for_life};
 use crate::Weight;
 
 /// The optical size interface text is drawn at. San Francisco's axis starts
@@ -96,9 +96,7 @@ pub(crate) fn assemble(family: String, choices: &[Choice]) -> Option<Interface> 
         if let Some((_, bytes)) = mapped.iter().find(|(known, _)| known == path) {
             return Some(bytes);
         }
-        // Kept for the process's life: epaint borrows the bytes for as long
-        // as the fonts are installed, and every window installs them.
-        let bytes: &'static [u8] = Box::leak(Box::new(map(path)?));
+        let bytes = map_for_life(path)?;
         mapped.push((path.to_path_buf(), bytes));
         Some(bytes)
     };
