@@ -56,12 +56,8 @@ pub(super) fn load() -> Vec<Found> {
         if taken.contains(&(path.clone(), index)) {
             continue;
         }
-        let bytes = match std::fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                log::warn!("cannot read {}: {error}", path.display());
-                continue;
-            }
+        let Some(bytes) = super::map_for_life(path) else {
+            continue;
         };
         taken.push((path.clone(), index));
         found.push(Found {
