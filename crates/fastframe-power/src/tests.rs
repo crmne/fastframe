@@ -97,6 +97,98 @@ fn a_reader_waits_for_the_answer_but_not_forever() {
     assert!(started.elapsed() >= Duration::from_millis(25), "gave up");
 }
 
+/// The reader starts what must not wait for the app, and notes when the
+/// system went to sleep, before it waits for the answer; a session that is
+/// ending runs neither.
+#[test]
+fn going_to_sleep_starts_at_once_on_the_reader() {
+    let power = Power::fixed(Conditions::default());
+    let paused = Arc::new(AtomicU32::new(0));
+    let count = Arc::clone(&paused);
+    power.on_suspending(move || {
+        count.fetch_add(1, Ordering::Relaxed);
+    });
+    let quick = Duration::from_millis(10);
+    power.shared.push_and_wait(Event::EndingSession, quick);
+    assert_eq!(paused.load(Ordering::Relaxed), 0);
+    assert!(power.take_suspended_at().is_none());
+
+    power.shared.push_and_wait(Event::Suspending, quick);
+    assert_eq!(paused.load(Ordering::Relaxed), 1);
+    assert!(power.take_suspended_at().is_some());
+    assert!(power.take_suspended_at().is_none(), "taken once");
+}
+
+/// The hook runs outside the reader's lock: one that sets the next hook
+/// does not hold the system back waiting on itself.
+#[test]
+fn a_hook_can_set_the_next_one() {
+    let power = Arc::new(Power::fixed(Conditions::default()));
+    let ran = Arc::new(AtomicU32::new(0));
+    let (inner, count) = (Arc::clone(&power), Arc::clone(&ran));
+    power.on_suspending(move || {
+        count.fetch_add(1, Ordering::Relaxed);
+        let count = Arc::clone(&count);
+        inner.on_suspending(move || {
+            count.fetch_add(10, Ordering::Relaxed);
+        });
+    });
+    let quick = Duration::from_millis(10);
+    power.shared.push_and_wait(Event::Suspending, quick);
+    power.shared.push_and_wait(Event::Suspending, quick);
+    assert_eq!(ran.load(Ordering::Relaxed), 11);
+}
+
+/// A hook that panics leaves the reader going: the sleep is still queued
+/// for the app, and the next one runs the hook again.
+#[test]
+fn a_panicking_hook_still_queues_the_sleep() {
+    let power = Power::fixed(Conditions::default());
+    let ran = Arc::new(AtomicU32::new(0));
+    let count = Arc::clone(&ran);
+    power.on_suspending(move || {
+        count.fetch_add(1, Ordering::Relaxed);
+        panic!("the app's hook failed");
+    });
+    let quick = Duration::from_millis(10);
+    power.shared.push_and_wait(Event::Suspending, quick);
+    assert!(matches!(power.events().as_slice(), [Event::Suspending(_)]));
+    power.shared.push_and_wait(Event::Suspending, quick);
+    assert_eq!(ran.load(Ordering::Relaxed), 2);
+}
+
+/// An app's tests and demo runs send a sleep as a reader would, hook and
+/// time included, on every platform.
+#[test]
+fn a_sent_sleep_runs_the_hook_and_notes_the_time() {
+    let power = Power::fixed(Conditions::default());
+    let ran = Arc::new(AtomicU32::new(0));
+    let count = Arc::clone(&ran);
+    power.on_suspending(move || {
+        count.fetch_add(1, Ordering::Relaxed);
+    });
+    power.send(Event::Resumed);
+    assert_eq!(ran.load(Ordering::Relaxed), 0);
+    assert!(power.take_suspended_at().is_none());
+
+    power.send(Event::Suspending(Ack::default()));
+    assert_eq!(ran.load(Ordering::Relaxed), 1);
+    assert!(power.take_suspended_at().is_some());
+    assert!(matches!(
+        power.events().as_slice(),
+        [Event::Resumed, Event::Suspending(_)]
+    ));
+}
+
+/// An app's tests check that it answered what it was sent.
+#[test]
+fn an_answer_can_be_checked() {
+    let ack = Ack::default();
+    assert!(!ack.is_done());
+    ack.clone().done();
+    assert!(ack.is_done());
+}
+
 #[test]
 fn events_read_plainly_in_the_log() {
     let event = Event::Suspending(Ack::default());

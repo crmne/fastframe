@@ -87,6 +87,17 @@ it back because a platform says nothing.
 blocking after about five). Call `events()` in every logic pass, including
 the headless ones, so the answer comes in time.
 
+The logic pass may still come too late as the display goes off. For work
+that must not wait for it, such as pausing playback, `on_suspending` has
+the reader run a hook itself before it queues `Suspending`. Keep it short
+and safe on another thread: a hook that blocks holds back the sleep and the
+events after it. The reader also notes the wall-clock time, and
+`take_suspended_at()` returns it once, so on waking the app can tell how
+long it slept, within the 1.5 second wait, even on Windows, where `Instant`
+counts the suspend. The wall clock can be set back meanwhile, so allow for
+`duration_since` failing. Both work where a reader reports the sleep, on
+Linux and Windows.
+
 `Resumed` says the machine woke up. A connection open across the sleep can
 still look established while nothing arrives, so reconnect it then rather
 than waiting for a keepalive to time out. This replaces guessing a sleep
@@ -127,7 +138,17 @@ let power = Power::fixed(Conditions::default());
 power.set_conditions(Conditions { metered: true, ..Conditions::default() });
 let ack = Ack::default();
 power.send(Event::Suspending(ack.clone()));
+// The app's logic pass answers it:
+for event in power.events() {
+    if let Event::Suspending(answer) = event {
+        answer.done();
+    }
+}
+assert!(ack.is_done());
 ```
+
+`send` runs the `on_suspending` hook and notes the time for `Suspending`,
+as a reader does, so a test can check what the app does on both.
 
 `cargo run -p fastframe-power --example watch` prints the conditions and
 events as the running system reports them.
