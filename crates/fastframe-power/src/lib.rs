@@ -36,6 +36,7 @@
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 #[cfg(any(target_os = "windows", target_os = "linux", test))]
 use std::time::Duration;
+use std::time::SystemTime;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -141,6 +142,12 @@ impl Ack {
         ring.notify_all();
     }
 
+    /// Whether the app has answered, for an app's tests to check that it
+    /// answers the events it is sent.
+    pub fn is_done(&self) -> bool {
+        *self.0.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Waits until [`done`](Self::done) or `timeout`, whichever is first.
     /// Returns whether the app answered in time.
     #[cfg(any(target_os = "windows", target_os = "linux", test))]
@@ -163,11 +170,19 @@ const SUSPEND_ACK: Duration = Duration::from_millis(1500);
 #[cfg(target_os = "windows")]
 const END_SESSION_ACK: Duration = Duration::from_secs(3);
 
+/// Run by a reader itself as the system is about to sleep.
+type Hook = Arc<dyn Fn() + Send + Sync>;
+
 /// What the readers write and the app reads.
 struct Shared {
     conditions: Mutex<Conditions>,
     events: Mutex<Vec<Event>>,
     wake: Box<dyn Fn() + Send + Sync>,
+    on_suspending: Mutex<Option<Hook>>,
+    /// When the system last said it was going to sleep, by the wall clock,
+    /// which keeps counting through it. A macOS reader never sets it, since
+    /// it reports no sleep yet.
+    suspended_at: Mutex<Option<SystemTime>>,
 }
 
 impl Shared {
@@ -176,6 +191,8 @@ impl Shared {
             conditions: Mutex::new(Conditions::default()),
             events: Mutex::new(Vec::new()),
             wake: Box::new(wake),
+            on_suspending: Mutex::new(None),
+            suspended_at: Mutex::new(None),
         }
     }
 
@@ -195,6 +212,30 @@ impl Shared {
         }
     }
 
+    /// What cannot wait for the app's logic pass as the system is about to
+    /// sleep: notes the time and runs the app's hook.
+    fn begin_suspending(&self) {
+        *self
+            .suspended_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(SystemTime::now());
+        // Run outside the lock, so a hook that sets another, or a call from
+        // elsewhere meanwhile, does not wait on it.
+        let hook = self
+            .on_suspending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        // A panicking hook must not end a reader thread, or unwind through a
+        // Windows callback, which aborts: the event is still queued and the
+        // reader goes on.
+        if let Some(hook) = hook
+            && std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook())).is_err()
+        {
+            log::warn!("power and session: the suspending hook panicked");
+        }
+    }
+
     /// Queues `event` and wakes the app.
     fn push(&self, event: Event) {
         log::info!("power and session: {event:?}");
@@ -210,7 +251,13 @@ impl Shared {
     #[cfg(any(target_os = "windows", target_os = "linux", test))]
     fn push_and_wait(&self, make: impl FnOnce(Ack) -> Event, timeout: Duration) {
         let ack = Ack::default();
-        self.push(make(ack.clone()));
+        let event = make(ack.clone());
+        // The app's logic pass may not run in time while the display goes
+        // off, so this happens here, before the event waits for it.
+        if matches!(event, Event::Suspending(_)) {
+            self.begin_suspending();
+        }
+        self.push(event);
         if !ack.wait(timeout) {
             log::warn!("power and session: the app did not answer within {timeout:?}");
         }
@@ -320,6 +367,47 @@ impl Power {
         let _ = background;
     }
 
+    /// Has the reader run `hook` itself as the system is about to sleep,
+    /// before the app's logic pass gets to [`Event::Suspending`], which it
+    /// may not do in time while the display goes off. For work that must
+    /// not wait, such as pausing playback. A later call replaces the hook.
+    ///
+    /// The hook runs on a reader's thread, or on the system's own for a
+    /// Windows callback, while the system waits, so keep it short: one that
+    /// blocks holds back the sleep and the events the reader reports after
+    /// it. A panic in it is logged and the sleep is still queued, where
+    /// panics unwind; under `panic = "abort"` it aborts the process as any
+    /// panic would. Do not capture the `Power` itself, which would keep it
+    /// from ever being dropped.
+    ///
+    /// Run on Linux and Windows, where a reader reports the sleep; macOS
+    /// reports none yet, so there only [`send`](Self::send) runs it.
+    pub fn on_suspending(&self, hook: impl Fn() + Send + Sync + 'static) {
+        *self
+            .shared
+            .on_suspending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(hook));
+    }
+
+    /// When the system last said it was going to sleep, by the wall clock,
+    /// taken once. The reader notes it as the system says so, before it
+    /// waits up to 1.5 seconds for the app's answer, however late the
+    /// app's logic pass reads the event. On waking, the time since then
+    /// tells how long the machine slept, give or take that wait, where
+    /// [`Instant`](std::time::Instant) cannot: it keeps counting through
+    /// sleep on Windows. The wall clock can also be set back meanwhile, so
+    /// handle [`SystemTime::duration_since`] failing. `None` before any
+    /// sleep. A macOS reader reports none yet, so there only a sleep
+    /// delivered with [`send`](Self::send) sets it.
+    pub fn take_suspended_at(&self) -> Option<SystemTime> {
+        self.shared
+            .suspended_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
+
     /// Replaces the conditions and wakes the app if they changed, as a
     /// reader would: for tests and demo runs on a [`fixed`](Self::fixed)
     /// `Power`. On a watching one the readers overwrite what they follow
@@ -329,9 +417,13 @@ impl Power {
     }
 
     /// Queues `event` for [`events`](Self::events) and wakes the app, as a
-    /// reader would: for tests and demo runs. Nothing waits for its
-    /// [`Ack`].
+    /// reader would: for tests and demo runs. For [`Event::Suspending`] it
+    /// also notes the time and runs the [`on_suspending`](Self::on_suspending)
+    /// hook first, as a reader does. Nothing waits for its [`Ack`].
     pub fn send(&self, event: Event) {
+        if matches!(event, Event::Suspending(_)) {
+            self.shared.begin_suspending();
+        }
         self.shared.push(event);
     }
 }
