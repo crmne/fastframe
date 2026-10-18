@@ -82,6 +82,11 @@ reuses them for every window.
 | Linux | Every font under fontconfig's configured directories (NixOS lists its store paths only there), the XDG data directories, Flatpak's `/run/host/fonts`, `~/.fonts` and `$XDG_DATA_HOME/fonts` is probed through a memory map. The best regular sans face per script wins: a face named for the script beats incidental coverage, sans beats serif, mono and display cuts, weight near 400 beats far, and for Han the locale's regional cut (and a face declaring that region's code page) wins. |
 | Windows | The same probe over `%SystemRoot%\Fonts` and the per-user font directory; the display language picks the Han cut. |
 
+A Japanese Han face draws 中 but lacks simplified characters such as 们, 谢
+and 联 (macOS answers Hiragino Sans for Han on an English desktop). A second
+probe, 们, registers a Chinese face behind it. Where the Han face draws 们
+too, the probe finds that same face and nothing is added.
+
 Each chosen face gets `y_offset_factor` so its baseline sits on Inter's
 (epaint centres a fallback's line box on the primary's, which shifts faces
 with other vertical metrics), and an Arabic face drawn small beside Inter is

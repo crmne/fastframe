@@ -62,6 +62,11 @@ pub struct Fallback {
 /// the first. Glyphs are rasterized only when used.
 pub(crate) const SCRIPTS: &[(&str, char, &str)] = &[
     ("han", '\u{4e2d}', "cjk"),
+    // 们, a simplified character a Japanese face lacks. Where the Han face
+    // is Japanese (macOS answers Hiragino Sans on an English desktop), this
+    // registers a Chinese face behind it, so 们, 谢 and 联 do not draw as
+    // boxes. Where the Han face already draws it, nothing is added.
+    ("hans", '\u{4eec}', "cjk"),
     ("kana", '\u{3042}', "cjk"),
     ("hangul", '\u{d55c}', "cjk"),
     ("arabic", '\u{0627}', "arabic"),
@@ -1017,6 +1022,18 @@ pub(crate) mod tests_support {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Japanese face passes the Han probe but lacks simplified characters,
+    /// so a second probe that only a Chinese face draws follows it.
+    #[test]
+    fn simplified_han_has_a_probe_of_its_own_behind_han() {
+        let position = |name: &str| SCRIPTS.iter().position(|(script, _, _)| *script == name);
+        let han = position("han").unwrap();
+        let hans = position("hans").unwrap();
+        assert_eq!(hans, han + 1);
+        assert_eq!(SCRIPTS[hans].1, '们');
+        assert_ne!(SCRIPTS[han].1, SCRIPTS[hans].1);
+    }
 
     #[test]
     fn only_font_files_are_probed() {
