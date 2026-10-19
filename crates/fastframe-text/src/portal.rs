@@ -5,7 +5,9 @@
 //! schema publish, in the `org.gnome.desktop.interface` namespace:
 //!
 //! - `font-hinting`: `none`, `slight`, `medium` or `full`;
-//! - `font-antialiasing`: `none`, `grayscale` or `rgba`.
+//! - `font-antialiasing`: `none`, `grayscale` or `rgba`;
+//! - `text-scaling-factor`: the desktop's text size, a number where 1 is
+//!   the normal size.
 //!
 //! The portal says nothing about sub-pixel positioning; GTK 4 always uses
 //! it, so the default (on) stands. The parsers here are pure and available on
@@ -19,6 +21,11 @@ pub const NAMESPACE: &str = "org.gnome.desktop.interface";
 pub const HINTING_KEY: &str = "font-hinting";
 /// The antialiasing key in [`NAMESPACE`].
 pub const ANTIALIASING_KEY: &str = "font-antialiasing";
+/// The text size key in [`NAMESPACE`].
+pub const TEXT_SCALING_KEY: &str = "text-scaling-factor";
+
+/// The text sizes followed: GNOME's own range for the key.
+const TEXT_SCALES: std::ops::RangeInclusive<f64> = 0.5..=3.0;
 
 /// Parses a `font-hinting` value.
 #[must_use]
@@ -62,6 +69,15 @@ pub fn from_settings(hinting: Option<&str>, antialiasing: Option<&str>) -> Optio
     })
 }
 
+/// Parses a `text-scaling-factor` value into a text scale.
+///
+/// Returns `None` for a value outside GNOME's range for the key (0.5 to 3),
+/// including zero, negatives and values that are not finite.
+#[must_use]
+pub fn parse_text_scale(factor: f64) -> Option<f32> {
+    TEXT_SCALES.contains(&factor).then_some(factor as f32)
+}
+
 /// Asks the session bus's desktop portal for the font settings.
 ///
 /// Returns `None` when there is no session bus, no portal, or no font keys.
@@ -75,6 +91,18 @@ pub fn read() -> Option<TextRendering> {
     let hinting = bus::read_string(&proxy, HINTING_KEY);
     let antialiasing = bus::read_string(&proxy, ANTIALIASING_KEY);
     from_settings(hinting.as_deref(), antialiasing.as_deref())
+}
+
+/// Asks the session bus's desktop portal for the desktop's text size.
+///
+/// Returns `None` when there is no session bus, no portal, or no usable
+/// `text-scaling-factor`. The call gives up after about a second.
+#[cfg(target_os = "linux")]
+#[must_use]
+pub fn read_text_scale() -> Option<f32> {
+    let connection = bus::connect().ok()?;
+    let proxy = bus::settings(&connection).ok()?;
+    bus::read_text_scale(&proxy).and_then(parse_text_scale)
 }
 
 #[cfg(target_os = "linux")]
@@ -97,14 +125,26 @@ pub(crate) mod bus {
         Proxy::new(connection, DESTINATION, PATH, INTERFACE)
     }
 
-    /// Reads one string key, through `ReadOne` (portal version 2) or the
-    /// older `Read`, which wraps the value in a second variant.
-    pub(crate) fn read_string(proxy: &Proxy<'_>, key: &str) -> Option<String> {
+    /// Reads one key, through `ReadOne` (portal version 2) or the older
+    /// `Read`, which wraps the value in a second variant.
+    pub(crate) fn read(proxy: &Proxy<'_>, key: &str) -> Option<OwnedValue> {
         let args = (super::NAMESPACE, key);
-        let value: OwnedValue = proxy
+        proxy
             .call("ReadOne", &args)
             .or_else(|_| proxy.call("Read", &args))
-            .ok()?;
+            .ok()
+    }
+
+    /// Reads one string key.
+    /// The raw `text-scaling-factor`, before its range is checked.
+    pub(crate) fn read_text_scale(proxy: &Proxy<'_>) -> Option<f64> {
+        read(proxy, super::TEXT_SCALING_KEY)
+            .as_deref()
+            .and_then(number)
+    }
+
+    pub(crate) fn read_string(proxy: &Proxy<'_>, key: &str) -> Option<String> {
+        let value = read(proxy, key)?;
         string(&value)
     }
 
@@ -112,6 +152,14 @@ pub(crate) mod bus {
         match value {
             Value::Str(text) => Some(text.as_str().to_owned()),
             Value::Value(inner) => string(inner),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn number(value: &Value<'_>) -> Option<f64> {
+        match value {
+            Value::F64(number) => Some(*number),
+            Value::Value(inner) => number(inner),
             _ => None,
         }
     }
@@ -171,6 +219,26 @@ mod tests {
         assert_eq!(from_settings(Some("bogus"), Some("bogus")), None);
     }
 
+    #[test]
+    fn the_desktop_factor_is_the_text_scale() {
+        assert_eq!(parse_text_scale(1.0), Some(1.0));
+        // Omarchy's `omarchy display text size 14` with an 11 pt interface
+        // font.
+        assert_eq!(parse_text_scale(1.1818), Some(1.1818));
+        assert_eq!(parse_text_scale(0.5), Some(0.5));
+        assert_eq!(parse_text_scale(3.0), Some(3.0));
+    }
+
+    #[test]
+    fn unusable_text_scales_are_no_answer() {
+        assert_eq!(parse_text_scale(0.0), None);
+        assert_eq!(parse_text_scale(-1.0), None);
+        assert_eq!(parse_text_scale(0.49), None);
+        assert_eq!(parse_text_scale(3.5), None);
+        assert_eq!(parse_text_scale(f64::NAN), None);
+        assert_eq!(parse_text_scale(f64::INFINITY), None);
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn values_unwrap_nested_variants() {
@@ -180,5 +248,15 @@ mod tests {
         let nested = Value::Value(Box::new(Value::from("full")));
         assert_eq!(bus::string(&nested).as_deref(), Some("full"));
         assert_eq!(bus::string(&Value::from(3u32)), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn numbers_unwrap_nested_variants() {
+        use zbus::zvariant::Value;
+        assert_eq!(bus::number(&Value::F64(1.25)), Some(1.25));
+        let nested = Value::Value(Box::new(Value::F64(1.5)));
+        assert_eq!(bus::number(&nested), Some(1.5));
+        assert_eq!(bus::number(&Value::from("1.5")), None);
     }
 }

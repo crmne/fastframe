@@ -30,7 +30,7 @@ written for one of those apps first and moved here once another app needed it.
 
 | Crate | What it does |
 | --- | --- |
-| [`fastframe-text`](crates/fastframe-text) | Follows the desktop's font rendering settings (hinting, antialiasing, sub-pixel positioning, text weight) in egui, and snaps hand-placed text to whole pixels. |
+| [`fastframe-text`](crates/fastframe-text) | Follows the desktop's font rendering settings (hinting, antialiasing, sub-pixel positioning, text weight) and text size in egui, and snaps hand-placed text to whole pixels. |
 | [`fastframe-fonts`](crates/fastframe-fonts) | Bundled Inter (tabular figures) or the platform's own interface face at the app's weights, and installed fonts for every script it lacks, aligned to its baseline. |
 | [`fastframe-emoji`](crates/fastframe-emoji) | Colour emoji in the platform's own style (Apple, Segoe UI, the desktop's) with a bundled fallback, in every egui text through an egui plugin or inline as selectable placeholders, drawn off the interface thread. |
 | [`fastframe-icons`](crates/fastframe-icons) | Embedded SVG icon sets for egui: the `icons!` macro, a bytes loader that survives `reduce_texture_memory`, and the Lucide icons the apps share. |

@@ -30,6 +30,9 @@
 //!
 //! Text drawn at a manual offset should also land on whole physical pixels;
 //! see [`snap_to_pixels`].
+//!
+//! The desktop's text size (GNOME's `text-scaling-factor`) is read
+//! separately, by [`text_scale`], for the app to apply as its interface zoom.
 
 use egui::Visuals;
 use egui::epaint::FontColorTransferFunction;
@@ -255,10 +258,56 @@ pub fn detect() -> TextRendering {
     }
 }
 
+/// Reads the desktop's text size: a factor for the interface's zoom, where
+/// 1 is the normal size.
+///
+/// GNOME's Large Text and Omarchy's `omarchy display text size` set it as
+/// `text-scaling-factor`. On Linux under Wayland this asks the desktop
+/// portal, and a call that gets no answer gives up after about a second.
+/// It returns 1 without a session bus, portal or usable value, under X11
+/// (where GNOME's settings daemon already folds the factor into the `Xft/DPI`
+/// winit scales by, so zooming as well would apply it twice), and on macOS
+/// and Windows. A session counts as Wayland by its environment; an app that
+/// forces X11 itself (winit's `with_x11`) should not apply this or watch it.
+///
+/// The crate does not touch the zoom; the app multiplies its own by this.
+/// Do not call it from inside a tokio runtime: the D-Bus client blocks on
+/// its own.
+#[must_use]
+pub fn text_scale() -> f32 {
+    #[cfg(target_os = "linux")]
+    {
+        text_scale_from(
+            wayland_session(&|name| std::env::var_os(name)),
+            &portal::read_text_scale,
+        )
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        1.0
+    }
+}
+
+/// The text size to follow: the portal's answer under Wayland, else 1. The
+/// portal is not asked under X11.
+#[cfg(any(target_os = "linux", test))]
+fn text_scale_from(wayland: bool, read: &dyn Fn() -> Option<f32>) -> f32 {
+    if wayland { read().unwrap_or(1.0) } else { 1.0 }
+}
+
+/// Whether winit opens windows through Wayland rather than X11: it does
+/// whenever the session offers Wayland, by either variable.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn wayland_session(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
+    let set = |name| var(name).is_some_and(|value| !value.is_empty());
+    set("WAYLAND_DISPLAY") || set("WAYLAND_SOCKET")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::Cell;
+    use std::ffi::OsString;
 
     fn rendering(hinting: Hinting, antialias: bool, subpixel_positioning: bool) -> TextRendering {
         TextRendering {
@@ -453,5 +502,49 @@ mod tests {
         assert_eq!(got.coverage, coverage);
         assert!(got.antialias);
         assert!(got.subpixel_positioning);
+    }
+
+    fn env(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
+        let vars: Vec<(String, OsString)> = vars
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), OsString::from(value)))
+            .collect();
+        move |name| {
+            vars.iter()
+                .find(|(set, _)| set == name)
+                .map(|(_, value)| value.clone())
+        }
+    }
+
+    #[test]
+    fn either_variable_means_wayland() {
+        assert!(wayland_session(&env(&[("WAYLAND_DISPLAY", "wayland-1")])));
+        assert!(wayland_session(&env(&[("WAYLAND_SOCKET", "3")])));
+    }
+
+    #[test]
+    fn without_them_it_is_x11() {
+        assert!(!wayland_session(&env(&[("DISPLAY", ":0")])));
+        assert!(!wayland_session(&env(&[
+            ("WAYLAND_DISPLAY", ""),
+            ("DISPLAY", ":0")
+        ])));
+    }
+
+    #[test]
+    fn wayland_follows_the_portals_text_size() {
+        assert_eq!(text_scale_from(true, &|| Some(1.25)), 1.25);
+        assert_eq!(text_scale_from(true, &|| None), 1.0);
+    }
+
+    #[test]
+    fn x11_keeps_the_normal_size_without_asking() {
+        let asked = Cell::new(false);
+        let read = || {
+            asked.set(true);
+            Some(1.25)
+        };
+        assert_eq!(text_scale_from(false, &read), 1.0);
+        assert!(!asked.get());
     }
 }

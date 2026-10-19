@@ -1,6 +1,6 @@
 [package]
 name = "fastframe-text"
-description = "Follow the desktop's font rendering settings (hinting, antialiasing) in egui"
+description = "Follow the desktop's font rendering settings (hinting, antialiasing) and text size in egui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,7 +15,8 @@ categories = ["gui"]
 [features]
 default = []
 # Deliver changes to the desktop's settings on a background thread (Linux
-# desktop portal). Without it only the one-off `detect` is available.
+# desktop portal). Without it only the one-off `detect` and `text_scale` are
+# available.
 watch = []
 
 [dependencies]

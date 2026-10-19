@@ -53,6 +53,62 @@ let x = fastframe_text::snap_to_pixels(rect.center().x - galley.size().x / 2.0, 
 For `Pos2`, `Vec2` and `Rect`, `egui::emath::GuiRounding::round_to_pixels`
 does the same.
 
+### The desktop's text size
+
+GNOME's Large Text and Omarchy's `omarchy display text size` set the
+desktop's text size (`text-scaling-factor`, 1 is the normal size).
+`text_scale()` reads it, for the app to apply as its interface zoom, so
+panels sized for their labels grow with them:
+
+```rust
+let scale = fastframe_text::text_scale();
+ctx.set_zoom_factor(scale);
+```
+
+With the `watch` feature, follow changes while the app runs:
+
+```rust
+let ctx = ctx.clone();
+fastframe_text::watch::watch_text_scale(scale, move |scale| {
+    ctx.set_zoom_factor(scale);
+})?;
+```
+
+The crate never sets the zoom itself. An app that keeps a zoom the user
+picked (fastframe-shell's `window::keep_zoom`) multiplies the two, and
+divides the text size out before saving, so the setting stays the user's
+own zoom:
+
+```rust
+// Every frame, in `logic`:
+let scale = self.text_scale;
+if let Some(zoom) = window::keep_zoom(ctx, self.settings.zoom * scale) {
+    self.settings.zoom = zoom / scale;
+    self.mark_settings_dirty();
+}
+// After `keep_zoom`, when the watch sent a new size:
+if let Ok(scale) = self.text_scale_changes.try_recv() {
+    self.text_scale = scale;
+    ctx.set_zoom_factor(self.settings.zoom * scale);
+}
+```
+
+The new size goes after `keep_zoom`: egui takes a zoom at the start of the
+next pass, and `keep_zoom` would otherwise save the old one.
+
+It is followed only under Wayland. Under X11, GNOME's settings daemon
+already multiplies the `Xft/DPI` it publishes by the factor and winit takes
+its scale from that, so zooming as well would apply the text size twice
+(1.25 became about 1.56). There `text_scale()` returns 1 and the watch
+returns `WatchError::Unsupported`. A session is Wayland when
+`WAYLAND_DISPLAY` or `WAYLAND_SOCKET` is set, which is when winit opens its
+windows through Wayland; an app that forces X11 itself (winit's `with_x11`)
+should not follow it. Values outside GNOME's range for the key (0.5 to
+3) are ignored.
+
+It came from [RAWmakase](https://github.com/pch/rawmakase), which zooms
+its interface to the desktop's text size.
+
 ## The model
 
 ```rust
@@ -119,9 +175,9 @@ grayscale coverage only, so `rgba` antialiasing counts as grayscale.
 
 | Platform | Source |
 | --- | --- |
-| Linux | The desktop portal (`org.freedesktop.portal.Settings`, namespace `org.gnome.desktop.interface`, keys `font-hinting` and `font-antialiasing`), then fontconfig through `fc-match -f '%{hintstyle}\|%{hinting}\|%{antialias}' sans-serif`, then the default. |
-| macOS | No hinting with sub-pixel positions (CoreText does not hint), egui's per-theme coverage. |
-| Windows | Slight hinting with sub-pixel positions, the closest match to DirectWrite's natural rendering (vertical fitting only, fractional advances), egui's per-theme coverage. The registry is not read yet. |
+| Linux | The desktop portal (`org.freedesktop.portal.Settings`, namespace `org.gnome.desktop.interface`, keys `font-hinting` and `font-antialiasing`, and `text-scaling-factor` for the text size under Wayland), then fontconfig through `fc-match -f '%{hintstyle}\|%{hinting}\|%{antialias}' sans-serif`, then the default. |
+| macOS | No hinting with sub-pixel positions (CoreText does not hint), egui's per-theme coverage. The text size is 1. |
+| Windows | Slight hinting with sub-pixel positions, the closest match to DirectWrite's natural rendering (vertical fitting only, fractional advances), egui's per-theme coverage. The registry is not read yet, and the text size is 1. |
 
 Each Linux source answers only if it holds a known value; a source that is
 missing (no session bus, no portal, no `fc-match`) is skipped. Portal calls
