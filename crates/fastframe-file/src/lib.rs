@@ -5,7 +5,9 @@
 //! halfway through, and the app then starts from defaults. [`write()`] writes a
 //! temporary file beside the target instead, flushes it to the disk, and moves
 //! it over the target in one step, so a reader sees the old contents or the
-//! new ones, never part of either.
+//! new ones, never part of either. When the path is a symbolic link (a
+//! dotfiles manager's, say), the link stays and the file it leads to is
+//! replaced.
 //!
 //! Flushing to the disk can take tens of milliseconds, and seconds on a busy
 //! or network drive. The thread that draws the window must never wait for
@@ -120,6 +122,8 @@ fn replace_with(
     access: Access,
     fill: impl FnOnce(&mut File) -> io::Result<()>,
 ) -> io::Result<()> {
+    // A link at `path` stays a link: the file it leads to is replaced.
+    let path = &follow_links(path)?;
     let dir = match path.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => dir,
         _ => Path::new("."),
@@ -141,6 +145,46 @@ fn replace_with(
         let _ = std::fs::remove_file(&temporary);
     }
     result
+}
+
+/// How many symbolic links [`follow_links`] follows before it gives up, as
+/// Linux does.
+const MAX_LINKS: usize = 40;
+
+/// The file `path` names once the symbolic links at its end are followed,
+/// or `path` itself when it is not a link. The file need not exist.
+///
+/// A dotfiles manager keeps the settings in its repository and leaves a link
+/// where the app looks. Moving the new file over the link would put a plain
+/// file in its place, and the copy the user keeps would stop being the one
+/// the app uses. Writing beside the file the link leads to keeps the move
+/// within one directory, and so in one step. Links among the directories on
+/// the way are the system's to follow.
+///
+/// More links than [`MAX_LINKS`], as a link that leads back to itself has,
+/// is an error, and so is a path that cannot be looked at: nothing is
+/// written then.
+fn follow_links(path: &Path) -> io::Result<PathBuf> {
+    let mut file = path.to_path_buf();
+    for _ in 0..=MAX_LINKS {
+        match file.symlink_metadata() {
+            Ok(metadata) if metadata.file_type().is_symlink() => {}
+            Ok(_) => return Ok(file),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(file),
+            Err(error) => return Err(error),
+        }
+        // A relative target starts at the link's directory; an absolute one
+        // replaces it.
+        let target = std::fs::read_link(&file)?;
+        file = match file.parent() {
+            Some(dir) => dir.join(target),
+            None => target,
+        };
+    }
+    Err(io::Error::other(format!(
+        "{} leads through more than {MAX_LINKS} symbolic links",
+        path.display()
+    )))
 }
 
 /// A name beside `path` that no other write, in this process or another,
@@ -278,5 +322,69 @@ pub(crate) mod tests {
         write_private(&path, "secret").unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    /// A dotfiles manager's link stays, and the file in its repository is
+    /// the one that changes.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_stays_and_the_file_it_leads_to_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = dir.path().join("dotfiles/settings.json");
+        std::fs::create_dir(kept.parent().unwrap()).unwrap();
+        std::fs::write(&kept, "old").unwrap();
+        let config = dir.path().join("config");
+        std::fs::create_dir(&config).unwrap();
+        let link = config.join("settings.json");
+        std::os::unix::fs::symlink("../dotfiles/settings.json", &link).unwrap();
+
+        write(&link, "new").unwrap();
+
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "new");
+        assert!(leftovers(&config).is_empty());
+        assert!(leftovers(kept.parent().unwrap()).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_chain_of_links_is_followed_to_its_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("file");
+        let middle = dir.path().join("middle");
+        let first = dir.path().join("first");
+        std::os::unix::fs::symlink(&file, &middle).unwrap();
+        std::os::unix::fs::symlink("middle", &first).unwrap();
+
+        write(&first, "through two links").unwrap();
+
+        assert!(first.symlink_metadata().unwrap().file_type().is_symlink());
+        assert!(middle.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "through two links");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_that_leads_back_to_itself_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        std::os::unix::fs::symlink(&b, &a).unwrap();
+        std::os::unix::fs::symlink(&a, &b).unwrap();
+
+        let error = write(&a, "lost").unwrap_err();
+
+        assert!(error.to_string().contains("symbolic links"), "{error}");
+        assert!(a.symlink_metadata().unwrap().file_type().is_symlink());
+        assert!(leftovers(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_path_that_is_not_a_link_is_written_where_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missing/settings.json");
+        assert_eq!(follow_links(&path).unwrap(), path);
+        std::fs::create_dir(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "{}").unwrap();
+        assert_eq!(follow_links(&path).unwrap(), path);
     }
 }
