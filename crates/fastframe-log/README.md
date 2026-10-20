@@ -14,8 +14,8 @@ Spotifast share.
 fastframe_log::Logging::new("zapfast", env!("CARGO_PKG_VERSION"))
     // Used when RUST_LOG is unset.
     .filter(if verbose { "info,zapfast=debug" } else { "warn,zapfast=info" })
-    // Created fresh each run, with its folder on a first run. Leave it out
-    // for demo runs (stderr only).
+    // Created fresh each run, with its folder on a first run, both readable
+    // by the user alone on Unix. Leave it out for demo runs (stderr only).
     .file(dirs.log_file())
     // One line per panic, appended.
     .panic_log(dirs.panic_log())
@@ -39,8 +39,8 @@ Lines look like `[2026-09-25T10:00:00Z WARN zapfast::backend] message`.
 ## Panics
 
 `log_panics` (called by `init` when `.panic_log` is set) replaces the default
-panic hook. Each panic appends one line to the panic log and prints it to
-stderr:
+panic hook. Each panic appends one line to the panic log (readable by the
+user alone on Unix, as the log is) and prints it to stderr:
 
 ```text
 2026-09-25T10:00:00Z zapfast 0.16.3 on thread "main", panic at src/app.rs:10:5 (payload omitted)

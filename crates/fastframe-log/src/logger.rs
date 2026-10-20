@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::panic::make_folder;
+use crate::panic::{make_folder, open_private};
 use crate::{PanicMessage, log_panics_with};
 
 /// Rewrites a log line before it is written.
@@ -139,7 +139,9 @@ impl Logging {
         builder.parse_filters(rust_log.unwrap_or(&self.filter));
         let mut file_error = None;
         if let Some(path) = &self.file {
-            match make_folder(path).and_then(|()| std::fs::File::create(path)) {
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            match make_folder(path).and_then(|()| open_private(path, &mut options)) {
                 Ok(file) => {
                     builder.target(env_logger::Target::Pipe(Box::new(Tee {
                         stderr: std::io::stderr(),
@@ -330,7 +332,32 @@ mod tests {
         let (_, error) = Logging::new("zapfast", "1.0.0").file(&path).build(None);
         assert!(error.is_none(), "{error:?}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        #[cfg(unix)]
+        let modes = (
+            crate::tests::mode(&path),
+            crate::tests::mode(&dir.join("state")),
+        );
         std::fs::remove_dir_all(dir).unwrap();
+        #[cfg(unix)]
+        assert_eq!(modes, (0o600, 0o700), "the log and its folder are private");
+    }
+
+    /// A log an older version left readable by others is the user's alone
+    /// from the next run.
+    #[cfg(unix)]
+    #[test]
+    fn a_log_others_could_read_is_made_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("fastframe-log-mode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("app.log");
+        std::fs::write(&path, "last run\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let (_, error) = Logging::new("zapfast", "1.0.0").file(&path).build(None);
+        let mode = crate::tests::mode(&path);
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(error.is_none(), "{error:?}");
+        assert_eq!(mode, 0o600);
     }
 
     #[test]

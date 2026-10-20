@@ -51,3 +51,13 @@ pub mod redact;
 #[cfg(feature = "logger")]
 pub use logger::{Logging, Redactor};
 pub use panic::{PanicMessage, log_panics, log_panics_with};
+
+#[cfg(test)]
+mod tests {
+    /// The permission bits of `path`.
+    #[cfg(unix)]
+    pub(crate) fn mode(path: &std::path::Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+}
