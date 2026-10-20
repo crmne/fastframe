@@ -71,7 +71,7 @@ never trips it.
 ## What it does
 
 1. Creates the file's directory if it is missing (with mode 0700 for a
-   private file, so others cannot list it either).
+   private file on Unix, so others cannot list it there either).
 2. Writes into `.<name>.<pid>.<n>.tmp` beside the file, a name no other write
    uses at the same time, created fresh (with mode 0600 for a private file).
 3. Flushes it to the disk, so a crash right after the move cannot leave the
