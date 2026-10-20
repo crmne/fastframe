@@ -1,7 +1,7 @@
 //! The palettes the apps share, embedded so every installation has them.
 //!
-//! Ten palettes in the sixteen base colours (Catppuccin, Catppuccin Frappe,
-//! Catppuccin Latte, Catppuccin Macchiato, Nord, Ristretto,
+//! Twelve palettes in the sixteen base colours (Alucard, Catppuccin, Catppuccin Frappe,
+//! Catppuccin Latte, Catppuccin Macchiato, Dracula, Nord, Ristretto,
 //! Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn, Tokyo Night).
 //! They set only [`crate::BASE_COLORS`] names, so any app's palette reads
 //! them; an app with more colours derives the rest ([`crate::Palette::derive`]).
@@ -41,6 +41,7 @@ Each file names a base (dark or light) and any colours to change, as
 
 /// Every shared palette: its filename and its JSON.
 pub const FILES: &[(&str, &str)] = &[
+    ("Alucard.json", include_str!("../themes/Alucard.json")),
     (
         "Catppuccin Frappe.json",
         include_str!("../themes/Catppuccin Frappe.json"),
@@ -54,6 +55,7 @@ pub const FILES: &[(&str, &str)] = &[
         include_str!("../themes/Catppuccin Macchiato.json"),
     ),
     ("Catppuccin.json", include_str!("../themes/Catppuccin.json")),
+    ("Dracula.json", include_str!("../themes/Dracula.json")),
     ("Nord.json", include_str!("../themes/Nord.json")),
     ("Ristretto.json", include_str!("../themes/Ristretto.json")),
     (
@@ -179,14 +181,14 @@ mod tests {
     #[test]
     fn every_shared_palette_uses_only_base_colours() {
         let themes: Vec<CustomTheme<Colors>> = themes().collect();
-        assert_eq!(themes.len(), 10);
+        assert_eq!(themes.len(), 12);
         for theme in &themes {
             assert!(contains(&theme.filename));
             assert_eq!(
                 theme.palette.dark,
                 !matches!(
                     theme.filename.as_str(),
-                    "Catppuccin Latte.json" | "Rose Pine Dawn.json"
+                    "Alucard.json" | "Catppuccin Latte.json" | "Rose Pine Dawn.json"
                 ),
                 "{}",
                 theme.filename
