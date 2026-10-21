@@ -9,8 +9,8 @@ use objc2_foundation::{NSString, NSUserDefaults};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 /// Moves the standard buttons of `frame`'s window into a bar `height`
-/// AppKit points tall.
-pub(crate) fn align(frame: &eframe::Frame, height: f64) {
+/// AppKit points tall, the close button `left` points in.
+pub(crate) fn align(frame: &eframe::Frame, height: f64, left: f64) {
     let Ok(handle) = frame.window_handle() else {
         return;
     };
@@ -57,7 +57,7 @@ pub(crate) fn align(frame: &eframe::Frame, height: f64) {
     .enumerate()
     {
         if let Some(button) = window.standardWindowButton(kind) {
-            let (x, y) = super::button_origin(index, height, button.frame().size.height);
+            let (x, y) = super::button_origin(index, left, height, button.frame().size.height);
             let mut origin = button.frame().origin;
             origin.x = x;
             origin.y = y;
