@@ -53,8 +53,8 @@ argument through `Autostart::hidden_argument`. Hand it to
 `fastframe_shell::Shell::start_hidden`; the app's `Resident::start_hidden`
 opens the window after all when there is no tray to come back from.
 
-It came from ZapFast (start in the tray at login) and the Chat with Work local
-agent (start in the background at login), which each wrote an XDG entry, a
+It came from ZapFast (start in the tray at login) and Chat with Work Desktop
+(start in the background at login), which each wrote an XDG entry, a
 LaunchAgent in `~/Library/LaunchAgents` and the Run value, and from
 Spotifast's request to choose between starting with the window and in the
 tray (crmne/spotifast#122).

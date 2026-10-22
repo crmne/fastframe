@@ -13,13 +13,18 @@ with Rust and [egui](https://github.com/emilk/egui):
   AlphaTheta hardware
 - [TonePush](https://docs.tonepush.rocks), an editor for Line 6 HX pedals and
   the StompStation PRO
-- the [Chat with Work](https://chatwithwork.com) local agent
 
 Each of these apps is a single native binary with no browser engine, running on
 Linux, macOS and Windows. Underneath their interfaces they need the same
 things: text that renders like the rest of the desktop, fonts for every script,
 icons, colour themes, translations, a log file for bug reports, a tray item, a
 way to keep running with the window closed, and a way to update themselves.
+
+[Chat with Work Desktop](https://github.com/crmne/chatwithwork-desktop),
+the desktop app for [Chat with Work](https://chatwithwork.com), was one of
+them too, and fastframe was partly extracted from its egui app. It is now a
+Tauri app whose window is the Chat with Work web app, and it still uses
+fastframe's audio, notifications and start-at-login crates.
 
 Every piece here was written for one of those apps first and moved here once
 another app needed it. It is a Cargo workspace of small `fastframe-*` crates,

@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
+use crate::naming::Naming;
 use crate::plan::{self, Choice, Direction};
 use crate::{Buffer, Capture, Clock, Device, DeviceId, DeviceInfo, OpenError, OutputError, Render};
 
@@ -47,22 +48,101 @@ macro_rules! by_format {
 /// stream and listing of the process on the same system.
 static HOST: OnceLock<cpal::HostId> = OnceLock::new();
 
-/// A fresh host of the audio system this process uses: the default host the
-/// first time, the same system afterwards. When that system cannot be
-/// reached just now (a sound server restarting), the default host of the
-/// moment, without changing the choice, so the next call tries it again.
+/// A fresh host of the audio system this process uses, naming the app as
+/// [`set_app_info`](crate::set_app_info) asked, for listing devices.
 pub(crate) fn host() -> cpal::Host {
+    host_naming(&Naming::resolve(crate::naming::app_info(), None, None))
+}
+
+/// A fresh host of the audio system this process uses, whose streams get
+/// `naming`: the default host the first time, the same system afterwards.
+/// When that system cannot be reached just now (a sound server
+/// restarting), the default host of the moment, without changing the
+/// choice, so the next call tries it again.
+pub(crate) fn host_naming(naming: &Naming) -> cpal::Host {
     if let Some(&id) = HOST.get() {
-        match cpal::host_from_id(id) {
+        match named_host(id, naming) {
             Ok(host) => return host,
             Err(error) => {
                 log::debug!("audio: {} is not available just now: {error}", id.name());
             }
         }
     }
-    let host = cpal::default_host();
+    let host = default_named_host(naming);
     let _ = HOST.set(host.id());
     host
+}
+
+/// cpal's default host, named. On Linux it tries the sound servers in
+/// `cpal::default_host`'s order, making each one named, so the process never
+/// opens an unnamed connection (one that would linger in the mixer as
+/// `cpal-pulseaudio-<pid>`) just to choose.
+fn default_named_host(naming: &Naming) -> cpal::Host {
+    #[cfg(target_os = "linux")]
+    if !naming.is_empty() {
+        let available = cpal::available_hosts();
+        for id in [cpal::HostId::PipeWire, cpal::HostId::PulseAudio] {
+            if available.contains(&id)
+                && let Ok(host) = named_host(id, naming)
+            {
+                return host;
+            }
+        }
+    }
+    let _ = naming;
+    cpal::default_host()
+}
+
+/// A host of `id` that names the app and the streams built from it, on
+/// PipeWire and PulseAudio; any other host as it is, since it has no place
+/// for names.
+fn named_host(id: cpal::HostId, naming: &Naming) -> Result<cpal::Host, cpal::Error> {
+    #[cfg(target_os = "linux")]
+    {
+        let app = naming.app.as_ref().map(|app| cpal::ApplicationInfo {
+            name: crate::naming::clean(&app.name),
+            icon_name: app.icon.as_deref().map(crate::naming::clean),
+        });
+        let metadata = cpal::StreamMetadata {
+            name: naming.media_name.as_deref().map(crate::naming::clean),
+            role: naming.role.map(cpal_role),
+        };
+        match id {
+            cpal::HostId::PipeWire => {
+                let mut host = match app {
+                    Some(app) => cpal::platform::PipeWireHost::with_application(app)?,
+                    None => cpal::platform::PipeWireHost::new()?,
+                };
+                host.set_stream_metadata(metadata)?;
+                return Ok(host.into());
+            }
+            cpal::HostId::PulseAudio => {
+                let mut host = match app {
+                    Some(app) => cpal::platform::PulseAudioHost::with_application(app)?,
+                    None => cpal::platform::PulseAudioHost::new()?,
+                };
+                host.set_stream_metadata(metadata)?;
+                return Ok(host.into());
+            }
+            _ => {}
+        }
+    }
+    let _ = naming;
+    cpal::host_from_id(id)
+}
+
+/// cpal's role for a stream's.
+#[cfg(target_os = "linux")]
+fn cpal_role(role: crate::StreamRole) -> cpal::StreamRole {
+    match role {
+        crate::StreamRole::Music => cpal::StreamRole::Music,
+        crate::StreamRole::Movie => cpal::StreamRole::Movie,
+        crate::StreamRole::Game => cpal::StreamRole::Game,
+        crate::StreamRole::Communication => cpal::StreamRole::Communication,
+        crate::StreamRole::Notification => cpal::StreamRole::Notification,
+        crate::StreamRole::Production => cpal::StreamRole::Production,
+        crate::StreamRole::Accessibility => cpal::StreamRole::Accessibility,
+    }
 }
 
 /// The name of the audio system this process uses, choosing it if it has not
@@ -218,6 +298,21 @@ pub(crate) struct Settings {
     pub(crate) follow_default: bool,
     pub(crate) release_after: Option<std::time::Duration>,
     pub(crate) pause_when_idle: Option<std::time::Duration>,
+    /// The stream's name in the volume mixer, `None` for the app's.
+    pub(crate) media_name: Option<String>,
+    /// What the stream carries.
+    pub(crate) role: Option<crate::StreamRole>,
+}
+
+impl Settings {
+    /// What the stream is called and carries, with the app's info.
+    pub(crate) fn naming(&self) -> crate::naming::Naming {
+        crate::naming::Naming::resolve(
+            crate::naming::app_info(),
+            self.media_name.as_deref(),
+            self.role,
+        )
+    }
 }
 
 /// What a stream's callback drives: the app's renderer for an output, its
@@ -305,7 +400,7 @@ pub(crate) fn open<E: Engine>(
 ) -> Result<Live, OpenError> {
     let direction = E::DIRECTION;
     let label = direction.label();
-    let host = host();
+    let host = host_naming(&options.naming());
     let (device, default_at_open) = pick(&host, &options.device, direction)?;
     let name = device_name(&device).map_err(OpenError::from)?;
     let own_id = own_id(&device);
@@ -541,19 +636,53 @@ fn listed(device: &cpal::Device) -> plan::Listed {
     }
 }
 
+/// The connection to PipeWire's PulseAudio server that [`server_default`]
+/// asks, one for the whole process (see [`Kept`](crate::kept::Kept)). cpal's
+/// PulseAudio host is its connection, a `pulseaudio::Client`, which may be
+/// shared between threads (checked below).
+#[cfg(target_os = "linux")]
+static PULSE: crate::kept::Kept<cpal::Host> = crate::kept::Kept::new();
+
+/// `PULSE` may be shared by the threads that list and open devices.
+#[cfg(target_os = "linux")]
+const _: () = {
+    const fn shared_between_threads<T: Send + Sync>() {}
+    shared_between_threads::<cpal::Host>();
+};
+
 /// The device behind cpal's PipeWire default devices, which name none:
 /// PipeWire's PulseAudio server's default sink or source. `None` without
 /// that server, or on other hosts, which open a device of their own.
 ///
-/// It connects to that server, which takes about 10 ms, and up to cpal's
-/// two seconds when the server does not answer, so it is only asked when an
-/// app wants the id, or opens the default input, whose channels cpal's
-/// PipeWire host does not know.
+/// It asks that server over one connection the process keeps, made the
+/// first time (about 10 ms, and up to cpal's two seconds when the server
+/// does not answer) and made again after it fails, so a restarted server is
+/// reached. It is asked only when an app lists the devices or wants the
+/// id, or opens the default input, whose channels cpal's PipeWire host does
+/// not know, always on the thread that lists or opens, never in a callback.
 fn server_default(host: &str, direction: Direction) -> Option<cpal::Device> {
     #[cfg(target_os = "linux")]
     if host == "pipewire" && cpal::available_hosts().contains(&cpal::HostId::PulseAudio) {
-        let pulse = cpal::host_from_id(cpal::HostId::PulseAudio).ok()?;
-        return default_device(&pulse, direction);
+        return PULSE
+            .ask(
+                || {
+                    let naming = Naming::resolve(crate::naming::app_info(), None, None);
+                    named_host(cpal::HostId::PulseAudio, &naming)
+                        .map_err(|error| log::debug!("audio: no PulseAudio server: {error}"))
+                        .ok()
+                },
+                |pulse| match default_device(pulse, direction) {
+                    Some(device) => Ok(Some(device)),
+                    // cpal says `None` both for a server without that
+                    // default and for a broken connection; listing tells
+                    // them apart.
+                    None => pulse
+                        .devices()
+                        .map(|_| None)
+                        .map_err(|_| crate::kept::Broken),
+                },
+            )
+            .flatten();
     }
     let _ = (host, direction);
     None

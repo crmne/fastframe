@@ -57,10 +57,13 @@
 mod allocations;
 mod clock;
 mod feeder;
+#[cfg(any(target_os = "linux", test))]
+mod kept;
 #[cfg(feature = "rodio")]
 mod mixer;
 #[cfg(target_os = "windows")]
 mod mmcss;
+mod naming;
 mod plan;
 #[cfg(target_os = "linux")]
 mod realtime;
@@ -74,6 +77,7 @@ pub use clock::Clock;
 pub use feeder::raise_feeder_priority;
 #[cfg(feature = "rodio")]
 pub use mixer::{MixerRender, MixerSlot, NewMixer};
+pub use naming::{AppInfo, StreamRole, set_app_info};
 
 use session::Session;
 use stream::{Capturing, Rendering, Settings};
@@ -269,6 +273,16 @@ pub struct OutputOptions {
     /// let go) when it is paused. See [`Output`] for handles on other
     /// threads.
     pub pause_when_idle: Option<Duration>,
+    /// The stream's name in the system's volume mixer, such as `"Voice
+    /// call"`. `None`, the default, takes the app's name from
+    /// [`set_app_info`] (and, without that, the system's own). It is given
+    /// when the stream opens and stays until it reopens: cpal cannot rename
+    /// an open stream, so it is no place for a song title that changes.
+    pub media_name: Option<String>,
+    /// What the stream carries, which the sound server uses to route it and
+    /// to lower other streams (for example during a call). `None`, the
+    /// default, gives none.
+    pub role: Option<StreamRole>,
 }
 
 impl Default for OutputOptions {
@@ -282,6 +296,8 @@ impl Default for OutputOptions {
             follow_default: true,
             release_after: Some(Duration::from_secs(5 * 60)),
             pause_when_idle: None,
+            media_name: None,
+            role: None,
         }
     }
 }
@@ -297,6 +313,8 @@ impl OutputOptions {
             follow_default: self.follow_default,
             release_after: self.release_after,
             pause_when_idle: self.pause_when_idle,
+            media_name: self.media_name.clone(),
+            role: self.role,
         }
     }
 }
@@ -323,6 +341,16 @@ pub struct InputOptions {
     /// changes (checked every two seconds on macOS and Windows; PipeWire and
     /// PulseAudio move the stream themselves).
     pub follow_default: bool,
+    /// The stream's name in the system's volume mixer, such as `"Voice
+    /// call"`. `None`, the default, takes the app's name from
+    /// [`set_app_info`] (and, without that, the system's own). It is given
+    /// when the stream opens and stays until it reopens: cpal cannot rename
+    /// an open stream, so it is no place for a song title that changes.
+    pub media_name: Option<String>,
+    /// What the stream carries, which the sound server uses to route it and
+    /// to lower other streams (for example during a call). `None`, the
+    /// default, gives none.
+    pub role: Option<StreamRole>,
 }
 
 impl Default for InputOptions {
@@ -333,6 +361,8 @@ impl Default for InputOptions {
             sample_rate: None,
             buffer: Buffer::Driver,
             follow_default: true,
+            media_name: None,
+            role: None,
         }
     }
 }
@@ -348,6 +378,8 @@ impl InputOptions {
             follow_default: self.follow_default,
             release_after: None,
             pause_when_idle: None,
+            media_name: self.media_name.clone(),
+            role: self.role,
         }
     }
 }
@@ -601,10 +633,10 @@ impl<R: Render> Output<R> {
     /// For the default device, the device it is just now. On PipeWire the
     /// stream follows the default itself and its node is not named, so this
     /// is the default's node as PipeWire's PulseAudio server names it, or
-    /// cpal's own `output_default` without one. Finding it connects to that
-    /// server (about 10 ms, longer if it does not answer), so it is done on
-    /// the first call after each open, not by the open itself; call it
-    /// where waiting is fine.
+    /// cpal's own `output_default` without one. Finding it asks that server
+    /// (the process's first question connects, about 10 ms, longer if it
+    /// does not answer), so it is done on the first call after each open,
+    /// not by the open itself; call it where waiting is fine.
     #[must_use]
     pub fn device_id(&self) -> &DeviceId {
         self.session.device_id()
@@ -776,8 +808,9 @@ pub fn output_device_names() -> Result<Vec<String>, OpenError> {
 /// streams, and ALSA's `null` device. A device that cannot give its id or
 /// name just now (it is going away) is left out too.
 ///
-/// On PipeWire, the default is found through its PulseAudio server; without
-/// one, no device is marked the default.
+/// On PipeWire, the default is found through its PulseAudio server, over
+/// one connection the process keeps (and makes again after it fails);
+/// without that server, no device is marked the default.
 pub fn output_devices() -> Result<Vec<DeviceInfo>, OpenError> {
     stream::devices(plan::Direction::Output)
 }

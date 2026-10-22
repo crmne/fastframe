@@ -49,7 +49,7 @@ mod panic;
 pub mod redact;
 
 #[cfg(feature = "logger")]
-pub use logger::{Logging, Redactor};
+pub use logger::{Logging, Redactor, previous_log};
 pub use panic::{PanicMessage, log_panics, log_panics_with};
 
 #[cfg(test)]

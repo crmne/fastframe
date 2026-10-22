@@ -22,7 +22,7 @@ No telemetry or hosted service is required by the crates.
 Extracted from [ZapFast](https://zapfast.rocks),
 [Spotifast](https://spotifast.rocks), [Solco](https://getsolco.com),
 [TonePush](https://docs.tonepush.rocks), and
-[Chat with Work](https://chatwithwork.com).
+[Chat with Work Desktop](https://github.com/crmne/chatwithwork-desktop).
 
 ## See it
 
@@ -45,8 +45,8 @@ pin every fastframe crate to the same release tag:
 ```toml
 [dependencies]
 egui = "0.36.2"
-fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.13.0" }
-fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.13.0" }
+fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
+fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
 ```
 
 At startup, before the first frame:
@@ -79,7 +79,7 @@ apps replaced.
 | [`fastframe-dock`](crates/fastframe-dock) | macOS Dock icons and visibility, plus desktop unread badges. |
 | [`fastframe-titlebar`](crates/fastframe-titlebar) | Draggable headers, native button layouts, double-click actions, and resize edges. |
 | [`fastframe-shell`](crates/fastframe-shell) | Keep running without a window, reopen it, and restore its size, position, and zoom. |
-| [`fastframe-audio`](crates/fastframe-audio) | Maintained audio input and output, preallocated output conversion, device changes, and rodio mixing. |
+| [`fastframe-audio`](crates/fastframe-audio) | Maintained audio input and output, preallocated output conversion, device changes, app and stream names in volume mixers, and rodio mixing. |
 | [`fastframe-scroll`](crates/fastframe-scroll) | Platform wheel steps, touchpad momentum, and axis locking. |
 | [`fastframe-autostart`](crates/fastframe-autostart) | Start at login through each platform, including Flatpak and hidden startup. |
 | [`fastframe-instance`](crates/fastframe-instance) | One running copy per user, with a private channel for subsequent launches. |

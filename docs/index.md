@@ -9,7 +9,7 @@ hero:
   tagline: >-
     The small crates behind <a href="https://zapfast.rocks">ZapFast</a>,
     <a href="https://spotifast.rocks">Spotifast</a>, <a href="https://getsolco.com">Solco</a>,
-    <a href="https://docs.tonepush.rocks">TonePush</a> and <a href="https://chatwithwork.com">Chat with Work</a>.
+    <a href="https://docs.tonepush.rocks">TonePush</a> and <a href="https://github.com/crmne/chatwithwork-desktop">Chat with Work Desktop</a>.
     Everything a native egui app needs besides its own interface, extracted from apps that already ship it.
   actions:
     - theme: brand

@@ -3,9 +3,9 @@
 use std::borrow::Cow;
 use std::fmt::Display;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::panic::{make_folder, open_private};
+use crate::panic::{make_folder, make_private, open_private};
 use crate::{PanicMessage, log_panics_with};
 
 /// Rewrites a log line before it is written.
@@ -64,10 +64,12 @@ impl Logging {
         self
     }
 
-    /// Also writes every line to `path`, replacing what an earlier run left
-    /// there. The folder it is in is made when it is missing, as on a first
-    /// run. If the file cannot be created, logging continues on stderr and
-    /// says why.
+    /// Also writes every line to `path`, starting it afresh each run. The
+    /// earlier run's file is kept beside it as [`previous_log`] (`app.log`
+    /// becomes `app.previous.log`), so a run that hung and was killed still
+    /// has its log after the restart. The folder it is in is made when it is
+    /// missing, as on a first run. If the file cannot be created, logging
+    /// continues on stderr and says why.
     pub fn file(mut self, path: impl Into<PathBuf>) -> Self {
         self.file = Some(path.into());
         self
@@ -139,6 +141,14 @@ impl Logging {
         builder.parse_filters(rust_log.unwrap_or(&self.filter));
         let mut file_error = None;
         if let Some(path) = &self.file {
+            // The earlier run's log is worth more than a failed rename: the
+            // new file is made either way.
+            let previous = previous_log(path);
+            if std::fs::rename(path, &previous).is_ok() {
+                // A version before logs were private left it readable by
+                // others.
+                make_private(&previous);
+            }
             let mut options = std::fs::OpenOptions::new();
             options.write(true).create(true).truncate(true);
             match make_folder(path).and_then(|()| open_private(path, &mut options)) {
@@ -158,6 +168,18 @@ impl Logging {
         });
         (builder.build(), file_error)
     }
+}
+
+/// Where [`Logging::file`] keeps the earlier run's log: `app.log` becomes
+/// `app.previous.log`, and a name without an extension gains `.previous`.
+pub fn previous_log(path: &Path) -> PathBuf {
+    let mut name = path.file_stem().unwrap_or_default().to_os_string();
+    name.push(".previous");
+    if let Some(extension) = path.extension() {
+        name.push(".");
+        name.push(extension);
+    }
+    path.with_file_name(name)
 }
 
 /// One log line: `[time LEVEL target] message`, with the message rewritten
@@ -326,6 +348,35 @@ mod tests {
     }
 
     #[test]
+    fn the_earlier_runs_log_is_kept_beside_the_new_one() {
+        let dir = std::env::temp_dir().join(format!("fastframe-log-kept-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("app.log");
+        std::fs::write(&path, "the run that hung\n").unwrap();
+        std::fs::write(dir.join("app.previous.log"), "an older run\n").unwrap();
+        let (_, error) = Logging::new("zapfast", "1.0.0").file(&path).build(None);
+        assert!(error.is_none());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("app.previous.log")).unwrap(),
+            "the run that hung\n"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_previous_log_is_named_after_the_log() {
+        assert_eq!(
+            previous_log(Path::new("/state/zapfast.log")),
+            Path::new("/state/zapfast.previous.log")
+        );
+        assert_eq!(
+            previous_log(Path::new("/state/log")),
+            Path::new("/state/log.previous")
+        );
+    }
+
+    #[test]
     fn the_log_files_folder_is_made_on_a_first_run() {
         let dir = std::env::temp_dir().join(format!("fastframe-log-fresh-{}", std::process::id()));
         let path = dir.join("state").join("app.log");
@@ -354,10 +405,13 @@ mod tests {
         std::fs::write(&path, "last run\n").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         let (_, error) = Logging::new("zapfast", "1.0.0").file(&path).build(None);
-        let mode = crate::tests::mode(&path);
+        let previous = previous_log(&path);
+        let kept = std::fs::read_to_string(&previous).unwrap();
+        let modes = (crate::tests::mode(&path), crate::tests::mode(&previous));
         std::fs::remove_dir_all(dir).unwrap();
         assert!(error.is_none(), "{error:?}");
-        assert_eq!(mode, 0o600);
+        assert_eq!(kept, "last run\n", "the earlier run's log is kept");
+        assert_eq!(modes, (0o600, 0o600), "the new log and the kept one");
     }
 
     #[test]

@@ -35,7 +35,7 @@ section below has a subsection per app with the details.
 | Spotifast | [autostart](#fastframe-autostart), [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [theme](#fastframe-theme), [i18n](#fastframe-i18n), [log](#fastframe-log), [tray](#fastframe-tray), [shell](#fastframe-shell), [titlebar](#fastframe-titlebar), [update](#fastframe-update) | [emoji](#fastframe-emoji) until it lays out colour emoji (it keeps Inter and its monochrome face for now) |
 | Solco | [text](#fastframe-text), [fonts](#fastframe-fonts), [icons](#fastframe-icons), [titlebar](#fastframe-titlebar) (macOS only); [update](#fastframe-update) (with the pre-release channel); [log](#fastframe-log) (only the facade-free redaction and panic line, with `default-features = false`) later | [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations; [shell](#fastframe-shell) (no tray or background mode); its `tracing` logger stays |
 | TonePush | [text](#fastframe-text), [fonts](#fastframe-fonts), [update](#fastframe-update) (with `portable_executable`) | [icons](#fastframe-icons) later (its own macros and layout); [log](#fastframe-log) (it uses `eprintln!`); [shell](#fastframe-shell); [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
-| Chat with Work Local Agent | [text](#fastframe-text) | [fonts](#fastframe-fonts) (it draws with the platform's UI font); [tray](#fastframe-tray) and [shell](#fastframe-shell) (one winit loop with `pump_app_events`, tray-icon 0.25); [log](#fastframe-log) until it wants a log file; [theme](#fastframe-theme) and [i18n](#fastframe-i18n) until it adds custom themes or translations |
+| Chat with Work Desktop | [autostart](#fastframe-autostart), [notifications](#native-notifications), [audio](#fastframe-audio-014) | The crates that draw or run a window, [text](#fastframe-text) included, which its egui app had adopted: it is now a Tauri app whose window is the Chat with Work web app. Its last egui version is tagged `egui-final` in its repository. |
 
 Shared widgets have not moved; see [Not moved yet: widgets](#not-moved-yet-widgets).
 
@@ -60,8 +60,9 @@ ctx.all_styles_mut(|style| rendering.apply_to_visuals(&mut style.visuals));
 - The `watch` feature follows portal changes live; call `apply_to` and
   `ctx.set_fonts` again from its callback.
 
-Adopted by all five apps: ZapFast, Spotifast, Solco, TonePush and Chat
-with Work (58da999, which applies it to the system UI font it uses).
+Adopted by ZapFast, Spotifast, Solco and TonePush. Chat with Work's egui
+app adopted it too (58da999, which applies it to the system UI font it
+uses) before Chat with Work Desktop became a Tauri app.
 
 ## fastframe-fonts
 
@@ -156,9 +157,9 @@ About 45 lines. The `SEMIBOLD` family name changes from `semibold` to
 `inter-semibold` (use `Weight::SemiBold.family()`). Inter's figures become
 tabular in labels too, and system fallbacks are added unless turned off.
 
-### Chat with Work
+### Chat with Work Desktop
 
-It draws with the platform's UI font and bundles none; nothing to move.
+Nothing to move: it has no egui window since it became a Tauri app.
 
 ## fastframe-emoji
 
@@ -355,12 +356,11 @@ rather than from `themes/omarchy.json` alone; the themes folder and the
 current Omarchy theme are watched, so palettes reload without the hook or a
 restart.
 
-### Solco, TonePush, Chat with Work
+### Solco, TonePush, Chat with Work Desktop
 
-Solco and TonePush draw one fixed dark palette, and Chat with Work
-follows the platform's light or dark setting; none reads palette files.
+Solco and TonePush draw one fixed dark palette and read no palette files.
 They can adopt the crate by implementing `Palette` when they add custom
-themes or Omarchy support.
+themes or Omarchy support. Chat with Work Desktop has no egui window since it became a Tauri app.
 
 ## fastframe-i18n
 
@@ -403,9 +403,10 @@ tests) stay in the app.
 
 About 200 lines. `Locale::from_tag` keeps using `clap::ValueEnum`.
 
-### Solco, TonePush, Chat with Work
+### Solco, TonePush, Chat with Work Desktop
 
-No translations yet. Start with the crate when they add one.
+Solco and TonePush have no translations yet. Start with the crate when they
+add one. Chat with Work Desktop has no egui window since it became a Tauri app.
 
 ## fastframe-log
 
@@ -466,7 +467,7 @@ Differences, all deliberate:
 - The start line says `spotifast` (the name passed to `Logging::new`, which
   the panic line also uses) where it said `Spotifast`.
 
-### Solco, TonePush, Chat with Work
+### Solco, TonePush, Chat with Work Desktop
 
 Not moving the logger now. Solco logs through `tracing-subscriber`
 (an `EnvFilter` in `main.rs`, stderr only) and records panics as structured
@@ -478,9 +479,9 @@ records, `log_panics` installed before `Session::install_panic_hook` (so the
 session hook chains it). Its logger stays as it is; the crate has no
 `tracing` subscriber until a second app logs through `tracing`.
 
-TonePush uses `eprintln!`. Chat with Work logs to stderr only and reads
-`CWW_APP_LOG`, not `RUST_LOG`; it can adopt the crate once it wants a log
-file, which would change its variable.
+TonePush uses `eprintln!`. Chat with Work Desktop logs to stderr only and
+reads `CWW_APP_LOG`, not `RUST_LOG`; it can adopt the crate once it wants a
+log file, which would change its variable.
 
 ## fastframe-tray
 
@@ -549,14 +550,9 @@ Differences:
 - The labels are the app's; Spotifast's untranslated `"Play"`, `"Next"`...
   can now go through its gettext.
 
-### Chat with Work
+### Chat with Work Desktop
 
-Not moving now: its tray shares one winit loop with the window
-(`pump_app_events`) and uses tray-icon 0.25. Its menu also needs what the
-crate doesn't have yet: disabled status lines, a tooltip that changes, a
-dimmed icon while paused, and an item that relabels itself. It can adopt the
-crate once the crate grows those and moves to tray-icon 0.25, and if the app
-moves to the run-native loop.
+Not moving: it became a Tauri app, which draws its own tray.
 
 ## fastframe-shell
 
@@ -628,11 +624,10 @@ behaviour on X11 and Windows, so it is optional.
 
 No other behaviour changes.
 
-### Solco, TonePush, Chat with Work
+### Solco, TonePush, Chat with Work Desktop
 
-Not moving: Solco and TonePush have no tray or background mode. Chat
-with Work keeps its window alive with `pump_app_events` on one winit loop, a
-different design.
+Not moving: Solco and TonePush have no tray or background mode, and
+Chat with Work Desktop became a Tauri app.
 
 ## fastframe-titlebar
 
@@ -1046,15 +1041,14 @@ bundled agent: delete that file once (when it exists, register through the
 crate and remove it), and add the agent to the bundle. A Flatpak, which
 `supported()` excluded, can now register through the portal.
 
-### Chat with Work
+### Chat with Work Desktop
 
 | Delete | Lines | Instead |
 | --- | --- | --- |
-| `app/src/autostart.rs`: `entry_path`, `is_enabled`, `set_enabled`, `entry`, `desktop_exec_arg` and their tests | 160 | `Autostart::new("cww-app", "ChatWithWorkLocalAgent").hidden_argument("--background")` |
+| `app/src/autostart.rs`: `entry_path`, `is_enabled`, `set_enabled`, `entry`, `desktop_exec_arg` and their tests | 160 | `Autostart::new("cww-app", name).hidden_argument("--background")`, with `name` `ChatWithWorkLocalAgent` on Windows and `Chat with Work` elsewhere |
 
-The Windows Run value keeps its name (`ChatWithWorkLocalAgent`), so existing
-registrations read back; the desktop entry's `Name` becomes that too, unless
-the app keeps its own Linux text. `windows_registry` stays for its other
+The Windows Run value keeps its name (`ChatWithWorkLocalAgent`) and the
+Linux entry its path and name, so existing registrations read back. `windows_registry` stays for its other
 reads. The macOS LaunchAgent `com.chatwithwork.cww-app.plist` moves to the
 bundled agent as for ZapFast.
 
@@ -1066,17 +1060,17 @@ have settled:
 
 | Widget | Apps (where) |
 | --- | --- |
-| Switch (toggle) | ZapFast (`ui/widgets.rs` `switch`), Spotifast (`ui/widgets.rs`), Solco (`theme.rs`), Chat with Work (`ui/widgets.rs`) |
-| Settings row (label, detail, control) | ZapFast (`setting_row`), Spotifast (`setting_row`, `setting_row_sized`), Solco (`setting_row`, `settings_section`, `setting_divider`), Chat with Work (`setting_row`, `section`, `group`) |
-| Icon button and icon painting | ZapFast (`theme.rs` `icon`, `paint_icon`, `icon_button`), Spotifast (same names), Solco (`icon`, `icon_image`, `icon_button`, `toolbar_icon_button`), TonePush (`icon_button`, `tinted_icon_button`), Chat with Work (`paint_icon`) |
-| Primary, secondary and danger buttons | Solco (`primary_button`, `secondary_button`, `danger_button`), Chat with Work (`primary_button`, `destructive_button`); ZapFast and Spotifast use `pill_button`, `soft_button`, `circle_button` for the same roles |
-| Dialog title and footer | Solco (`dialog_title`, `dialog_note`, `dialog_footer`), Chat with Work (`dialog_buttons`), ZapFast (`dialog_scroll_height`) |
+| Switch (toggle) | ZapFast (`ui/widgets.rs` `switch`), Spotifast (`ui/widgets.rs`), Solco (`theme.rs`) |
+| Settings row (label, detail, control) | ZapFast (`setting_row`), Spotifast (`setting_row`, `setting_row_sized`), Solco (`setting_row`, `settings_section`, `setting_divider`) |
+| Icon button and icon painting | ZapFast (`theme.rs` `icon`, `paint_icon`, `icon_button`), Spotifast (same names), Solco (`icon`, `icon_image`, `icon_button`, `toolbar_icon_button`), TonePush (`icon_button`, `tinted_icon_button`) |
+| Primary, secondary and danger buttons | Solco (`primary_button`, `secondary_button`, `danger_button`); ZapFast and Spotifast use `pill_button`, `soft_button`, `circle_button` for the same roles |
+| Dialog title and footer | Solco (`dialog_title`, `dialog_note`, `dialog_footer`), ZapFast (`dialog_scroll_height`) |
 | Segmented control, chips | Solco (`segmented`, `deck_segment`), ZapFast (`chip`, `filter_chip`), Spotifast (`chips`), TonePush (`category_chip`) |
 | Menu item, separator, frame | ZapFast (`menu_item`, `menu_item_enabled`, `menu_separator`, `menu_frame`, `submenu`), Spotifast (the same, plus `menu_submenu`) |
 | Search field | ZapFast, Spotifast (`search_field`) |
 | Empty state, loading and error rows | ZapFast (`empty_state`), Spotifast (`empty_state`, `loading_row`, `error_row`) |
 | Spinner | ZapFast (`spinner`, `paint_spinner`), Spotifast (`spinner`, `circle_spinner`), Solco (`spinner`, paced for an event-driven loop), TonePush (`spinner`) |
-| Status dot, badge | Solco (`status_dot`), Chat with Work (`status_dot`, `badge`), TonePush (`status_dot`), ZapFast (`badge`, `unread_dot`) |
+| Status dot, badge | Solco (`status_dot`), TonePush (`status_dot`), ZapFast (`badge`, `unread_dot`) |
 | Focus ring | ZapFast (`focus_outline`, `reveal_focus`), Spotifast (`focus_ring`) |
 | Credits line, logo | ZapFast, Spotifast (`credit`, `logo`) |
 | Navigation row | Solco (`navigation_row`, `navigation_highlight`), Spotifast (sidebar rows), ZapFast (chat rows) |
@@ -1104,7 +1098,7 @@ compatibility but is unnecessary with the new client.
 Solco retains its task generations and progress throttling. ZapFast retains
 account/chat scoping, rate limits, private-content rules and audio previews.
 Spotifast and TonePush currently have no system notification adapter to migrate.
-For an app such as Chat with Work, use its daemon as the native delivery owner
+For an app such as Chat with Work Desktop, use its daemon as the native delivery owner
 for the GUI and TUI. Its server owns preferences, presence and browser deduplication.
 
 ## Portable data folders
@@ -1127,6 +1121,36 @@ portable, so nothing moves for installed copies or on Linux and macOS.
   put in place.
 
 Spotifast is the first app on it.
+
+## fastframe-audio 0.14
+
+0.14 names the app and its streams in the system's volume mixer
+(`set_app_info`, and `media_name` and `role` on `OutputOptions` and
+`InputOptions`; see the crate README). Two changes in each app:
+
+- **Pin cpal to the same fork.** fastframe-audio now gets cpal from
+  `crmne/cpal` at `fcd8b6ebee9d822426fa8d6839cdd89af6e0d491` (cpal 0.18.2 with
+  [RustAudio/cpal#1409](https://github.com/RustAudio/cpal/pull/1409)),
+  until a cpal release includes it. An app that also gets cpal 0.18 from
+  crates.io, through kira or directly, adds at its root:
+
+  ```toml
+  [patch.crates-io]
+  cpal = { git = "https://github.com/crmne/cpal", rev = "fcd8b6ebee9d822426fa8d6839cdd89af6e0d491" }
+  ```
+
+  Without it the app builds two cpal crates, its own and fastframe's.
+- **Struct literals get the new fields.** An `OutputOptions` or
+  `InputOptions` literal without `..Default::default()` adds
+  `media_name: None, role: None`.
+
+Then, to be named: call `fastframe_audio::set_app_info` once at startup,
+before opening or listing devices, with the app's name and its freedesktop
+icon name. ZapFast's call streams set `role: Some(StreamRole::Communication)`
+and Solco's `Some(StreamRole::Production)` if it wants one; without a role
+each app keeps its own remembered volume. A media name is fixed while the
+stream is open, so Spotifast leaves it at the app's name rather than the
+song title.
 
 ## fastframe-audio 0.12
 

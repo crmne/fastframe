@@ -252,7 +252,7 @@ different ways, sharing 3 to 13% of their code:
   exclusive loopback port on macOS and Windows that also carries the Stream
   Deck plugin's verbs (play a URI, transfer playback, snapshots); Apple
   Events for links on macOS.
-- Chat with Work: a Unix socket or a Windows named pipe.
+- Chat with Work Desktop: a Unix socket or a Windows named pipe.
 
 They differ in transport, in what they carry, and in their compatibility
 promises to older installed versions, so unifying them would change the
@@ -260,8 +260,7 @@ behaviour of at least two apps. It stays in the apps until two of them
 converge on one design. The shell does not need it: the app reports "show"
 requests through `headless_frame` like any other.
 
-Chat with Work's window loop is also different (`pump_app_events` on one
-winit loop with its tray), so it is not a user of this crate yet.
+Chat with Work Desktop is a Tauri app, so it is not a user of this crate.
 
 ## Checking the native tray lifecycle
 

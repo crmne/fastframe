@@ -31,7 +31,7 @@ directories.workspace = true
 # The apps already use zbus. One shared connection owns IDs and subscriptions;
 # futures-lite merges the action and close streams without another runtime.
 futures-lite = "2"
-fastframe-desktop = { path = "../fastframe-desktop", version = "0.13.0" }
+fastframe-desktop = { path = "../fastframe-desktop", version = "0.14.0" }
 zbus.workspace = true
 
 # macOS bindings already used by ZapFast and Solco, with cancellation-safe

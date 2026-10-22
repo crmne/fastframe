@@ -1,8 +1,10 @@
 # fastframe agent guide
 
 fastframe ("egui on rails") is the shared foundation of Carmine Paolino's
-native egui apps: ZapFast, Spotifast, Solco, TonePush, and the Chat with
-Work local agent. It is a Cargo workspace of small `fastframe-*` crates. These
+native egui apps: ZapFast, Spotifast, Solco and TonePush. It was also
+extracted from Chat with Work Desktop's egui app; Chat with Work Desktop is
+now a Tauri app and uses only fastframe's audio, notifications and
+start-at-login crates. It is a Cargo workspace of small `fastframe-*` crates. These
 notes are for coding agents and new contributors. They apply unless a more
 specific instruction in this repository says otherwise.
 
@@ -33,6 +35,17 @@ specific instruction in this repository says otherwise.
   patch in. Cargo only honours `[patch]` at an app's root, so fork pins cannot
   live here; a future `forks.toml` with a generator and CI check will manage
   them. Do not add it until asked.
+- One approved exception: `fastframe-audio` depends on cpal from the
+  maintainer's fork, `cpal = { git = "https://github.com/crmne/cpal", rev =
+  "fcd8b6ebee9d822426fa8d6839cdd89af6e0d491" }` (cpal 0.18.2 with
+  [RustAudio/cpal#1409](https://github.com/RustAudio/cpal/pull/1409), which
+  names apps and streams in volume mixers). It is carried until a cpal
+  release includes #1409 or its successor, then goes back to crates.io. Apps
+  that also get cpal 0.18 from crates.io (for example through kira) must add
+  `[patch.crates-io] cpal = { git = "https://github.com/crmne/cpal", rev =
+  "fcd8b6ebee9d822426fa8d6839cdd89af6e0d491" }` at their root, so they build one cpal. Change this rev only with
+  the maintainer's approval, and in the same commit as every place that
+  names it.
 - Prefer dependencies already in the apps' trees, at the versions they use.
   Justify each new dependency in a `Cargo.toml` comment.
 - After the extraction lands, moving each app onto the crate is a separate
@@ -134,7 +147,9 @@ steps apply alongside the account-wide section below.
 - Release only when the maintainer asks, and batch the work since the last
   release as the section below says.
 - Write the notes in `packaging/release-notes/vX.Y.Z.md`, bump the workspace
-  version and `Cargo.lock`, and commit both as "Release fastframe X.Y.Z".
+  version and `Cargo.lock`, and the `tag = "vX.Y.Z"` examples in `README.md`
+  and `docs/_guide/getting-started.md`, so they always name the newest
+  release, and commit them together as "Release fastframe X.Y.Z".
 - Tag that commit with an annotated `vX.Y.Z` tag and push `main` and the tag.
 - Publish the release from the committed notes in the same step:
   `gh release create vX.Y.Z --verify-tag --title "fastframe X.Y.Z"

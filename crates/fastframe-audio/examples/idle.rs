@@ -9,6 +9,8 @@
 //! device by an id from the `devices` example instead of the default.
 //! `--idle-ms <ms>` also shows `pause_when_idle`: the renderer says it has
 //! nothing to play, and the output pauses itself after that long.
+//! `--app <name>`, `--icon <icon>`, `--media-name <name>` and `--role <role>`
+//! name it in the system's volume mixer.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -45,6 +47,37 @@ impl Render for Silence {
     }
 }
 
+/// `--app <name>` (with `--icon <icon>`) names the app in the volume mixer,
+/// `--media-name <name>` the stream, and `--role <role>` (`music`, `movie`,
+/// `game`, `communication`, `notification`, `production` or
+/// `accessibility`) says what it carries.
+fn naming(args: &[String]) -> (Option<String>, Option<fastframe_audio::StreamRole>) {
+    use fastframe_audio::StreamRole;
+    let value = |flag: &str| {
+        args.iter()
+            .position(|arg| arg == flag)
+            .and_then(|at| args.get(at + 1))
+            .cloned()
+    };
+    if let Some(name) = value("--app") {
+        let _ = fastframe_audio::set_app_info(fastframe_audio::AppInfo {
+            name,
+            icon: value("--icon"),
+        });
+    }
+    let role = value("--role").and_then(|role| match role.as_str() {
+        "music" => Some(StreamRole::Music),
+        "movie" => Some(StreamRole::Movie),
+        "game" => Some(StreamRole::Game),
+        "communication" => Some(StreamRole::Communication),
+        "notification" => Some(StreamRole::Notification),
+        "production" => Some(StreamRole::Production),
+        "accessibility" => Some(StreamRole::Accessibility),
+        _ => None,
+    });
+    (value("--media-name"), role)
+}
+
 #[allow(clippy::print_stdout)]
 fn main() -> Result<(), fastframe_audio::OpenError> {
     let args: Vec<String> = std::env::args().collect();
@@ -78,6 +111,7 @@ fn main() -> Result<(), fastframe_audio::OpenError> {
     };
 
     options.pause_when_idle = idle_ms.map(Duration::from_millis);
+    (options.media_name, options.role) = naming(&args);
 
     let stats = Arc::new(Stats::default());
     let renderer = Silence {

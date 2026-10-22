@@ -89,6 +89,19 @@ pub(crate) fn make_folder(path: &Path) -> std::io::Result<()> {
     builder.create(folder)
 }
 
+/// Makes the log at `path` readable by the user alone (0600 on Unix), as far
+/// as the system lets the user change it.
+#[cfg(feature = "logger")]
+pub(crate) fn make_private(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
 /// Opens the log at `path` with `options`, readable by the user alone (0600
 /// on Unix). A log can hold what the user did, and the names of their files
 /// and accounts, and the folders above it are often readable by others.

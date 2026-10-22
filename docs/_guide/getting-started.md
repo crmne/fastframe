@@ -16,8 +16,8 @@ fastframe is not on crates.io. Depend on a release tag from GitHub:
 
 ```toml
 [dependencies]
-fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.13.0" }
-fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.13.0" }
+fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
+fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.14.0" }
 ```
 
 Use the same tag for every fastframe crate, and move it deliberately: the
@@ -54,7 +54,7 @@ From there, each [crate page](/fastframe-text/) shows how to wire it in. The
 [migration guide](/moving-apps/) lists, app by app, what each crate replaces
 in [ZapFast](https://zapfast.rocks), [Spotifast](https://spotifast.rocks),
 [Solco](https://getsolco.com), [TonePush](https://docs.tonepush.rocks) and
-[Chat with Work](https://chatwithwork.com), which makes
+[Chat with Work Desktop](https://github.com/crmne/chatwithwork-desktop), which makes
 it a good set of worked examples.
 
 ## egui and winit forks

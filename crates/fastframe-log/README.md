@@ -15,7 +15,8 @@ fastframe_log::Logging::new("zapfast", env!("CARGO_PKG_VERSION"))
     // Used when RUST_LOG is unset.
     .filter(if verbose { "info,zapfast=debug" } else { "warn,zapfast=info" })
     // Created fresh each run, with its folder on a first run, both readable
-    // by the user alone on Unix. Leave it out for demo runs (stderr only).
+    // by the user alone on Unix; the earlier run's file is kept as
+    // zapfast.previous.log. Leave it out for demo runs (stderr only).
     .file(dirs.log_file())
     // One line per panic, appended.
     .panic_log(dirs.panic_log())

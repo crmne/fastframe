@@ -24,7 +24,14 @@ rodio = ["dep:rodio"]
 [dependencies]
 # The device stream. 0.18 is the version Solco builds with and kira 0.12
 # requires; Spotifast and ZapFast reach cpal through rodio today.
-cpal = "0.18.1"
+#
+# From crmne/cpal's `stream-metadata-0.18` branch (cpal 0.18.2 with the
+# app and stream names of RustAudio/cpal#1409), the one fork dependency the
+# maintainer approved (AGENTS.md). It is carried until a cpal release
+# includes #1409 or its successor, then goes back to crates.io. Apps that
+# also get cpal 0.18 from crates.io (kira, or cpal itself) patch it to the
+# same rev, so they build one cpal.
+cpal = { git = "https://github.com/crmne/cpal", rev = "fcd8b6ebee9d822426fa8d6839cdd89af6e0d491" }
 # Device changes, reopens and errors are logged as the other crates log.
 log.workspace = true
 # rodio's mixer, for `MixerRender` (the `rodio` feature). 0.21 is the version
@@ -55,7 +62,8 @@ libc = "0.2"
 # without these an ordinary desktop would never get one. The PipeWire host
 # builds bindings against libpipewire, so Linux builds need its headers and
 # clang (`libpipewire-0.3-dev clang libclang-dev` on Debian and Ubuntu).
-cpal = { version = "0.18.1", features = ["pipewire", "pulseaudio"] }
+# The same fork rev as above.
+cpal = { git = "https://github.com/crmne/cpal", rev = "fcd8b6ebee9d822426fa8d6839cdd89af6e0d491", features = ["pipewire", "pulseaudio"] }
 zbus = { version = "5.19", default-features = false, features = ["blocking-api", "async-io"] }
 
 [[example]]

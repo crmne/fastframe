@@ -436,6 +436,8 @@ mod tests {
             follow_default: false,
             release_after: None,
             pause_when_idle: None,
+            media_name: None,
+            role: None,
         }
     }
 

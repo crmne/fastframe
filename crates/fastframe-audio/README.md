@@ -88,7 +88,12 @@ The listings leave out what is not a device of its own: cpal's PipeWire
 default devices (`Device::Default` stands for them) and other apps' playback
 streams, the monitors of outputs among the inputs, and ALSA's `null`
 device. On PipeWire the default is found through its PulseAudio server; a
-system without one marks no device the default. `output_device_names()`
+system without one marks no device the default. The process asks it over
+one connection it keeps, made the first time and made again after it fails,
+so a restarted server is reached: a connection for each listing cost a
+thread each, and pulseaudio-rs logged "Client disconnected" as an error each
+time one closed, about 23 times a minute for an app relisting every five
+seconds. `output_device_names()`
 still returns every name cpal lists, as before.
 
 ## rodio's mixer
@@ -268,11 +273,61 @@ it from a thread pool shared with other work.
   `AtomicBool` the owner swaps before each `maintain()`), which calls
   `resume()`. `idle()` must say `true` only when nothing sounds until the
   app queues more: a paused output never renders by itself.
+- `media_name` and `role`: the stream's name and what it carries, in the
+  system's volume mixer (see below). `InputOptions` has them too.
 
 The output opens at the preferred rate, then at the device's own, each with
 the fixed buffer when one was asked for, then with the driver's buffer, then
 in any configuration the device lists. Every cpal sample format is filled
 from the renderer's `f32`.
+
+## Names in the volume mixer
+
+Volume mixers (`pavucontrol`, GNOME's and KDE's sound settings) list each
+stream with its app's name and icon and the stream's own name. cpal's
+defaults show the process name and `cpal-playback-<pid>` on PipeWire, and
+`cpal-pulseaudio-<pid>` on PulseAudio. Name the app once, at startup,
+before opening or listing anything:
+
+```rust
+fastframe_audio::set_app_info(fastframe_audio::AppInfo {
+    name: "ZapFast".into(),
+    icon: Some("zapfast".into()), // the freedesktop icon name
+})
+.ok();
+
+let call = InputOptions {
+    media_name: Some("Voice call".into()),
+    role: Some(fastframe_audio::StreamRole::Communication),
+    ..InputOptions::default()
+};
+```
+
+A stream without a `media_name` takes the app's name. The role tells the
+sound server what the stream carries: WirePlumber can lower other streams
+during a `Communication` stream, and remembers the volume of a stream with a
+role by its role, shared by every app with that role, where a stream
+without one has its volume remembered for its app. The names are given when
+a stream opens and stay until it reopens; cpal cannot rename an open
+stream, so a player cannot show the song playing as the stream's name.
+
+On PipeWire they become the stream's `application.name`,
+`application.icon-name`, `media.name` and `media.role`, and the app's name
+and icon its client's. On PulseAudio the app's name names the client, and
+the stream's proplist gets `application.name`, `application.icon_name`,
+`media.name` and `media.role` (in PulseAudio's words: `phone` for
+`Communication`). ALSA, CoreAudio and WASAPI have no place for them.
+
+No cpal release can name streams yet, so this crate gets cpal from
+`crmne/cpal` at `fcd8b6e` (cpal 0.18.2 with
+[RustAudio/cpal#1409](https://github.com/RustAudio/cpal/pull/1409)) until
+one does. An app that also gets cpal 0.18 from crates.io (through kira, for
+example) patches it to the same rev, so it builds one cpal:
+
+```toml
+[patch.crates-io]
+cpal = { git = "https://github.com/crmne/cpal", rev = "fcd8b6ebee9d822426fa8d6839cdd89af6e0d491" }
+```
 
 ## Keeping it working
 
@@ -322,7 +377,9 @@ through (`PipeWire`, `PulseAudio`, `ALSA`, `CoreAudio` or `WASAPI`), for the
 log. The process chooses it the first time it opens or lists a device and
 keeps that choice, so every stream and listing goes to the same system;
 each still gets a fresh connection to it, so new devices show up and a
-restarted sound server is reached again.
+restarted sound server is reached again. Only the lookup of PipeWire's
+default through its PulseAudio server keeps its connection (see
+[Devices](#devices)).
 
 ## Linux sound servers
 

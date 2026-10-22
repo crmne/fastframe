@@ -12,6 +12,9 @@
 //! that long, reporting each second and calling `maintain()` before each
 //! report, to show the input following a new default.
 //!
+//! `--app <name>`, `--icon <icon>`, `--media-name <name>` and `--role <role>`
+//! name it in the system's volume mixer.
+//!
 //! It also says how long after `Input::open` returned the first block, and
 //! the first block that is not all silence, reached the capturer: the sound
 //! an app recording from the moment it opens would lose.
@@ -78,6 +81,37 @@ impl Capture for Meter {
     }
 }
 
+/// `--app <name>` (with `--icon <icon>`) names the app in the volume mixer,
+/// `--media-name <name>` the stream, and `--role <role>` (`music`, `movie`,
+/// `game`, `communication`, `notification`, `production` or
+/// `accessibility`) says what it carries.
+fn naming(args: &[String]) -> (Option<String>, Option<fastframe_audio::StreamRole>) {
+    use fastframe_audio::StreamRole;
+    let value = |flag: &str| {
+        args.iter()
+            .position(|arg| arg == flag)
+            .and_then(|at| args.get(at + 1))
+            .cloned()
+    };
+    if let Some(name) = value("--app") {
+        let _ = fastframe_audio::set_app_info(fastframe_audio::AppInfo {
+            name,
+            icon: value("--icon"),
+        });
+    }
+    let role = value("--role").and_then(|role| match role.as_str() {
+        "music" => Some(StreamRole::Music),
+        "movie" => Some(StreamRole::Movie),
+        "game" => Some(StreamRole::Game),
+        "communication" => Some(StreamRole::Communication),
+        "notification" => Some(StreamRole::Notification),
+        "production" => Some(StreamRole::Production),
+        "accessibility" => Some(StreamRole::Accessibility),
+        _ => None,
+    });
+    (value("--media-name"), role)
+}
+
 #[allow(clippy::print_stdout)]
 fn main() -> Result<(), fastframe_audio::OpenError> {
     let args: Vec<String> = std::env::args().collect();
@@ -106,10 +140,13 @@ fn main() -> Result<(), fastframe_audio::OpenError> {
         stats: Arc::clone(&stats),
         since: opening,
     };
+    let (media_name, role) = naming(&args);
     let mut input = Input::open(
         InputOptions {
             device,
             channels,
+            media_name,
+            role,
             ..InputOptions::default()
         },
         meter,
