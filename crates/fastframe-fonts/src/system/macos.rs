@@ -238,10 +238,22 @@ fn resolve(probe: char) -> Vec<(String, PathBuf)> {
 /// The file of the face macOS draws its own interface with (San Francisco,
 /// `SFNS.ttf`), as CoreText names it.
 pub(super) fn interface_font() -> Option<PathBuf> {
+    ui_font(K_CT_FONT_UI_FONT_SYSTEM)
+}
+
+/// The file of the user's fixed-pitch face (Menlo, `Menlo.ttc`, unless they
+/// chose another), as CoreText names it. A collection's file: the caller
+/// picks the face.
+pub(super) fn fixed_pitch_font() -> Option<PathBuf> {
+    ui_font(K_CT_FONT_UI_FONT_USER_FIXED_PITCH)
+}
+
+/// The file of the face macOS draws the interface text `kind` with.
+fn ui_font(kind: u32) -> Option<PathBuf> {
     // SAFETY: the font is created here and released here; the copied URL is
     // released after it is read.
     unsafe {
-        let font = CTFontCreateUIFontForLanguage(K_CT_FONT_UI_FONT_SYSTEM, 0.0, std::ptr::null());
+        let font = CTFontCreateUIFontForLanguage(kind, 0.0, std::ptr::null());
         if font.is_null() {
             return None;
         }
@@ -257,6 +269,9 @@ pub(super) fn interface_font() -> Option<PathBuf> {
 
 /// `kCTFontUIFontSystem` in CoreText's `CTFontUIFontType`.
 const K_CT_FONT_UI_FONT_SYSTEM: u32 = 2;
+
+/// `kCTFontUIFontUserFixedPitch` in CoreText's `CTFontUIFontType`.
+const K_CT_FONT_UI_FONT_USER_FIXED_PITCH: u32 = 1;
 
 /// A `CFString` as a Rust string.
 ///
