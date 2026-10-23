@@ -92,6 +92,10 @@ panel, say). `controls` draws in egui's foreground layer, over every panel.
   every frame (it changes nothing when they are in place). The height is in
   egui points and scales with zoom; their room, `TRAFFIC_LIGHTS_WIDTH` (84
   AppKit points), does not.
+  `align_traffic_lights_at(frame, ctx, header_height, left)` puts the close
+  button `left` AppKit points in instead of 16, for a header whose layout
+  starts further in; `footprint` still reports the usual 84, so that header
+  leaves the extra room itself.
 - **The double-click setting** is System Settings, Desktop & Dock,
   "Double-click a window's title bar to", read from `AppleActionOnDoubleClick`
   (Zoom is stored as `Maximize`), falling back to the older
