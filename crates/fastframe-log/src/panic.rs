@@ -68,10 +68,7 @@ pub fn log_panics_with(
         // A first run may not have made the folder yet; without it the line
         // would only reach stderr.
         let _ = make_folder(&path);
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path);
+        let file = open_private(&path, std::fs::OpenOptions::new().create(true).append(true));
         if let Ok(mut file) = file {
             let _ = file.write_all(entry.as_bytes());
         }
@@ -79,12 +76,52 @@ pub fn log_panics_with(
 }
 
 /// Makes the folder `path` is in, with the folders above it, when it is not
-/// there yet.
+/// there yet. The folders it makes are the user's alone (0700 on Unix), as
+/// the logs in them are; folders already there keep their permissions.
 pub(crate) fn make_folder(path: &Path) -> std::io::Result<()> {
-    match path.parent() {
-        Some(folder) => std::fs::create_dir_all(folder),
-        None => Ok(()),
+    let Some(folder) = path.parent() else {
+        return Ok(());
+    };
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(folder)
+}
+
+/// Makes the log at `path` readable by the user alone (0600 on Unix), as far
+/// as the system lets the user change it.
+#[cfg(feature = "logger")]
+pub(crate) fn make_private(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
     }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+/// Opens the log at `path` with `options`, readable by the user alone (0600
+/// on Unix). A log can hold what the user did, and the names of their files
+/// and accounts, and the folders above it are often readable by others.
+///
+/// A log an older version made readable by others is made private too, as
+/// far as the system lets the user change it: a log it cannot change is
+/// still written.
+pub(crate) fn open_private(
+    path: &Path,
+    options: &mut std::fs::OpenOptions,
+) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(options, 0o600);
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(file)
 }
 
 /// The panic's message when it is text, as `panic!` and `expect` produce.
@@ -177,7 +214,18 @@ mod tests {
         std::panic::set_hook(previous);
         assert!(result.is_err());
         let written = std::fs::read_to_string(&path).unwrap();
+        #[cfg(unix)]
+        let modes = (
+            crate::tests::mode(&path),
+            crate::tests::mode(&dir.join("state")),
+        );
         std::fs::remove_dir_all(dir).unwrap();
+        #[cfg(unix)]
+        assert_eq!(
+            modes,
+            (0o600, 0o700),
+            "the panic log and its folder are private"
+        );
         assert!(written.contains("zapfast 0.16.3 on thread \"worker\", panic at "));
         assert!(written.ends_with("(payload omitted)\n"));
         assert!(!written.contains("secret fixture payload"));
