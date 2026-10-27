@@ -31,7 +31,7 @@ rodio = ["dep:rodio"]
 # includes #1409 or its successor, then goes back to crates.io. Apps that
 # also get cpal 0.18 from crates.io (kira, or cpal itself) patch it to the
 # same rev, so they build one cpal.
-cpal = { git = "https://github.com/crmne/cpal", rev = "fcd8b6ebee9d822426fa8d6839cdd89af6e0d491" }
+cpal = { git = "https://github.com/crmne/cpal", rev = "3ae7542c396aae2f31c1787c3908a1e4cbffd0c8" }
 # Device changes, reopens and errors are logged as the other crates log.
 log.workspace = true
 # rodio's mixer, for `MixerRender` (the `rodio` feature). 0.21 is the version
@@ -63,7 +63,7 @@ libc = "0.2"
 # builds bindings against libpipewire, so Linux builds need its headers and
 # clang (`libpipewire-0.3-dev clang libclang-dev` on Debian and Ubuntu).
 # The same fork rev as above.
-cpal = { git = "https://github.com/crmne/cpal", rev = "fcd8b6ebee9d822426fa8d6839cdd89af6e0d491", features = ["pipewire", "pulseaudio"] }
+cpal = { git = "https://github.com/crmne/cpal", rev = "3ae7542c396aae2f31c1787c3908a1e4cbffd0c8", features = ["pipewire", "pulseaudio"] }
 zbus = { version = "5.19", default-features = false, features = ["blocking-api", "async-io"] }
 
 [[example]]
