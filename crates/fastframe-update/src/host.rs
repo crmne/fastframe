@@ -90,17 +90,29 @@ pub(crate) trait Host: Send + Sync {
     fn signing_team(&self, bundle: &Path) -> Result<Option<String>>;
     /// Whether Gatekeeper would let the bundle run.
     fn assess(&self, bundle: &Path) -> Result<bool>;
-    /// Mounts a disk image read-only at `mountpoint`.
+    /// Mounts a disk image read-only at `mountpoint`. The caller must have
+    /// verified the image's SHA-256 before mounting it.
     fn attach(&self, image: &Path, mountpoint: &Path) -> Result<()>;
     /// Unmounts; whether that worked.
     fn detach(&self, mountpoint: &Path) -> bool;
-    /// Copies a bundle with its signature, extended attributes and links.
+    /// Copies a bundle with its signature, quarantine, other extended
+    /// attributes and links, removing unsigned Finder/resource-fork metadata
+    /// that strict signature verification rejects from the new copy only.
     fn copy_bundle(&self, source: &Path, destination: &Path) -> Result<()>;
 }
 
 /// The real operating system.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct OsHost;
+
+// Finder can add these unsigned attributes to an otherwise valid bundle.
+// Keep quarantine, provenance and every unrelated attribute on the new copy.
+fn clean_copied_bundle_metadata(mut remove: impl FnMut(&str) -> Result<()>) -> Result<()> {
+    for attribute in ["com.apple.FinderInfo", "com.apple.ResourceFork"] {
+        remove(attribute)?;
+    }
+    Ok(())
+}
 
 mod os {
     use std::ffi::OsString;
@@ -395,8 +407,17 @@ mod os {
         }
 
         fn attach(&self, image: &Path, mountpoint: &Path) -> Result<()> {
+            // Download and helper both verify the package's signed SHA-256
+            // before mounting. Avoid a second full-image checksum pass;
+            // bundle identity, code-signature and Gatekeeper checks follow.
             let output = Command::new("/usr/bin/hdiutil")
-                .args(["attach", "-readonly", "-nobrowse", "-mountpoint"])
+                .args([
+                    "attach",
+                    "-readonly",
+                    "-nobrowse",
+                    "-noverify",
+                    "-mountpoint",
+                ])
                 .arg(mountpoint)
                 .arg(image)
                 .output()?;
@@ -421,7 +442,17 @@ mod os {
                 .arg(destination)
                 .output()?;
             ensure!(copy.status.success(), "Could not copy the app bundle");
-            Ok(())
+            super::clean_copied_bundle_metadata(|attribute| {
+                let clean = Command::new("/usr/bin/xattr")
+                    .args(["-r", "-s", "-d", attribute])
+                    .arg(destination)
+                    .output()?;
+                ensure!(
+                    clean.status.success(),
+                    "Could not remove Finder metadata from the copied app bundle"
+                );
+                Ok(())
+            })
         }
     }
 
@@ -539,6 +570,44 @@ pub(crate) fn is_zombie(stat: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copied_bundle_cleanup_keeps_quarantine_and_other_attributes() {
+        let mut attributes = std::collections::HashMap::from([
+            ("com.apple.FinderInfo", "finder bytes"),
+            ("com.apple.ResourceFork", "resource bytes"),
+            ("com.apple.quarantine", "quarantine bytes"),
+            ("com.apple.provenance", "provenance bytes"),
+            ("app.custom", "other bytes"),
+        ]);
+        clean_copied_bundle_metadata(|attribute| {
+            attributes.remove(attribute);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(attributes.len(), 3);
+        assert_eq!(attributes["com.apple.quarantine"], "quarantine bytes");
+        assert_eq!(attributes["com.apple.provenance"], "provenance bytes");
+        assert_eq!(attributes["app.custom"], "other bytes");
+        clean_copied_bundle_metadata(|attribute| {
+            attributes.remove(attribute);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(attributes.len(), 3);
+    }
+
+    #[test]
+    fn copied_bundle_cleanup_errors_stop_the_copy() {
+        let mut calls = 0;
+        let error = clean_copied_bundle_metadata(|_| {
+            calls += 1;
+            anyhow::bail!("permission denied")
+        })
+        .unwrap_err();
+        assert_eq!(error.to_string(), "permission denied");
+        assert_eq!(calls, 1);
+    }
 
     #[test]
     fn process_identity_handles_spaces_and_parentheses_in_names() {

@@ -88,16 +88,30 @@ would report fastframe's version, so the app passes its own.
    `appimage: true`, an AppImage the user owns updates itself (below).
 3. `download` reads the release by tag and requires the one asset named for
    this platform and installation, plus `checksums.txt` and, with a publisher
-   key, `checksums.txt.sig`. The signature is checked before anything is
-   parsed or written. The package is streamed into a new staging folder and
-   hashed; a portable executable is unpacked with `tar` and must answer
+   key, `checksums.txt.sig`. The checksum file and signature are fetched
+   concurrently. The signature is checked before anything is parsed or
+   written. Package writes are batched in a bounded 256 KiB buffer, flushed
+   and synced before validation. Unchanged packages retain the digest verified
+   during the stream; extracted portable executables are hashed separately.
+   Handoff and installation still rehash the staged payload to reject changes.
+   The package is streamed into a new staging
+   folder and hashed; a portable executable is unpacked with `tar` and must answer
    `--version` correctly; a macOS disk image is mounted and its bundle must
    have the same identifier, the release's version, the running app's
    signing team and Gatekeeper's approval.
+   Disk images mount read-only without repeating their internal image checksum:
+   the updater has already verified the signed SHA-256 before mounting, and
+   the helper rechecks the staged SHA-256 before mounting during installation.
 4. `handoff` copies the running app into the staging folder (the whole
    bundle on macOS, and on Windows the DLLs beside the executable too),
    writes `handoff.json` and starts the helper with `--apply-update`, working
    in the staging folder. It returns once the helper writes `ready`.
+   macOS bundle copies remove only FinderInfo and ResourceFork attributes,
+   which strict code-signature verification rejects. Quarantine, provenance,
+   other attributes, file bytes and signatures are preserved; no re-signing
+   takes place.
+   See [Apple QA1940](https://developer.apple.com/library/archive/qa/qa1940/_index.html)
+   for the signature failure these attributes cause.
 5. The helper waits for the app to exit, keeps a backup called `previous`,
    replaces the executable (portable), runs the installer silently
    (Windows installer, below) or swaps the bundle (macOS), and relaunches the app
