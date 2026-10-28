@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'open3'
 require 'pathname'
 
 # Builds the Crates and Reference pages from the repository's own Markdown,
@@ -55,8 +56,20 @@ module FastframeDocs
         'description' => first_paragraph(body),
         'render_with_liquid' => false
       )
+      committed = last_commit_time(path)
+      doc.data['last_updated_at'] = committed if committed
       doc.data.merge!(data)
       collection.docs << doc
+    end
+
+    # The theme dates pages by Git only inside the site source (docs/), so
+    # these files from the rest of the repository are dated here, for the
+    # "Last updated" footer and the sitemap's lastmod. Nil when Git cannot
+    # date the file (untracked, or no history).
+    def last_commit_time(path)
+      output, status = Open3.capture2('git', '-C', File.dirname(path), 'log', '-1', '--format=%ct', '--',
+                                      File.basename(path), err: File::NULL)
+      Time.at(Integer(output.strip)).utc if status.success? && !output.strip.empty?
     end
 
     # The workspace README's crate table, in order: name => description.
