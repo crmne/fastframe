@@ -123,6 +123,16 @@ impl Host {
     }
 }
 
+/// Sends Dock clicks to `router`, for an app with no menu-bar item.
+pub(crate) fn attach_dock(router: &Router) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        log::warn!("the Dock reopen handler can only be installed on the main thread");
+        return;
+    };
+    REOPEN.with(|slot| *slot.borrow_mut() = Some(router.clone()));
+    install_reopen_handler(&NSApplication::sharedApplication(mtm));
+}
+
 /// Acts on the item, once it exists.
 fn with_item(act: impl FnOnce(&Item)) {
     ITEM.with(|slot| {
@@ -377,6 +387,22 @@ mod tests {
         assert!(request_reopen(false).as_bool());
         assert_eq!(events.try_recv(), Ok(Event::Show));
         assert_eq!(woken.load(Ordering::SeqCst), 2);
+        REOPEN.with(|slot| *slot.borrow_mut() = None);
+    }
+
+    /// An app with no menu-bar item hears Dock clicks through a `Dock`.
+    #[test]
+    fn a_dock_without_an_item_hears_dock_clicks() {
+        let woken = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&woken);
+        let dock = crate::Dock::spawn(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        REOPEN.with(|slot| *slot.borrow_mut() = Some(dock.router.clone()));
+        assert!(request_reopen(false).as_bool());
+        assert_eq!(dock.events(), vec![Event::Show]);
+        assert_eq!(woken.load(Ordering::SeqCst), 1);
+        assert!(dock.events().is_empty());
         REOPEN.with(|slot| *slot.borrow_mut() = None);
     }
 

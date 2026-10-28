@@ -421,6 +421,78 @@ impl Tray {
     }
 }
 
+/// The Dock icon alone, for a macOS app that keeps running with its window
+/// closed but shows no menu-bar item: the Dock is how the person sees it is
+/// running and gets the window back.
+///
+/// A click on the Dock icon is [`Event::Show`], as with a [`Tray`] on macOS,
+/// even for a minimized window (AppKit calls that visible). Elsewhere a
+/// `Dock` never reports anything: those platforms bring the window back
+/// through a [`Tray`] instead.
+///
+/// ```no_run
+/// use fastframe_tray::{Dock, Event};
+///
+/// let mut dock = Dock::spawn(|| { /* repaint the window, or wake the app */ });
+/// // When a window has been made (winit's application delegate exists then):
+/// dock.attach();
+/// // Each frame, and each headless tick:
+/// for event in dock.events() {
+///     if event == Event::Show { /* open or raise the window */ }
+/// }
+/// // While no window exists, wait with `fastframe_tray::idle`, so AppKit
+/// // keeps answering the Dock.
+/// fastframe_tray::idle(std::time::Duration::from_millis(150));
+/// ```
+pub struct Dock {
+    events: Receiver<Event>,
+    #[cfg(target_os = "macos")]
+    router: Router,
+}
+
+impl std::fmt::Debug for Dock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Dock").finish_non_exhaustive()
+    }
+}
+
+impl Dock {
+    /// Gets ready to hear Dock clicks. `wake` is called after each one is
+    /// queued, so the app reads it promptly with or without a window.
+    pub fn spawn(wake: impl Fn() + Send + Sync + 'static) -> Self {
+        let (sender, events) = std::sync::mpsc::channel();
+        #[cfg(target_os = "macos")]
+        {
+            Self {
+                events,
+                router: Router::new(sender, Arc::new(wake), &[]),
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (sender, wake);
+            Self { events }
+        }
+    }
+
+    /// The Dock clicks since the last call, oldest first.
+    pub fn events(&self) -> Vec<Event> {
+        self.events.try_iter().collect()
+    }
+
+    /// A window exists. On macOS this installs the Dock's reopen handler on
+    /// winit's application delegate, which exists once the first window has
+    /// been made; later calls change nothing. Elsewhere it does nothing.
+    ///
+    /// A [`Tray`] made on macOS installs the same handler, and the most
+    /// recent of the two to attach receives the clicks; an app needs only
+    /// one of them.
+    pub fn attach(&mut self) {
+        #[cfg(target_os = "macos")]
+        macos::attach_dock(&self.router);
+    }
+}
+
 /// Waits `duration` while no window exists.
 ///
 /// On macOS this runs AppKit's event loop, so the menu-bar item, the Dock
@@ -620,6 +692,16 @@ mod tests {
             counter.fetch_add(1, Ordering::SeqCst);
         });
         (Router::new(sender, wake, &menu), events, woken)
+    }
+
+    /// Elsewhere than macOS a `Dock` hears nothing and its calls do
+    /// nothing, so an app can hold one on every platform.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_dock_off_macos_reports_nothing() {
+        let mut dock = Dock::spawn(|| {});
+        dock.attach();
+        assert!(dock.events().is_empty());
     }
 
     #[test]
