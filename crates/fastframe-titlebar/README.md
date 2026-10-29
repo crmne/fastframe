@@ -90,8 +90,11 @@ panel, say). `controls` draws in egui's foreground layer, over every panel.
   centres them on the header's centre line in their usual columns. AppKit
   puts them back for its own 28-point bar during layout passes, so call it
   every frame (it changes nothing when they are in place). The height is in
-  egui points and scales with zoom; their room, `TRAFFIC_LIGHTS_WIDTH` (84
-  AppKit points), does not.
+  egui points and scales with zoom; their room does not. The buttons keep
+  the spacing AppKit gives them (20 points apart before macOS 26, 23 from
+  it), and their room is measured from the zoom button's right edge once
+  they are aligned, with `TRAFFIC_LIGHTS_WIDTH` (84 AppKit points) until
+  then.
 - **The double-click setting** is System Settings, Desktop & Dock,
   "Double-click a window's title bar to", read from `AppleActionOnDoubleClick`
   (Zoom is stored as `Maximize`), falling back to the older
