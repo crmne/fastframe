@@ -14,6 +14,9 @@
 //!   does not drift sideways, and a modifier that turns the wheel sideways
 //!   (Shift by default) turns the gesture and its glide with it.
 //!
+//! [`autoscroll`] adds Chromium's middle-click autoscroll on Windows, and on
+//! Linux when the user chooses it.
+//!
 //! ```no_run
 //! # struct App { scrolling: fastframe_scroll::Scrolling }
 //! # impl App {
@@ -28,6 +31,8 @@
 //! ```
 
 use egui::{Context, Event, MouseWheelUnit, TouchPhase, Vec2};
+
+pub mod autoscroll;
 
 /// Points a wheel notch scrolls, about what browsers and native lists scroll
 /// per notch. egui's own default is 40.

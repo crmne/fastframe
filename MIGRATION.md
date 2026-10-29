@@ -1052,6 +1052,50 @@ Linux entry its path and name, so existing registrations read back. `windows_reg
 reads. The macOS LaunchAgent `com.chatwithwork.cww-app.plist` moves to the
 bundled agent as for ZapFast.
 
+## fastframe-scroll: middle-click autoscroll
+
+Chromium's middle-click autoscroll, from Spotifast's controller with
+ZapFast's changes. The app keeps the setting and passes it to `enabled`.
+
+```rust
+use fastframe_scroll::autoscroll;
+
+let on = autoscroll::enabled(settings.middle_click_autoscroll);
+self.autoscroll.begin(ctx, on);
+// `Scrolling::apply` unless `self.autoscroll.active()`, then the views:
+autoscroll::show(ui, egui::ScrollArea::vertical(), |ui| { /* ... */ });
+if self.autoscroll.finish(ctx, on) {
+    self.scrolling.stop();
+}
+```
+
+### Spotifast
+
+| Delete | Lines | Instead |
+| --- | --- | --- |
+| `src/autoscroll.rs`, `src/autoscroll/active.rs`, `src/autoscroll/inactive.rs`, `src/autoscroll/tests.rs` | 1,180 | `fastframe_scroll::autoscroll` |
+| `autoscroll::show(ui, area, axes, ..)` | | `show` for a vertical list, `show_horizontal` for a shelf |
+| `autoscroll::row` | | `primary_drag` |
+| `autoscroll::lyrics(ui, id)` and `Outcome::stop_following_lyrics` | | `self.autoscroll.scrolls(lyrics_id)` after `finish` |
+| `autoscroll::playlist(ui, rect, offset, maximum, row_points)` and `Outcome::playlist_scroll` | | `note(ui, id, rect, vec2(0.0, offset * row_points), vec2(0.0, maximum * row_points))`, then `(self.autoscroll.offset(id)?.y / row_points).floor()` |
+| `Outcome::scrolling` | | `finish` returns it |
+| The 33 ms repaint in `finish` | | `Autoscroll::default().with_repaint_interval(Duration::from_micros(33_334))` |
+
+Behaviour changes: the click or Escape that stops a gesture no longer
+reaches the views, so it does not act on the row under the pointer or close
+what is behind the list. A middle press that starts a gesture stops any drag
+it began and clears egui's text selection. A `ScrollArea` steps from its
+stored offset rather than the gesture's own, so a list's own moves after
+drawing are kept.
+
+### ZapFast
+
+The pull request that adds autoscroll (crmne/zapfast#505) uses the crate
+instead of its own copy of Spotifast's controller:
+`src/autoscroll/active.rs`, `src/autoscroll/inactive.rs` and
+`src/autoscroll/tests.rs` go, `src/autoscroll.rs` re-exports the crate's
+functions, and `src/demo.rs` keeps its tests against the real conversation.
+
 ## Not moved yet: widgets
 
 Widgets stay in the apps for now. These exist in two or more apps and are

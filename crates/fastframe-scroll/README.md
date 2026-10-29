@@ -60,6 +60,74 @@ for a view that pans with one and zooms with a wheel. `gliding()` says
 whether a lifted gesture is still carrying the page, for an app that routes
 a gesture to the pane it began over.
 
+## Middle-click autoscroll
+
+`autoscroll` is Chromium's middle-click autoscroll: a middle press in a
+list, then the list follows the pointer, faster the further it moves from
+the press (`0.04 * distance^2.2` points a second, after a 15-point dead zone
+on each axis), with Chromium's cursors. Holding the button and releasing it
+after moving stops; after a plain click it keeps going until the next click,
+Escape, a wheel turn, or the window losing focus. That click or Escape only
+stops it: the views never see it, so it neither opens what is under the
+pointer nor closes what is behind the list.
+
+The gesture belongs to the innermost list under the press that can scroll,
+on the top layer there, so a menu keeps the list beneath it still, and
+moving over another pane never hands it over. Text fields keep a middle
+press for pasting, and anything that drags with any button (a slider, a
+scroll bar, a panel edge) keeps it too.
+
+`enabled(chosen_on_linux)` says whether it is on: always on Windows, on
+Linux only by choice, because a middle click there usually pastes, and never
+on macOS.
+
+```rust
+use fastframe_scroll::autoscroll;
+
+struct App {
+    scrolling: fastframe_scroll::Scrolling,
+    autoscroll: autoscroll::Autoscroll,
+    chosen: bool,
+}
+
+impl App {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let on = autoscroll::enabled(self.chosen);
+        self.autoscroll.begin(&ctx, on);
+        if self.autoscroll.active() {
+            self.scrolling.stop();
+            ctx.input_mut(|input| input.smooth_scroll_delta = egui::Vec2::ZERO);
+        } else {
+            self.scrolling.apply(&ctx);
+        }
+        autoscroll::show(ui, egui::ScrollArea::vertical(), |ui| {
+            // ...
+        });
+        if self.autoscroll.finish(&ctx, on) {
+            self.scrolling.stop();
+        }
+    }
+}
+```
+
+Lists show through `show` and `show_rows`, or `show_horizontal` for a
+sideways strip. A widget that senses dragging but drags only with the
+primary button, such as selectable text or a row that drags to reorder,
+calls `primary_drag` so a middle press on it still starts autoscroll; egui's
+text selection is cleared when it does. A list that scrolls itself rather
+than through a `ScrollArea`, such as one that scrolls in whole rows, is
+noted with `note`, and `Autoscroll::offset` says where to scroll it.
+`Autoscroll::scrolls(id)` tells a list that sticks to its end, or follows
+something on its own, to let go, as it would for a wheel turn.
+
+A moving list repaints every frame. An app whose renderer is not paced by
+the display asks for fewer with `Autoscroll::with_repaint_interval`.
+
+It came out of Spotifast and ZapFast. Each step starts from the list's
+stored offset, so a list that moves itself after drawing, as a chat does
+when rows above the screen change height, keeps that move (ZapFast).
+
 ## How a gesture ends
 
 Wayland says when fingers touch and lift, and the glide starts at the lift,
