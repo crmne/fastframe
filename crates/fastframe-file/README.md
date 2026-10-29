@@ -82,6 +82,11 @@ never trips it.
 If writing or any later step fails, the file keeps its old contents and the
 temporary file is removed.
 
+When the path is a symbolic link, the steps are on the file it leads to,
+followed through up to 40 links as Linux does. A settings file a dotfiles
+manager links into place stays a link, and the file in its repository is the
+one that changes. A loop of links is an error, and nothing is written.
+
 It came from Spotifast's saves (the Windows write-through move), Solco's
 licence file (the flush, the directory sync and the private mode), and
 ZapFast's settings, which wrote and renamed without flushing. The `Writer`
