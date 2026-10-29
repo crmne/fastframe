@@ -39,11 +39,17 @@ Apps choose:
 FontSetup::default()
     .primary(Primary::System)                      // or Primary::Inter, the default
     .weights(&[Weight::SemiBold])                  // regular is always there
-    .monospace(Monospace::Inter)                   // or EguiDefault, or Font { name, data }
+    .monospace(Monospace::Inter)                   // or EguiDefault, System, or Font { name, data }
     .companion("noto_emoji", Arc::new(emoji))      // right after Inter, in every family
     .system_fallbacks(!demo)                       // off for reproducible screenshots
     .install(ctx);                                 // or .definitions() to adjust first
 ```
+
+`Monospace::System` draws code in the platform's own fixed-pitch face: the
+user's fixed-pitch font on macOS (Menlo, unless they chose another), Cascadia
+Mono on Windows 11 or else Consolas, and on Linux fontconfig's `monospace`, the
+terminal font a desktop such as Omarchy sets. It is found once per process, at
+regular weight, and egui's own monospace stays when none can be read.
 
 `definitions()` starts from `FontDefinitions::default()`, so egui's own
 fonts (with its `default_fonts` feature) stay behind the interface face and
