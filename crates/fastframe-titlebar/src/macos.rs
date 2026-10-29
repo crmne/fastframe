@@ -7,8 +7,8 @@ mod appkit;
 /// AppKit points: three buttons from 16 points in, 20 apart, and a margin.
 pub const TRAFFIC_LIGHTS_WIDTH: f32 = 84.0;
 
-/// Left edge of the close button, in AppKit points.
-const BUTTON_LEFT: f64 = 16.0;
+/// The close button's usual left edge, in AppKit points.
+const BUTTON_LEFT: f32 = 16.0;
 /// Distance between the buttons' left edges, in AppKit points.
 const BUTTON_SPACING: f64 = 20.0;
 
@@ -40,21 +40,42 @@ fn inset(on_macos: bool, fullscreen: bool, zoom: f32) -> f32 {
 /// A header that must not scale with zoom (AppKit's own 28-point strip, say)
 /// passes its height divided by `ctx.zoom_factor()`.
 pub fn align_traffic_lights(frame: &eframe::Frame, ctx: &egui::Context, title_bar_height: f32) {
+    align_traffic_lights_at(frame, ctx, title_bar_height, BUTTON_LEFT);
+}
+
+/// Like [`align_traffic_lights`], with the close button's left edge `left`
+/// AppKit points from the window's edge instead of the usual 16. The buttons
+/// stay 20 points apart, and `left` does not scale with egui's zoom.
+///
+/// For a header whose layout puts the buttons further in, a toolbar with
+/// its own padding, say. [`footprint`](crate::footprint) still reports
+/// [`TRAFFIC_LIGHTS_WIDTH`], so such a header leaves the extra room itself.
+pub fn align_traffic_lights_at(
+    frame: &eframe::Frame,
+    ctx: &egui::Context,
+    title_bar_height: f32,
+    left: f32,
+) {
     #[cfg(target_os = "macos")]
     if !ctx.input(|input| input.viewport().fullscreen.unwrap_or(false)) {
-        appkit::align(frame, f64::from(title_bar_height * ctx.zoom_factor()));
+        appkit::align(
+            frame,
+            f64::from(title_bar_height * ctx.zoom_factor()),
+            f64::from(left),
+        );
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (frame, ctx, title_bar_height);
+    let _ = (frame, ctx, title_bar_height, left);
 }
 
 /// Where the button at `index` (close, minimize, zoom) goes in a bar `bar`
-/// points tall, in the coordinates of the buttons' parent view, which spans
-/// the bar with its origin at the bottom.
+/// points tall, with the close button `left` points in, in the coordinates of
+/// the buttons' parent view, which spans the bar with its origin at the
+/// bottom.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn button_origin(index: usize, bar: f64, button_height: f64) -> (f64, f64) {
+fn button_origin(index: usize, left: f64, bar: f64, button_height: f64) -> (f64, f64) {
     (
-        BUTTON_LEFT + index as f64 * BUTTON_SPACING,
+        left + index as f64 * BUTTON_SPACING,
         (bar - button_height) / 2.0,
     )
 }
@@ -148,9 +169,18 @@ mod tests {
     /// AppKit's 14-point buttons.
     #[test]
     fn buttons_sit_on_the_bars_centre_line_in_their_usual_columns() {
-        assert_eq!(button_origin(0, 60.0, 14.0), (16.0, 23.0));
-        assert_eq!(button_origin(1, 48.0, 14.0), (36.0, 17.0));
-        assert_eq!(button_origin(2, 28.0, 14.0), (56.0, 7.0));
+        let left = f64::from(BUTTON_LEFT);
+        assert_eq!(button_origin(0, left, 60.0, 14.0), (16.0, 23.0));
+        assert_eq!(button_origin(1, left, 48.0, 14.0), (36.0, 17.0));
+        assert_eq!(button_origin(2, left, 28.0, 14.0), (56.0, 7.0));
+    }
+
+    /// Hindsight's 52-point toolbar, which puts the close button 20 points in.
+    #[test]
+    fn a_wider_inset_moves_every_button_and_keeps_their_spacing() {
+        assert_eq!(button_origin(0, 20.0, 52.0, 14.0), (20.0, 19.0));
+        assert_eq!(button_origin(1, 20.0, 52.0, 14.0), (40.0, 19.0));
+        assert_eq!(button_origin(2, 20.0, 52.0, 14.0), (60.0, 19.0));
     }
 
     #[test]
