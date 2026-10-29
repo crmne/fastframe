@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-audio"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "cpal",
  "libc",
@@ -1305,7 +1305,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-autostart"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "fastframe-file",
  "log",
@@ -1319,7 +1319,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-desktop"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "log",
  "mac-usernotifications",
@@ -1328,7 +1328,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-dirs"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "directories",
  "tempfile",
@@ -1336,7 +1336,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-dock"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "log",
  "objc2 0.6.4",
@@ -1349,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-emoji"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "egui",
  "fastframe-fonts",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-file"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "log",
  "tempfile",
@@ -1376,7 +1376,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-fonts"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "directories",
  "eframe",
@@ -1390,7 +1390,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-graphics"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "eframe",
  "env_logger",
@@ -1403,7 +1403,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-i18n"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "include-po",
  "polib",
@@ -1414,21 +1414,21 @@ dependencies = [
 
 [[package]]
 name = "fastframe-i18n-app"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "fastframe-i18n",
 ]
 
 [[package]]
 name = "fastframe-icons"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "egui",
 ]
 
 [[package]]
 name = "fastframe-instance"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "directories",
  "getrandom 0.4.3",
@@ -1438,7 +1438,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-log"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "env_logger",
  "jiff",
@@ -1447,7 +1447,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-notifications"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "block2 0.6.2",
  "directories",
@@ -1470,7 +1470,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-now-playing"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "fastframe-desktop",
  "log",
@@ -1482,7 +1482,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-power"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "log",
  "objc2 0.6.4",
@@ -1493,14 +1493,14 @@ dependencies = [
 
 [[package]]
 name = "fastframe-scroll"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "egui",
 ]
 
 [[package]]
 name = "fastframe-shell"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "eframe",
  "egui",
@@ -1516,7 +1516,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-text"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "egui",
  "zbus",
@@ -1524,7 +1524,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-theme"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "directories",
  "egui",
@@ -1537,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-titlebar"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "directories",
  "eframe",
@@ -1553,7 +1553,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-tray"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "ksni",
  "log",
@@ -1566,7 +1566,7 @@ dependencies = [
 
 [[package]]
 name = "fastframe-update"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "anyhow",
  "fastframe-dirs",

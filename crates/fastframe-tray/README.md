@@ -123,6 +123,30 @@ out and put back after the shown entries before it.
   window on that thread between windows).
 - Anywhere else, `spawn` returns `None` and `idle` sleeps.
 
+## The Dock alone (macOS)
+
+A macOS app that keeps running with its window closed may want no menu-bar
+item: the Dock icon already shows that it runs. `Dock` hears clicks on the
+Dock icon without making an item:
+
+```rust
+let mut dock = fastframe_tray::Dock::spawn(move || waker.wake());
+dock.attach(); // when a window has been made
+for event in dock.events() {
+    if event == fastframe_tray::Event::Show { /* open or raise the window */ }
+}
+// While no window exists:
+fastframe_tray::idle(std::time::Duration::from_millis(150));
+```
+
+A Dock click is `Event::Show`, as with a tray. `attach` installs the reopen
+handler on winit's application delegate, which exists once the first window
+has been made, and later calls change nothing. Elsewhere a `Dock` reports
+nothing and its calls do nothing, so the app can hold one on every platform
+and bring the window back through a `Tray` there. Use one or the other on
+macOS: both install the same handler, and the last to attach hears the
+clicks.
+
 ## Sharing muda's menu handler
 
 tray-icon's menus (muda) report clicks through one process-wide handler,

@@ -45,8 +45,8 @@ pin every fastframe crate to the same release tag:
 ```toml
 [dependencies]
 egui = "0.36.2"
-fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.15.2" }
-fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.15.2" }
+fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.15.3" }
+fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.15.3" }
 ```
 
 At startup, before the first frame:
@@ -75,7 +75,7 @@ apps replaced.
 | [`fastframe-theme`](crates/fastframe-theme) | Editable JSON palettes, system appearance, live Omarchy themes, and colour transitions. |
 | [`fastframe-i18n`](crates/fastframe-i18n) | Bundled gettext catalogs, plural forms, language detection, and translation tooling. |
 | [`fastframe-log`](crates/fastframe-log) | Per-run logs for bug reports, private-target rewriting, and safe panic logging. |
-| [`fastframe-tray`](crates/fastframe-tray) | Native tray icons and menus on Linux, macOS, and Windows. |
+| [`fastframe-tray`](crates/fastframe-tray) | Native tray icons and menus on Linux, macOS, and Windows, and Dock clicks on macOS without one. |
 | [`fastframe-dock`](crates/fastframe-dock) | macOS Dock icons and visibility, plus desktop unread badges. |
 | [`fastframe-titlebar`](crates/fastframe-titlebar) | Draggable headers, native button layouts, double-click actions, and resize edges. |
 | [`fastframe-shell`](crates/fastframe-shell) | Keep running without a window, reopen it, and restore its size, position, and zoom. |
