@@ -1,7 +1,7 @@
 //! Downloading and verifying a release into a staging folder.
 
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
@@ -92,31 +92,50 @@ pub(crate) fn download(
             "Update asset does not belong to this release"
         );
     }
-    let mut manifest = Vec::new();
-    fetch(
-        transport,
-        source,
-        config,
-        &checksums.browser_download_url,
-        BINARY,
-    )?
-    .take(MANIFEST_LIMIT + 1)
-    .read_to_end(&mut manifest)?;
-    ensure!(
-        manifest.len() as u64 == checksums.size,
-        "Invalid update checksum download size"
-    );
-    if let (Some(_), Some(signature)) = (key, signature) {
-        let mut bytes = Vec::new();
-        fetch(
-            transport,
-            source,
-            config,
-            &signature.browser_download_url,
-            BINARY,
-        )?
-        .take(65)
-        .read_to_end(&mut bytes)?;
+    // These two bounded files are independent. Fetch them together, but
+    // still authorize the manifest before parsing it or staging a package.
+    let (manifest, signature_bytes) = std::thread::scope(|scope| -> Result<_> {
+        let signature_job = signature.map(|signature| {
+            scope.spawn(move || -> Result<_> {
+                let mut bytes = Vec::new();
+                fetch(
+                    transport,
+                    source,
+                    config,
+                    &signature.browser_download_url,
+                    BINARY,
+                )?
+                .take(65)
+                .read_to_end(&mut bytes)?;
+                Ok(bytes)
+            })
+        });
+        let manifest = (|| -> Result<_> {
+            let mut bytes = Vec::new();
+            fetch(
+                transport,
+                source,
+                config,
+                &checksums.browser_download_url,
+                BINARY,
+            )?
+            .take(MANIFEST_LIMIT + 1)
+            .read_to_end(&mut bytes)?;
+            ensure!(
+                bytes.len() as u64 == checksums.size,
+                "Invalid update checksum download size"
+            );
+            Ok(bytes)
+        })();
+        let signature_bytes = signature_job
+            .map(|job| {
+                job.join()
+                    .map_err(|_| anyhow::anyhow!("Update signature download worker panicked"))?
+            })
+            .transpose()?;
+        Ok((manifest?, signature_bytes))
+    })?;
+    if let Some(bytes) = signature_bytes {
         // Do not parse a checksum, download a package or create staging
         // files until the manifest is authorized by the embedded key.
         // Any trusted key will do: during a key rotation releases are
@@ -137,7 +156,9 @@ pub(crate) fn download(
     let directory = stage::staging(config, &installation)?;
     let result = (|| -> Result<Staged> {
         let archive = directory.join(&name);
-        let mut output = File::create(&archive)?;
+        // HTTP readers may return small fragments. Batch their disk writes
+        // without retaining the whole package in memory.
+        let mut output = BufWriter::with_capacity(256 * 1024, File::create(&archive)?);
         let mut response = fetch(
             transport,
             source,
@@ -164,7 +185,8 @@ pub(crate) fn download(
                 progress(received, package.size);
             }
         }
-        output.sync_all()?;
+        output.flush()?;
+        output.get_ref().sync_all()?;
         drop(output);
         ensure!(
             received == package.size,
@@ -208,7 +230,15 @@ pub(crate) fn download(
             }
         };
         Ok(Staged {
-            sha256: stage::hash(&payload)?,
+            // An extracted executable has different bytes from its archive.
+            // Unchanged packages already have their signed digest verified
+            // while streaming; do not read the entire file a second time.
+            // Handoff and the helper still rehash before installing it.
+            sha256: if installation.kind == Kind::Portable {
+                stage::hash(&payload)?
+            } else {
+                expected
+            },
             installation,
             directory: directory.clone(),
             payload,
@@ -412,6 +442,200 @@ mod tests {
     }
 
     #[test]
+    fn checksum_and_signature_downloads_overlap() {
+        use crate::transport::{Request, Response};
+        use std::sync::{Condvar, Mutex};
+        use std::time::Duration;
+
+        struct Coordinated {
+            inner: FakeTransport,
+            started: Mutex<usize>,
+            ready: Condvar,
+        }
+        impl Transport for Coordinated {
+            fn get(&self, request: &Request<'_>) -> Result<Response> {
+                if request.url.ends_with("checksums.txt")
+                    || request.url.ends_with("checksums.txt.sig")
+                {
+                    let mut started = self.started.lock().unwrap();
+                    *started += 1;
+                    self.ready.notify_all();
+                    let (started, _) = self
+                        .ready
+                        .wait_timeout_while(started, Duration::from_secs(2), |started| *started < 2)
+                        .unwrap();
+                    ensure!(*started == 2, "signed metadata requests did not overlap");
+                }
+                self.inner.get(request)
+            }
+        }
+
+        let fixture = Fixture::default();
+        let transport = Coordinated {
+            inner: fixture.transport(),
+            started: Mutex::new(0),
+            ready: Condvar::new(),
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let host = FakeHost::default()
+            .with_archive_entry(
+                "zapfast-v0.17.0-x86_64-unknown-linux-gnu/zapfast",
+                b"new executable",
+            )
+            .with_version_output("zapfast 0.17.0");
+        download(
+            &Inputs {
+                config: &config(),
+                transport: &transport,
+                source: &Source::github(),
+                host: &host,
+                platform: fixture.platform,
+                arch: fixture.arch,
+            },
+            portable(directory.path()),
+            &Release {
+                version: VERSION.into(),
+                url: String::new(),
+            },
+            |_, _| {},
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn fragmented_packages_flush_the_final_partial_buffer() {
+        use crate::transport::{Request, Response};
+
+        struct Fragmented(Box<dyn Read + Send>);
+        impl Read for Fragmented {
+            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+                let count = bytes.len().min(1023);
+                self.0.read(&mut bytes[..count])
+            }
+        }
+        struct FragmentedTransport(FakeTransport);
+        impl Transport for FragmentedTransport {
+            fn get(&self, request: &Request<'_>) -> Result<Response> {
+                let mut response = self.0.get(request)?;
+                response.body = Box::new(Fragmented(response.body));
+                Ok(response)
+            }
+        }
+
+        let fixture = Fixture {
+            package: (0..512 * 1024 + 17).map(|i| (i % 251) as u8).collect(),
+            kind: Kind::WindowsInstaller,
+            platform: Platform::Windows,
+            ..Fixture::default()
+        };
+        let transport = FragmentedTransport(fixture.transport());
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("zapfast.exe");
+        fs::write(&executable, b"running app").unwrap();
+        let mut reported = (0, 0);
+        let prepared = download(
+            &Inputs {
+                config: &config(),
+                transport: &transport,
+                source: &Source::github(),
+                host: &FakeHost::default(),
+                platform: fixture.platform,
+                arch: fixture.arch,
+            },
+            Installation {
+                executable,
+                kind: fixture.kind,
+            },
+            &Release {
+                version: VERSION.into(),
+                url: String::new(),
+            },
+            |received, total| reported = (received, total),
+        )
+        .unwrap();
+        assert_eq!(fs::read(&prepared.staged.payload).unwrap(), fixture.package);
+        assert_eq!(
+            prepared.staged.sha256,
+            hex(&Sha256::digest(&fixture.package))
+        );
+        assert_eq!(
+            reported,
+            (fixture.package.len() as u64, fixture.package.len() as u64)
+        );
+    }
+
+    #[test]
+    fn a_downloaded_package_is_rechecked_before_handoff() {
+        let fixture = Fixture {
+            kind: Kind::WindowsInstaller,
+            platform: Platform::Windows,
+            ..Fixture::default()
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("zapfast.exe");
+        fs::write(&executable, b"running app").unwrap();
+        let host = FakeHost::default();
+        let prepared = run(
+            &fixture,
+            &config(),
+            &host,
+            Installation {
+                executable,
+                kind: fixture.kind,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            prepared.staged.sha256,
+            hex(&Sha256::digest(&fixture.package))
+        );
+        fs::write(&prepared.staged.payload, b"changed since download").unwrap();
+        let error = crate::helper::handoff(&config(), &host, prepared, Vec::new()).unwrap_err();
+        assert!(
+            error.to_string().contains("staged update changed"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn invalid_disk_images_are_rejected_before_mounting() {
+        for (listed_digest, signed_manifest, message) in [
+            (Some("0".repeat(64)), None, "verified"),
+            (None, Some("a different manifest".into()), "signature"),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let app = directory.path().join("ZapFast.app");
+            crate::testing::bundle(&app, "zapfast", b"old executable", b"metadata");
+            let fixture = Fixture {
+                kind: Kind::MacBundle,
+                platform: Platform::MacOs,
+                listed_digest,
+                signed_manifest,
+                ..Fixture::default()
+            };
+            let host = FakeHost::default().with_image(Path::new(&fixture.name()), |_| {
+                panic!("an unverified disk image must never be mounted")
+            });
+            let error = run(
+                &fixture,
+                &config(),
+                &host,
+                Installation {
+                    executable: app.join("Contents/MacOS/zapfast"),
+                    kind: Kind::MacBundle,
+                },
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains(message), "{error:#}");
+            assert_eq!(
+                fs::read(app.join("Contents/MacOS/zapfast")).unwrap(),
+                b"old executable"
+            );
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
     fn a_verified_portable_download_is_unpacked_and_checked() {
         let directory = tempfile::tempdir().unwrap();
         let host = FakeHost::default()
@@ -597,7 +821,23 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let host = FakeHost::default();
             let transport = fixture.transport();
-            let error = run(&fixture, &config(), &host, portable(directory.path())).unwrap_err();
+            let error = download(
+                &Inputs {
+                    config: &config(),
+                    transport: &transport,
+                    source: &Source::github(),
+                    host: &host,
+                    platform: fixture.platform,
+                    arch: fixture.arch,
+                },
+                portable(directory.path()),
+                &Release {
+                    version: VERSION.into(),
+                    url: String::new(),
+                },
+                |_, _| {},
+            )
+            .unwrap_err();
             assert!(error.to_string().contains(message), "{message}: {error:#}");
             untouched(directory.path());
             if message == "signature" || message == "checksums.txt.sig" {
