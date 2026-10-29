@@ -147,3 +147,30 @@ fn nothing_is_reserved_while_the_title_bar_is_off_but_the_traffic_lights() {
     };
     assert_eq!(footprint(&ctx, 48.0), expected);
 }
+
+/// A title bar is no stop for the Tab key: the header's widgets take it.
+#[test]
+fn the_drag_area_takes_no_keyboard_focus() {
+    let ctx = egui::Context::default();
+    let rect = egui::Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(400.0, 40.0));
+    let mut id = None;
+    for events in [vec![], vec![tab()], vec![]] {
+        let input = egui::RawInput {
+            events,
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| id = Some(area(ui, rect).id));
+        output.textures_delta.clear();
+    }
+    assert_ne!(ctx.memory(|memory| memory.focused()), id);
+}
+
+fn tab() -> egui::Event {
+    egui::Event::Key {
+        key: egui::Key::Tab,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
