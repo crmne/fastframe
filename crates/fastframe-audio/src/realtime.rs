@@ -202,10 +202,22 @@ fn lower() {
 }
 /// The `RLIMIT_RTTIME` RTKit requires before it grants real-time: the
 /// process's limit, lowered to at most `max` microseconds. `None` when the
-/// current one already fits.
-pub(crate) fn rttime_limit(current: (u64, u64), max: u64) -> Option<(u64, u64)> {
+/// current one already fits. A nonpositive RTKit budget or an existing
+/// zero limit refuses promotion: either would let RTKit grant real-time
+/// with no CPU budget, so the kernel could kill the whole process.
+pub(crate) fn rttime_limit(
+    current: (u64, u64),
+    max: i64,
+) -> Result<Option<(u64, u64)>, &'static str> {
+    let max = u64::try_from(max)
+        .ok()
+        .filter(|max| *max > 0)
+        .ok_or("RTKit: RTTimeUSecMax must be positive")?;
     let (soft, hard) = current;
-    (hard > max || soft > max).then(|| (soft.min(max), hard.min(max)))
+    if soft == 0 || hard == 0 {
+        return Err("RLIMIT_RTTIME: zero CPU budget; refusing real-time");
+    }
+    Ok((hard > max || soft > max).then(|| (soft.min(max), hard.min(max))))
 }
 
 /// The priority to ask for: ours, within RTKit's maximum, at least 1.
@@ -236,7 +248,7 @@ mod rtkit {
             let max_rttime: i64 = proxy
                 .get_property("RTTimeUSecMax")
                 .map_err(|error| format!("RTKit: {error}"))?;
-            limit_rttime(u64::try_from(max_rttime).unwrap_or(0))?;
+            limit_rttime(max_rttime)?;
             let priority = priority_within(priority, max_priority);
             proxy
                 .call_method("MakeThreadRealtime", &(thread, priority))
@@ -259,7 +271,7 @@ mod rtkit {
     /// RTKit grants real-time only to a process whose `RLIMIT_RTTIME` is at
     /// most its own maximum, so that a runaway real-time thread is stopped
     /// rather than freezing the machine. PipeWire's clients set it too.
-    fn limit_rttime(max: u64) -> Result<(), String> {
+    fn limit_rttime(max: i64) -> Result<(), String> {
         let mut current = libc::rlimit {
             rlim_cur: 0,
             rlim_max: 0,
@@ -271,7 +283,7 @@ mod rtkit {
                 std::io::Error::last_os_error()
             ));
         }
-        let Some((soft, hard)) = rttime_limit((current.rlim_cur, current.rlim_max), max) else {
+        let Some((soft, hard)) = rttime_limit((current.rlim_cur, current.rlim_max), max)? else {
             return Ok(());
         };
         let limit = libc::rlimit {
@@ -298,14 +310,36 @@ mod tests {
         // Unlimited, as a process starts: both come down to RTKit's 200 ms.
         assert_eq!(
             rttime_limit((u64::MAX, u64::MAX), 200_000),
-            Some((200_000, 200_000))
+            Ok(Some((200_000, 200_000)))
         );
         // Already within it (PipeWire's own client set it): left alone.
-        assert_eq!(rttime_limit((100_000, 200_000), 200_000), None);
+        assert_eq!(rttime_limit((100_000, 200_000), 200_000), Ok(None));
         assert_eq!(
             rttime_limit((50_000, 400_000), 200_000),
-            Some((50_000, 200_000))
+            Ok(Some((50_000, 200_000)))
         );
+    }
+
+    #[test]
+    fn a_nonpositive_rtkit_budget_refuses_real_time() {
+        for max in [0, -1, i64::MIN] {
+            assert!(
+                rttime_limit((u64::MAX, u64::MAX), max).is_err(),
+                "invalid RTKit budget {max} must not lower the process limit"
+            );
+        }
+    }
+
+    #[test]
+    fn an_existing_zero_limit_refuses_real_time() {
+        // Even a valid RTKit maximum cannot repair an inherited hard limit
+        // of zero without privilege. A zero soft limit is unsafe too.
+        for current in [(0, 0), (0, 200_000), (0, u64::MAX)] {
+            assert!(
+                rttime_limit(current, 200_000).is_err(),
+                "zero limit {current:?} must not permit real-time promotion"
+            );
+        }
     }
 
     #[test]

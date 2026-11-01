@@ -389,6 +389,11 @@ PulseAudio host (pure Rust), then ALSA, whichever is running. Both server
 hosts are always built in, so an app needs no feature for them, and only
 they and ALSA's `hw` devices get the real-time callback.
 
+Real-time scheduling is best effort. If RTKit reports a nonpositive CPU-time
+budget, or the process already has a zero `RLIMIT_RTTIME`, the helper refuses
+real-time promotion and tries a higher ordinary priority instead. It never
+lowers the process's CPU-time limit to zero.
+
 Building on Linux needs ALSA's headers (`libasound2-dev`, `alsa-lib`), and
 for the PipeWire host libpipewire's headers and clang (`libpipewire-0.3-dev
 clang libclang-dev` on Debian and Ubuntu, `pipewire clang` on Arch).
