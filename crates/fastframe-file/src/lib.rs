@@ -73,8 +73,9 @@ pub enum Access {
     /// The system's default for a new file.
     #[default]
     Default,
-    /// Only the user (mode 0600 on Unix). Windows keeps a user's profile
-    /// private already, so there it is the same as `Default`.
+    /// Only the user (mode 0600 on Unix, and 0700 for the folders the write
+    /// creates). Windows keeps a user's profile private already, so there it
+    /// is the same as `Default`.
     Private,
 }
 
@@ -124,7 +125,7 @@ fn replace_with(
         Some(dir) if !dir.as_os_str().is_empty() => dir,
         _ => Path::new("."),
     };
-    std::fs::create_dir_all(dir)?;
+    create_dir(dir, access)?;
     let temporary = temporary_path(path);
     let result = (|| {
         let mut file = create(&temporary, access)?;
@@ -154,6 +155,23 @@ fn temporary_path(path: &Path) -> PathBuf {
         .unwrap_or_default();
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     path.with_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()))
+}
+
+/// Creates `dir` and any missing folders above it. For a private file they
+/// are the user's alone (0700 on Unix), as the file is: in a folder others
+/// can list, they would see that it is there, and its name and size. Folders
+/// that are already there keep their permissions.
+fn create_dir(dir: &Path, access: Access) -> io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    if access == Access::Private {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    #[cfg(not(unix))]
+    let _ = access;
+    builder.create(dir)
 }
 
 fn create(path: &Path, access: Access) -> io::Result<File> {
@@ -267,6 +285,24 @@ pub(crate) mod tests {
         mark_ui_thread();
         write(&path, "{}").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_folders_made_for_a_private_file_are_the_users_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("shared");
+        std::fs::create_dir(&shared).unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = shared.join("state/app/token");
+
+        write_private(&path, "secret").unwrap();
+
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&shared.join("state")), 0o700);
+        assert_eq!(mode(&shared.join("state/app")), 0o700);
+        assert_eq!(mode(&shared), 0o755, "a folder already there keeps its own");
     }
 
     #[cfg(unix)]
