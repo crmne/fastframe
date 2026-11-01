@@ -68,10 +68,7 @@ pub fn log_panics_with(
         // A first run may not have made the folder yet; without it the line
         // would only reach stderr.
         let _ = make_folder(&path);
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path);
+        let file = open_private(&path, std::fs::OpenOptions::new().create(true).append(true));
         if let Ok(mut file) = file {
             let _ = file.write_all(entry.as_bytes());
         }
@@ -79,11 +76,69 @@ pub fn log_panics_with(
 }
 
 /// Makes the folder `path` is in, with the folders above it, when it is not
-/// there yet.
+/// there yet. The folders it makes are the user's alone (0700 on Unix), as
+/// the logs in them are; folders already there keep their permissions.
 pub(crate) fn make_folder(path: &Path) -> std::io::Result<()> {
-    match path.parent() {
-        Some(folder) => std::fs::create_dir_all(folder),
-        None => Ok(()),
+    let Some(folder) = path.parent() else {
+        return Ok(());
+    };
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(folder)
+}
+
+/// Makes the log at `path` readable by the user alone (0600 on Unix), as far
+/// as the system lets the user change it. A link there is left alone, as
+/// [`restrict`] says.
+#[cfg(feature = "logger")]
+pub(crate) fn make_private(path: &Path) {
+    #[cfg(unix)]
+    if std::fs::symlink_metadata(path).is_ok_and(|found| found.is_file())
+        && let Ok(file) = std::fs::File::open(path)
+    {
+        restrict(&file, path);
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+/// Opens the log at `path` with `options`, readable by the user alone (0600
+/// on Unix). A log can hold what the user did, and the names of their files
+/// and accounts, and the folders above it are often readable by others.
+///
+/// A log an older version made readable by others is made private too, as
+/// far as the system lets the user change it: a log it cannot change is
+/// still written.
+pub(crate) fn open_private(
+    path: &Path,
+    options: &mut std::fs::OpenOptions,
+) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(options, 0o600);
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    restrict(&file, path);
+    Ok(file)
+}
+
+/// Makes `file`, open at `path`, readable by the user alone, unless `path` is
+/// something other than that file. A link may lead to a file the user shares
+/// with others, or to a device, whose permissions are not the log's to
+/// change. The change goes through the open file, never the path, so what
+/// was checked is what changes, whatever lands at the path meanwhile.
+#[cfg(unix)]
+fn restrict(file: &std::fs::File, path: &Path) {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let the_same = match (file.metadata(), std::fs::symlink_metadata(path)) {
+        (Ok(open), Ok(found)) => {
+            found.is_file() && open.dev() == found.dev() && open.ino() == found.ino()
+        }
+        _ => false,
+    };
+    if the_same {
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
     }
 }
 
@@ -162,6 +217,27 @@ mod tests {
     }
 
     /// The real hook, end to end: the file gets the line, never the payload.
+    /// A link at the panic log's path may lead to a file the user shares
+    /// with others: it is written, and keeps its permissions.
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_panic_log_keeps_its_targets_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("fastframe-log-panic-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let shared = dir.join("shared.log");
+        std::fs::write(&shared, "").unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let path = dir.join("panic.log");
+        std::os::unix::fs::symlink(&shared, &path).unwrap();
+        let file = open_private(&path, std::fs::OpenOptions::new().create(true).append(true));
+        let mode = crate::tests::mode(&shared);
+        std::fs::remove_dir_all(dir).unwrap();
+        file.unwrap();
+        assert_eq!(mode, 0o644);
+    }
+
     #[test]
     fn a_panic_is_recorded_without_its_payload() {
         // No folder yet, as on a first run: the hook makes it.
@@ -177,7 +253,18 @@ mod tests {
         std::panic::set_hook(previous);
         assert!(result.is_err());
         let written = std::fs::read_to_string(&path).unwrap();
+        #[cfg(unix)]
+        let modes = (
+            crate::tests::mode(&path),
+            crate::tests::mode(&dir.join("state")),
+        );
         std::fs::remove_dir_all(dir).unwrap();
+        #[cfg(unix)]
+        assert_eq!(
+            modes,
+            (0o600, 0o700),
+            "the panic log and its folder are private"
+        );
         assert!(written.contains("zapfast 0.16.3 on thread \"worker\", panic at "));
         assert!(written.ends_with("(payload omitted)\n"));
         assert!(!written.contains("secret fixture payload"));
