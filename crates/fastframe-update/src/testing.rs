@@ -111,9 +111,9 @@ pub(crate) enum Behaviour {
 struct FakeChild(Behaviour);
 
 impl Child for FakeChild {
-    fn try_wait(&mut self) -> Result<Option<bool>> {
+    fn try_wait(&mut self) -> Result<Option<String>> {
         Ok(match self.0 {
-            Behaviour::Exit(success) => Some(success),
+            Behaviour::Exit(success) => Some(format!("exit status: {}", i32::from(!success))),
             _ => None,
         })
     }

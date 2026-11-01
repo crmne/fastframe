@@ -117,6 +117,8 @@ pub const APPLY_UPDATE_FLAG: &str = "--apply-update";
 pub const UPDATE_RECEIPT_FLAG: &str = "--update-receipt";
 /// The flag the helper passes, with a message, to a restored app.
 pub const UPDATE_ERROR_FLAG: &str = "--update-error";
+/// The flag the helper passes, with the technical reason, to a restored app.
+pub const UPDATE_FAILURE_FLAG: &str = "--update-failure";
 
 /// Everything the updater needs to know about the app.
 ///

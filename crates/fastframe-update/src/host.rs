@@ -12,8 +12,9 @@ use anyhow::Result;
 
 /// A process the updater started.
 pub(crate) trait Child: Send {
-    /// `Some(success)` once it has exited.
-    fn try_wait(&mut self) -> Result<Option<bool>>;
+    /// How it ended, in words (`exit status: 1`, `signal: 9`), once it has
+    /// exited.
+    fn try_wait(&mut self) -> Result<Option<String>>;
     /// Stops it and reaps it.
     fn kill(&mut self);
 }
@@ -141,8 +142,8 @@ mod os {
     struct Process(std::process::Child);
 
     impl Child for Process {
-        fn try_wait(&mut self) -> Result<Option<bool>> {
-            Ok(self.0.try_wait()?.map(|status| status.success()))
+        fn try_wait(&mut self) -> Result<Option<String>> {
+            Ok(self.0.try_wait()?.map(|status| status.to_string()))
         }
 
         fn kill(&mut self) {

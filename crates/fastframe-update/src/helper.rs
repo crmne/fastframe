@@ -15,11 +15,13 @@ use crate::stage::{
     self, HELPER_LOG, Handoff, INSTALLER_LOG, JOB, PREVIOUS, Prepared, READY, RESULT, STARTED,
     Staged,
 };
-use crate::{APPLY_UPDATE_FLAG, UPDATE_ERROR_FLAG, UPDATE_RECEIPT_FLAG, UpdateConfig};
+use crate::{
+    APPLY_UPDATE_FLAG, UPDATE_ERROR_FLAG, UPDATE_FAILURE_FLAG, UPDATE_RECEIPT_FLAG, UpdateConfig,
+};
 
-/// What a restored app is told. Old helpers send the same text.
+/// What a restored app is told.
 pub(crate) const RESTORED: &str =
-    "The update could not start. The previous version has been restored.";
+    "The update did not finish, so nothing changed. Restart to try again.";
 
 /// Starts the helper and returns once it is watching this process. The app
 /// must quit soon after: the helper waits one minute.
@@ -169,8 +171,9 @@ pub(crate) fn run(config: &UpdateConfig, host: &dyn Host, job: &Path) -> Result<
                 installed: Option<&Path>|
      -> Result<()> {
         restore(config, &original, installed)?;
-        fs::write(original.file(RESULT), format!("{message}: {error:#}"))?;
-        restart_with_error(host, &original.installation.executable, arguments)?;
+        let failure = format!("{message}: {error:#}");
+        fs::write(original.file(RESULT), &failure)?;
+        restart_with_error(host, &original.installation.executable, arguments, &failure)?;
         Err(error)
     };
     let executable = match replace(config, host, &original) {
@@ -204,8 +207,8 @@ pub(crate) fn run(config: &UpdateConfig, host: &dyn Host, job: &Path) -> Result<
             if started.is_file() {
                 return Ok(());
             }
-            if child.try_wait()?.is_some() {
-                bail!("The updated app exited before opening its window");
+            if let Some(status) = child.try_wait()? {
+                bail!("The updated app exited before opening its window ({status})");
             }
             if start.elapsed() >= timing.app_start {
                 child.kill();
@@ -350,10 +353,17 @@ fn restore(config: &UpdateConfig, staged: &Staged, installed: Option<&Path>) -> 
     Ok(())
 }
 
-fn restart_with_error(host: &dyn Host, executable: &Path, arguments: &[String]) -> Result<()> {
+fn restart_with_error(
+    host: &dyn Host,
+    executable: &Path,
+    arguments: &[String],
+    failure: &str,
+) -> Result<()> {
     let mut arguments: Vec<OsString> = arguments.iter().map(OsString::from).collect();
     arguments.push(UPDATE_ERROR_FLAG.into());
     arguments.push(RESTORED.into());
+    arguments.push(UPDATE_FAILURE_FLAG.into());
+    arguments.push(failure.into());
     host.spawn(executable, &arguments, app_directory(executable), None)
         .context("Could not restart the previous app")?;
     Ok(())
@@ -681,7 +691,9 @@ mod tests {
                 [
                     OsString::from("--verbose"),
                     "--update-error".into(),
-                    RESTORED.into()
+                    RESTORED.into(),
+                    "--update-failure".into(),
+                    result.into()
                 ]
             );
             assert_eq!(spawned[1].executable, staged.installation.executable);

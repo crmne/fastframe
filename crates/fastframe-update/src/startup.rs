@@ -8,7 +8,9 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::host::{Host, OsHost};
-use crate::{APPLY_UPDATE_FLAG, UPDATE_ERROR_FLAG, UPDATE_RECEIPT_FLAG, UpdateConfig};
+use crate::{
+    APPLY_UPDATE_FLAG, UPDATE_ERROR_FLAG, UPDATE_FAILURE_FLAG, UPDATE_RECEIPT_FLAG, UpdateConfig,
+};
 
 /// A normal launch, with the update flags taken out.
 #[derive(Debug)]
@@ -25,6 +27,10 @@ pub struct Launch {
     /// user. The helper sends English; an app that translates can match
     /// [`Launch::RESTORED`].
     pub error: Option<String>,
+    /// Set alongside `error`: which step failed and why, in the helper's
+    /// words, for the app's log or error reports rather than the user. It can
+    /// name folders on this computer. Helpers older than 0.15.5 send none.
+    pub failure: Option<String>,
 }
 
 impl Launch {
@@ -114,6 +120,7 @@ pub(crate) fn parse(
     let mut kept = Vec::with_capacity(arguments.len());
     let mut receipt = None;
     let mut error = None;
+    let mut failure = None;
     let mut arguments = arguments.into_iter().peekable();
     if let Some(program) = arguments.next() {
         kept.push(program);
@@ -129,7 +136,7 @@ pub(crate) fn parse(
             Some((flag, value)) => (flag.to_owned(), Some(OsString::from(value))),
             None => (text.into_owned(), None),
         };
-        if flag != UPDATE_RECEIPT_FLAG && flag != UPDATE_ERROR_FLAG {
+        if ![UPDATE_RECEIPT_FLAG, UPDATE_ERROR_FLAG, UPDATE_FAILURE_FLAG].contains(&flag.as_str()) {
             kept.push(argument);
             continue;
         }
@@ -144,14 +151,17 @@ pub(crate) fn parse(
                 config: *config,
                 host: Arc::clone(&host),
             });
-        } else {
+        } else if flag == UPDATE_ERROR_FLAG {
             error = Some(value.to_string_lossy().into_owned());
+        } else {
+            failure = Some(value.to_string_lossy().into_owned());
         }
     }
     Parsed::Launch(Box::new(Launch {
         arguments: kept,
         receipt,
         error,
+        failure,
     }))
 }
 
@@ -223,10 +233,16 @@ mod tests {
             "zapfast",
             "--start-hidden",
             "--update-error",
-            "The update could not start. The previous version has been restored.",
+            Launch::RESTORED,
+            "--update-failure",
+            "Update failed: macOS could not approve this update for launch",
         ]);
         assert_eq!(launch.arguments, args(&["zapfast", "--start-hidden"]));
         assert_eq!(launch.error.as_deref(), Some(Launch::RESTORED));
+        assert_eq!(
+            launch.failure.as_deref(),
+            Some("Update failed: macOS could not approve this update for launch")
+        );
         assert!(launch.receipt.is_none());
     }
 

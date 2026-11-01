@@ -31,7 +31,8 @@ fn main() {
     // First: run the helper if asked, and strip the update flags.
     let launch = fastframe_update::intercept(&UPDATES);
     let cli = Cli::parse_from(&launch.arguments);
-    // Show `launch.error` as a toast; after the first frame, on a thread:
+    // Show `launch.error` as a toast, log `launch.failure`; after the first
+    // frame, on a thread:
     // `launch.receipt.map(|receipt| receipt.acknowledge())`.
 }
 
@@ -104,7 +105,7 @@ would report fastframe's version, so the app passes its own.
    with `--update-receipt`, working in the app's folder. The new app
    acknowledges by writing `started`.
    A failure at any step, or no `started` within a minute, restores
-   `previous` and restarts the old app with `--update-error`. A portable
+   `previous` and restarts the old app with `--update-error` and `--update-failure`. A portable
    update touches only the executable and its staging folder, so the
    `<slug>-data` folder a portable copy keeps beside it on Windows
    (`fastframe-dirs`) stays as it was, whether the update sticks, rolls
@@ -331,7 +332,7 @@ installs reads the receipt. These must not change without a transition:
 | --- | --- |
 | Helper command | exactly `<app> --apply-update <path to handoff.json>` |
 | Relaunch | `<arguments> --update-receipt <path to handoff.json>` |
-| Restart after rollback | `<arguments> --update-error "The update could not start. The previous version has been restored."` |
+| Restart after rollback | `<arguments> --update-error "The update did not finish, so nothing changed. Restart to try again." --update-failure "<which step failed and why>"` |
 | Staging folder | `.<slug>-update-<16 lowercase hex digits>` beside the executable, or beside the bundle on macOS; 0700 |
 | Files in it | `handoff.json`, `ready`, `started`, `result.txt`, `previous`, `helper`/`helper.exe`/`helper.app`, `helper.log`, `installer.log`, `mounted-<hex>`, `failed.app` |
 | `handoff.json` | compact JSON: `{"prepared":{"installation":{"executable":…,"kind":"Portable"\|"WindowsInstaller"\|"MacBundle"\|"AppImage"},"directory":…,"payload":…,"sha256":…,"version":…},"parent":<pid>,"arguments":[…]}`. `AppImage` is newer than the others: only a helper that knows it writes it, and only the newer app it installs reads it back. |
