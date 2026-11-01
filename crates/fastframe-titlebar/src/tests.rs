@@ -55,7 +55,7 @@ fn the_buttons_take_their_slots_and_a_margin() {
             right: 3.0 * 36.0 + 5.0,
             height: 48.0,
         },
-        "Windows centres its buttons in the header"
+        "Windows' buttons and the resize border beside them"
     );
     let gnome = Layout::from_gnome("close:minimize,maximize").unwrap();
     assert_eq!(
@@ -127,6 +127,24 @@ fn edges_and_corners_resize_the_window() {
     assert_eq!(at(2.0, 592.0), Some((D::SouthWest, C::ResizeNeSw)));
     assert_eq!(at(792.0, 2.0), Some((D::NorthEast, C::ResizeNeSw)));
     assert_eq!(at(20.0, 2.0), Some((D::North, C::ResizeVertical)));
+}
+
+/// Windows' buttons reach the top right corner of a maximized window, so a
+/// pointer pushed along the top edge or into the corner lands on them.
+/// Otherwise they start where the resize border ends, with no gap between.
+#[test]
+fn windows_buttons_reach_the_edges_the_resize_border_leaves() {
+    assert_eq!(windows_buttons(true, 48.0), (0.0, 48.0));
+    let (inset, height) = windows_buttons(false, 48.0);
+    assert_eq!(inset + height, 48.0, "down to the header's foot");
+    let window = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+    let at = |x, y| resize_direction(window, pos2(x, y));
+    assert_eq!(at(800.0 - inset - 0.5, inset + 0.5), None, "the buttons");
+    assert_eq!(at(700.0, inset - 0.5), Some((D::North, C::ResizeVertical)));
+    assert_eq!(
+        at(800.0 - inset + 0.5, 20.0),
+        Some((D::East, C::ResizeHorizontal))
+    );
 }
 
 /// With the title bar off, nothing is drawn or reserved on Windows and
