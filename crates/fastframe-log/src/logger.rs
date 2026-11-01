@@ -414,6 +414,26 @@ mod tests {
         assert_eq!(modes, (0o600, 0o600), "the new log and the kept one");
     }
 
+    /// A link at the log's path may lead to a file the user shares with
+    /// others, or to a device: its target keeps its permissions.
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_log_keeps_its_targets_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("fastframe-log-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let shared = dir.join("shared.log");
+        std::fs::write(&shared, "last run\n").unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let path = dir.join("app.log");
+        std::os::unix::fs::symlink(&shared, &path).unwrap();
+        let (_, error) = Logging::new("zapfast", "1.0.0").file(&path).build(None);
+        let modes = (crate::tests::mode(&shared), crate::tests::mode(&path));
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(error.is_none(), "{error:?}");
+        assert_eq!(modes, (0o644, 0o600), "the shared file and the new log");
+    }
+
     #[test]
     fn an_unwritable_log_file_is_reported_not_fatal() {
         // A file where the folder should be: nothing can be made inside it.
