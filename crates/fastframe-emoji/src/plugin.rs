@@ -579,6 +579,18 @@ mod tests {
         flatten(&output.shapes)
     }
 
+    /// Runs empty frames until egui asks for no other.
+    fn settle(ctx: &egui::Context) {
+        for _ in 0..10 {
+            if !ctx.has_requested_repaint() {
+                return;
+            }
+            let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+            output.textures_delta.clear();
+        }
+        panic!("egui keeps asking for frames");
+    }
+
     #[test]
     fn a_labels_emoji_is_a_picture_over_its_hidden_glyph() {
         let ctx = context();
@@ -720,6 +732,43 @@ mod tests {
     }
 
     #[test]
+    fn a_spelled_flag_asks_for_one_more_frame_once() {
+        install();
+        let ctx = egui::Context::default();
+        let mut galley = None;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            galley = Some(ui.painter().layout_no_wrap(
+                "🇮🇹".to_owned(),
+                egui::FontId::proportional(14.0),
+                Color32::WHITE,
+            ));
+        });
+        output.textures_delta.clear();
+        let galley = galley.expect("laid out");
+        let mut plugin = EmojiPlugin::default();
+        let hook = |plugin: &mut EmojiPlugin| {
+            let mut output = FullOutput::default();
+            output.shapes.push(ClippedShape {
+                clip_rect: Rect::EVERYTHING,
+                shape: Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
+            });
+            egui::Plugin::output_hook(plugin, &ctx, &mut output);
+            output.textures_delta.clear();
+        };
+        settle(&ctx);
+        hook(&mut plugin);
+        assert!(
+            ctx.has_requested_repaint(),
+            "the letters' glyphs upload next frame"
+        );
+
+        // Spelled once, the flag asks for no more frames.
+        settle(&ctx);
+        hook(&mut plugin);
+        assert!(!ctx.has_requested_repaint());
+    }
+
+    #[test]
     fn a_spelled_flag_shrinks_to_the_emojis_room() {
         let ctx = context();
         let mut galley = None;
@@ -790,6 +839,35 @@ mod tests {
         let mut ready = |_: &str| Some(Some((TextureId::User(7), egui::vec2(77.0, 72.0))));
         plugin.colour(&mut shapes, &mut ready, &mut nothing_to_spell);
         assert_eq!(shapes.len(), 2);
+    }
+
+    #[test]
+    fn an_emoji_with_no_picture_keeps_its_glyph() {
+        install();
+        let ctx = egui::Context::default();
+        let mut galley = None;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            galley = Some(ui.painter().layout_no_wrap(
+                "wait 😀".to_owned(),
+                egui::FontId::proportional(14.0),
+                Color32::WHITE,
+            ));
+        });
+        output.textures_delta.clear();
+        let galley = galley.expect("laid out");
+        let mut plugin = EmojiPlugin::default();
+        let mut shapes = vec![ClippedShape {
+            clip_rect: Rect::EVERYTHING,
+            shape: Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
+        }];
+        let mut none = |_: &str| Some(None);
+        plugin.colour(&mut shapes, &mut none, &mut nothing_to_spell);
+        assert_eq!(shapes.len(), 1, "nothing painted over it");
+        let Shape::Text(text) = &shapes[0].shape else {
+            panic!("still text");
+        };
+        assert!(Arc::ptr_eq(&text.galley, &galley), "the glyph stays drawn");
+        assert_eq!(plugin.seen.len(), 1, "not asked again next frame");
     }
 
     #[test]
