@@ -192,7 +192,7 @@ pub(crate) fn download(
                 // The replacement keeps the running AppImage's permissions.
                 let permissions = fs::metadata(&installation.executable)?.permissions();
                 fs::set_permissions(&archive, permissions)?;
-                check_version(config, host, &archive, &release.version)?;
+                check_version(config, host, &archive, &release.version, None)?;
                 archive
             }
             Kind::Portable => {
@@ -204,7 +204,13 @@ pub(crate) fn download(
                     use std::os::unix::fs::PermissionsExt;
                     fs::set_permissions(&payload, fs::Permissions::from_mode(0o755))?;
                 }
-                check_version(config, host, &payload, &release.version)?;
+                check_version(
+                    config,
+                    host,
+                    &payload,
+                    &release.version,
+                    installation.executable.parent(),
+                )?;
                 fs::remove_file(&archive)?;
                 payload
             }
@@ -383,11 +389,17 @@ fn check_kept(
                 "The kept update does not match its signed checksum"
             );
             if staged.installation.kind == Kind::AppImage {
-                check_version(config, host, &staged.payload, &staged.version)?;
+                check_version(config, host, &staged.payload, &staged.version, None)?;
             }
         }
         // The unpacked executable: it must still say what it is.
-        Kind::Portable => check_version(config, host, &staged.payload, &staged.version)?,
+        Kind::Portable => check_version(
+            config,
+            host,
+            &staged.payload,
+            &staged.version,
+            staged.installation.executable.parent(),
+        )?,
     }
     Ok(staged)
 }
@@ -399,8 +411,9 @@ pub(crate) fn check_version(
     host: &dyn Host,
     executable: &Path,
     version: &str,
+    libraries: Option<&Path>,
 ) -> Result<()> {
-    let output = host.version_output(executable)?;
+    let output = host.version_output(executable, libraries)?;
     ensure!(
         config
             .names()
@@ -779,6 +792,12 @@ mod tests {
             "the archive is removed after unpacking"
         );
         assert_eq!(host.version_probes(), std::slice::from_ref(&staged.payload));
+        // It finds the libraries beside the installed copy, which a
+        // portable update keeps, not beside itself in the staging folder.
+        assert_eq!(
+            host.probe_libraries(),
+            [Some(directory.path().to_path_buf())]
+        );
         assert_eq!(staged.directory.parent(), Some(directory.path()));
     }
 

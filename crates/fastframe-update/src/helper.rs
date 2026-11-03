@@ -62,7 +62,9 @@ pub(crate) fn handoff(
             });
             let running = host.current_exe()?;
             fs::copy(&running, &helper).context("Could not prepare the update helper")?;
-            if cfg!(windows) {
+            // Its libraries come along: Windows looks beside the program,
+            // and a Linux program linked with `$ORIGIN` does too.
+            if cfg!(any(windows, target_os = "linux")) {
                 copy_libraries(&running, &staged.directory)
                     .context("Could not prepare the update helper")?;
             }
@@ -111,11 +113,23 @@ pub(crate) fn handoff(
     bail!("The update helper did not start. Try again.")
 }
 
-/// Copies the DLLs beside the running `executable` into `directory`, beside
-/// the helper's copy. Windows looks for a program's DLLs in its own folder,
-/// then the system's, then the working directory, so without them the helper
-/// either fails to start or loads the app's own DLLs from its working
-/// directory and holds them while the installer has to replace them.
+/// A shared library this system loads from beside a program: `.dll` on
+/// Windows, `.so` (or a versioned `.so.1`) on Linux.
+fn is_library(name: &str) -> bool {
+    if cfg!(windows) {
+        name.to_ascii_lowercase().ends_with(".dll")
+    } else {
+        name.ends_with(".so") || name.contains(".so.")
+    }
+}
+
+/// Copies the shared libraries beside the running `executable` into
+/// `directory`, beside the helper's copy. Windows looks for a program's DLLs
+/// in its own folder, then the system's, then the working directory, so
+/// without them the helper either fails to start or loads the app's own DLLs
+/// from its working directory and holds them while the installer has to
+/// replace them. A Linux program linked with an `$ORIGIN` run path (Solco's
+/// Dawn) finds its libraries only beside itself.
 fn copy_libraries(executable: &Path, directory: &Path) -> Result<()> {
     let Some(folder) = executable.parent() else {
         return Ok(());
@@ -123,9 +137,7 @@ fn copy_libraries(executable: &Path, directory: &Path) -> Result<()> {
     for entry in fs::read_dir(folder)? {
         let entry = entry?;
         let path = entry.path();
-        let library = path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"));
+        let library = is_library(&entry.file_name().to_string_lossy());
         if library && entry.file_type()?.is_file() {
             fs::copy(&path, directory.join(entry.file_name()))?;
         }
@@ -516,14 +528,26 @@ mod tests {
         fs::write(app.join("webgpu_dawn.dll"), b"dawn").unwrap();
         fs::write(app.join("VCRUNTIME140.DLL"), b"runtime").unwrap();
         fs::write(app.join("solco-installer.txt"), b"marker").unwrap();
+        fs::write(app.join("libwebgpu_dawn.so"), b"linux dawn").unwrap();
+        fs::write(app.join("libonnx.so.1"), b"versioned").unwrap();
+        fs::write(app.join("solco.sources"), b"not a library").unwrap();
         copy_libraries(&app.join("solco.exe"), &staging).unwrap();
         let mut copied: Vec<_> = fs::read_dir(&staging)
             .unwrap()
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect();
         copied.sort();
-        assert_eq!(copied, ["VCRUNTIME140.DLL", "webgpu_dawn.dll"]);
-        assert_eq!(fs::read(staging.join("webgpu_dawn.dll")).unwrap(), b"dawn");
+        if cfg!(windows) {
+            assert_eq!(copied, ["VCRUNTIME140.DLL", "webgpu_dawn.dll"]);
+            assert_eq!(fs::read(staging.join("webgpu_dawn.dll")).unwrap(), b"dawn");
+        } else {
+            // A Linux app linked with `$ORIGIN` finds them beside itself.
+            assert_eq!(copied, ["libonnx.so.1", "libwebgpu_dawn.so"]);
+            assert_eq!(
+                fs::read(staging.join("libwebgpu_dawn.so")).unwrap(),
+                b"linux dawn"
+            );
+        }
     }
 
     #[test]

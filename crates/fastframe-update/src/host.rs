@@ -60,7 +60,12 @@ pub(crate) trait Host: Send + Sync {
     /// Writes the archive member `entry` to the new file `destination`.
     fn extract(&self, archive: &Path, entry: &str, destination: &Path) -> Result<()>;
     /// What `executable --version` printed, trimmed.
-    fn version_output(&self, executable: &Path) -> Result<String>;
+    ///
+    /// `libraries` is the folder the executable will run from, for a
+    /// portable copy that replaces only its executable: the libraries
+    /// beside the installed one (Solco's Dawn) are found there, as they
+    /// will be once it is installed.
+    fn version_output(&self, executable: &Path, libraries: Option<&Path>) -> Result<String>;
     /// Starts `executable` with `arguments` in the working `directory`. With
     /// a `log`, standard input and output are closed and standard error goes
     /// to the log; without one the child inherits them.
@@ -227,9 +232,32 @@ mod os {
             result
         }
 
-        fn version_output(&self, executable: &Path) -> Result<String> {
+        fn version_output(&self, executable: &Path, libraries: Option<&Path>) -> Result<String> {
             let mut command = Command::new(executable);
             extracted_like_this_one(&mut command);
+            if let Some(folder) = libraries {
+                // Windows looks in the working folder and on PATH; Linux
+                // only on its library path. The executable's own folder
+                // (its `$ORIGIN`) is the staging folder, which holds no
+                // libraries.
+                command.current_dir(folder);
+                let variable = if cfg!(windows) {
+                    Some("PATH")
+                } else if cfg!(target_os = "linux") {
+                    Some("LD_LIBRARY_PATH")
+                } else {
+                    None
+                };
+                if let Some(variable) = variable {
+                    let mut paths = vec![folder.to_path_buf()];
+                    if let Some(existing) = std::env::var_os(variable) {
+                        paths.extend(std::env::split_paths(&existing));
+                    }
+                    if let Ok(joined) = std::env::join_paths(paths) {
+                        command.env(variable, joined);
+                    }
+                }
+            }
             command
                 .arg("--version")
                 .stdin(Stdio::null())

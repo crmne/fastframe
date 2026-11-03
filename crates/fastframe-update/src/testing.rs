@@ -151,6 +151,7 @@ pub(crate) struct FakeHost {
     entries: HashMap<String, Vec<u8>>,
     version: Option<String>,
     probes: Mutex<Vec<PathBuf>>,
+    probe_libraries: Mutex<Vec<Option<PathBuf>>>,
     behaviour: Behaviour,
     spawned: Mutex<Vec<Spawned>>,
     waited: Mutex<Vec<u32>>,
@@ -178,6 +179,7 @@ impl Default for FakeHost {
             entries: HashMap::new(),
             version: None,
             probes: Mutex::default(),
+            probe_libraries: Mutex::default(),
             behaviour: Behaviour::Hang,
             spawned: Mutex::default(),
             waited: Mutex::default(),
@@ -234,6 +236,11 @@ impl FakeHost {
 
     pub(crate) fn version_probes(&self) -> Vec<PathBuf> {
         lock(&self.probes).clone()
+    }
+
+    /// The library folder each version probe was given.
+    pub(crate) fn probe_libraries(&self) -> Vec<Option<PathBuf>> {
+        lock(&self.probe_libraries).clone()
     }
 
     pub(crate) fn on_spawn(mut self, behaviour: Behaviour) -> Self {
@@ -384,8 +391,9 @@ impl Host for FakeHost {
         Ok(())
     }
 
-    fn version_output(&self, executable: &Path) -> Result<String> {
+    fn version_output(&self, executable: &Path, libraries: Option<&Path>) -> Result<String> {
         lock(&self.probes).push(executable.to_owned());
+        lock(&self.probe_libraries).push(libraries.map(Path::to_path_buf));
         self.version
             .clone()
             .ok_or_else(|| anyhow!("The downloaded app failed its startup check"))

@@ -157,7 +157,7 @@ fn validate(
             "macOS could not approve this update for launch"
         );
     }
-    crate::download::check_version(config, host, &executable_path(host, bundle)?, version)
+    crate::download::check_version(config, host, &executable_path(host, bundle)?, version, None)
 }
 
 /// Whether a bundle's `CFBundleShortVersionString` names `version`. macOS

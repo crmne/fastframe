@@ -422,6 +422,14 @@ them. The installer then finds those files in use and gives up. With the
 copies, and working in the staging folder, the helper holds nothing the
 update replaces.
 
+A Linux app linked with an `$ORIGIN` run path (Solco's `libwebgpu_dawn.so`)
+finds its libraries only beside itself, so its helper takes copies of the
+`.so` files beside the app too. The `--version` check of a portable download
+runs from the staging folder, where a portable update brings only the
+executable, so it is given the installation's folder to find the libraries
+the installed copy will use (`LD_LIBRARY_PATH` on Linux, the working folder
+and `PATH` on Windows).
+
 ## Platforms
 
 Linux, macOS and Windows. Detection rules for all three are pure functions
