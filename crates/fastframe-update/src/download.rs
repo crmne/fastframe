@@ -106,6 +106,7 @@ pub(crate) fn download(
         manifest.len() as u64 == checksums.size,
         "Invalid update checksum download size"
     );
+    let mut signature_bytes = None;
     if let (Some(_), Some(signature)) = (key, signature) {
         let mut bytes = Vec::new();
         fetch(
@@ -129,6 +130,7 @@ pub(crate) fn download(
             result = signing::verify(&manifest, &bytes, other);
         }
         result?;
+        signature_bytes = Some(bytes);
     }
     let expected = release::checksum(
         std::str::from_utf8(&manifest).context("Invalid update checksum text")?,
@@ -207,13 +209,21 @@ pub(crate) fn download(
                 payload
             }
         };
-        Ok(Staged {
+        let staged = Staged {
             sha256: stage::hash(&payload)?,
             installation,
             directory: directory.clone(),
             payload,
             version: release.version.clone(),
-        })
+        };
+        // Kept for a later run that installs it (`Updater::kept`): the
+        // signed manifest, so that run can check the package again.
+        fs::write(directory.join(stage::MANIFEST), &manifest)?;
+        if let Some(bytes) = &signature_bytes {
+            fs::write(directory.join(stage::SIGNATURE), bytes)?;
+        }
+        stage::keep(&staged)?;
+        Ok(staged)
     })();
     match result {
         Ok(staged) => Ok(Prepared {
@@ -225,6 +235,161 @@ pub(crate) fn download(
             Err(error)
         }
     }
+}
+
+/// The newest update an earlier run downloaded and never installed, checked
+/// again: it must sit in an unused staging folder beside `installation`,
+/// be for that installation and newer than this version, hash as it did
+/// when it was downloaded, and pass the download's checks once more (the
+/// publisher signature and the package's listed checksum, or the
+/// executable's `--version`). `Ok(None)` when nothing is kept. A kept update
+/// that fails is removed, and the error says why.
+pub(crate) fn kept(inputs: &Inputs<'_>, installation: &Installation) -> Result<Option<Prepared>> {
+    let config = inputs.config;
+    let parent = installation
+        .root(config)?
+        .parent()
+        .context("Missing installation directory")?
+        .to_path_buf();
+    let Ok(entries) = fs::read_dir(&parent) else {
+        return Ok(None);
+    };
+    let mut newest: Option<(String, std::path::PathBuf)> = None;
+    for entry in entries.flatten() {
+        let directory = entry.path();
+        let ours = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| stage::is_staging_name(config, name));
+        if !ours || !entry.file_type().is_ok_and(|kind| kind.is_dir()) || !stage::unused(&directory)
+        {
+            continue;
+        }
+        let Ok(staged) = stage::read_kept(&directory) else {
+            continue;
+        };
+        if !newer_than_running(config, &staged.version) {
+            continue;
+        }
+        let newer = newest.as_ref().is_none_or(|(version, _)| {
+            match (
+                crate::version::Semver::parse(&staged.version),
+                crate::version::Semver::parse(version),
+            ) {
+                (Some(candidate), Some(best)) => candidate > best,
+                _ => false,
+            }
+        });
+        if newer {
+            newest = Some((staged.version, directory));
+        }
+    }
+    let Some((_, directory)) = newest else {
+        return Ok(None);
+    };
+    match check_kept(inputs, installation, &directory) {
+        Ok(staged) => Ok(Some(Prepared {
+            staged,
+            sample: false,
+        })),
+        Err(error) => {
+            stage::discard(&directory);
+            Err(error)
+        }
+    }
+}
+
+/// Whether `version` is newer than the running app, on the app's channel.
+fn newer_than_running(config: &UpdateConfig, version: &str) -> bool {
+    if !config.accepts_version(version) {
+        return false;
+    }
+    match (
+        crate::version::Semver::parse(version),
+        crate::version::Semver::parse(config.current_version),
+    ) {
+        (Some(candidate), Some(current)) => {
+            candidate > current && (config.prerelease_channel() || !candidate.is_prerelease())
+        }
+        _ => false,
+    }
+}
+
+fn check_kept(
+    inputs: &Inputs<'_>,
+    installation: &Installation,
+    directory: &Path,
+) -> Result<Staged> {
+    let Inputs { config, host, .. } = *inputs;
+    let staged = stage::read_kept(directory)?;
+    staged.check_layout(config, &directory.join(stage::JOB))?;
+    ensure!(
+        staged.directory == directory,
+        "The kept update names another folder"
+    );
+    ensure!(
+        staged.installation == *installation,
+        "The kept update is for another installation"
+    );
+    ensure!(
+        newer_than_running(config, &staged.version),
+        "The kept update is not newer than this version"
+    );
+    ensure!(
+        stage::hash(&staged.payload)? == staged.sha256,
+        "The kept update changed. It will be downloaded again."
+    );
+    let mut manifest = Vec::new();
+    File::open(directory.join(stage::MANIFEST))
+        .context("The kept update has no checksum file")?
+        .take(MANIFEST_LIMIT + 1)
+        .read_to_end(&mut manifest)?;
+    ensure!(
+        manifest.len() as u64 <= MANIFEST_LIMIT,
+        "Invalid kept checksum file"
+    );
+    let keys = config
+        .publisher_key
+        .into_iter()
+        .chain(config.additional_publisher_keys.iter().copied())
+        .map(signing::decode_key)
+        .collect::<Result<Vec<_>>>()?;
+    if !keys.is_empty() {
+        let mut signature = Vec::new();
+        File::open(directory.join(stage::SIGNATURE))
+            .context("The kept update has no signature")?
+            .take(65)
+            .read_to_end(&mut signature)?;
+        ensure!(
+            keys.iter()
+                .any(|key| signing::verify(&manifest, &signature, key).is_ok()),
+            "The kept update's signature does not verify"
+        );
+    }
+    match staged.installation.kind {
+        // The package itself is the payload: its checksum is listed.
+        Kind::MacBundle | Kind::WindowsInstaller | Kind::AppImage => {
+            let name = staged
+                .payload
+                .file_name()
+                .and_then(|name| name.to_str())
+                .context("Invalid kept package name")?;
+            let expected = release::checksum(
+                std::str::from_utf8(&manifest).context("Invalid update checksum text")?,
+                name,
+            )?;
+            ensure!(
+                expected == staged.sha256,
+                "The kept update does not match its signed checksum"
+            );
+            if staged.installation.kind == Kind::AppImage {
+                check_version(config, host, &staged.payload, &staged.version)?;
+            }
+        }
+        // The unpacked executable: it must still say what it is.
+        Kind::Portable => check_version(config, host, &staged.payload, &staged.version)?,
+    }
+    Ok(staged)
 }
 
 /// Runs `executable --version` and expects `<slug> <version>`, or a legacy
@@ -388,6 +553,180 @@ mod tests {
             },
             |_, _| {},
         )
+    }
+
+    fn find_kept(
+        config: &UpdateConfig,
+        host: &FakeHost,
+        installation: &Installation,
+        platform: Platform,
+    ) -> Result<Option<Prepared>> {
+        kept(
+            &Inputs {
+                config,
+                transport: &FakeTransport::default(),
+                source: &Source::github(),
+                host,
+                platform,
+                arch: "x86_64",
+            },
+            installation,
+        )
+    }
+
+    fn portable_host() -> FakeHost {
+        FakeHost::default()
+            .with_archive_entry(
+                "zapfast-v0.17.0-x86_64-unknown-linux-gnu/zapfast",
+                b"new executable",
+            )
+            .with_version_output("zapfast 0.17.0")
+    }
+
+    #[test]
+    fn a_download_is_kept_and_checked_again_by_a_later_run() {
+        let directory = tempfile::tempdir().unwrap();
+        let installation = portable(directory.path());
+        let host = portable_host();
+        let downloaded = run(&Fixture::default(), &config(), &host, installation.clone()).unwrap();
+        let folder = downloaded.staged.directory.clone();
+        assert!(folder.join(stage::KEPT).is_file());
+        assert!(folder.join(stage::MANIFEST).is_file());
+        assert!(folder.join(stage::SIGNATURE).is_file());
+        drop(downloaded);
+        // A later run: a fresh `Prepared` for the same folder, probed again.
+        let host = portable_host();
+        let kept = find_kept(&config(), &host, &installation, Platform::Linux)
+            .unwrap()
+            .expect("the download is kept");
+        assert_eq!(kept.version(), "0.17.0");
+        assert_eq!(kept.staged.directory, folder);
+        assert_eq!(kept.staged.payload, folder.join("zapfast"));
+        assert_eq!(host.version_probes(), [folder.join("zapfast")]);
+        assert!(stage::unused(&folder), "checking writes no attempt marker");
+    }
+
+    #[test]
+    fn a_kept_download_is_used_only_while_it_is_unused_and_newer() {
+        let directory = tempfile::tempdir().unwrap();
+        let installation = portable(directory.path());
+        let downloaded = run(
+            &Fixture::default(),
+            &config(),
+            &portable_host(),
+            installation.clone(),
+        )
+        .unwrap();
+        let folder = downloaded.staged.directory.clone();
+        // Already this version, or newer: nothing to install.
+        let current = UpdateConfig {
+            current_version: "0.17.0",
+            ..config()
+        };
+        assert!(
+            find_kept(&current, &portable_host(), &installation, Platform::Linux)
+                .unwrap()
+                .is_none()
+        );
+        // Another installation's folder is not this one's update.
+        let elsewhere = tempfile::tempdir().unwrap();
+        assert!(
+            find_kept(
+                &config(),
+                &portable_host(),
+                &portable(elsewhere.path()),
+                Platform::Linux
+            )
+            .unwrap()
+            .is_none()
+        );
+        // Handed to a helper once: never again.
+        fs::write(folder.join(stage::READY), b"").unwrap();
+        assert!(
+            find_kept(&config(), &portable_host(), &installation, Platform::Linux)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_kept_download_that_changed_is_removed() {
+        for tamper in ["payload", "signature", "probe", "record"] {
+            let directory = tempfile::tempdir().unwrap();
+            let installation = portable(directory.path());
+            let downloaded = run(
+                &Fixture::default(),
+                &config(),
+                &portable_host(),
+                installation.clone(),
+            )
+            .unwrap();
+            let folder = downloaded.staged.directory.clone();
+            let mut host = portable_host();
+            match tamper {
+                "payload" => fs::write(folder.join("zapfast"), b"something else").unwrap(),
+                "signature" => fs::write(folder.join(stage::SIGNATURE), [0; 64]).unwrap(),
+                "probe" => host = host.with_version_output("zapfast 0.16.0"),
+                _ => {
+                    // A record pointing outside its folder.
+                    let mut staged = stage::read_kept(&folder).unwrap();
+                    staged.payload = directory.path().join("zapfast");
+                    fs::write(
+                        folder.join(stage::KEPT),
+                        serde_json::to_vec(&staged).unwrap(),
+                    )
+                    .unwrap();
+                }
+            }
+            assert!(
+                find_kept(&config(), &host, &installation, Platform::Linux).is_err(),
+                "{tamper}"
+            );
+            assert!(!folder.exists(), "{tamper}: the folder is removed");
+            untouched(directory.path());
+        }
+    }
+
+    #[test]
+    fn a_kept_installer_is_checked_against_its_signed_checksum() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("zapfast.exe");
+        fs::write(&executable, b"the running app").unwrap();
+        let installation = Installation {
+            executable,
+            kind: Kind::WindowsInstaller,
+        };
+        let fixture = Fixture {
+            kind: Kind::WindowsInstaller,
+            platform: Platform::Windows,
+            package: b"setup program".to_vec(),
+            ..Fixture::default()
+        };
+        let downloaded = run(
+            &fixture,
+            &config(),
+            &FakeHost::default(),
+            installation.clone(),
+        )
+        .unwrap();
+        let payload = downloaded.staged.payload.clone();
+        let host = FakeHost::default();
+        let kept = find_kept(&config(), &host, &installation, Platform::Windows)
+            .unwrap()
+            .unwrap();
+        assert_eq!(kept.staged.payload, payload);
+        assert!(host.version_probes().is_empty());
+        // A same-hash record for a package the manifest does not list.
+        let mut staged = stage::read_kept(&kept.staged.directory).unwrap();
+        let renamed = staged.directory.join("zapfast-v0.17.0-other.exe");
+        fs::rename(&staged.payload, &renamed).unwrap();
+        staged.payload = renamed;
+        fs::write(
+            staged.directory.join(stage::KEPT),
+            serde_json::to_vec(&staged).unwrap(),
+        )
+        .unwrap();
+        assert!(find_kept(&config(), &host, &installation, Platform::Windows).is_err());
     }
 
     fn portable(directory: &Path) -> Installation {

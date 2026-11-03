@@ -128,6 +128,37 @@ impl Updater {
         )
     }
 
+    /// The update an earlier run of this app downloaded and did not install,
+    /// checked again and ready for [`Updater::handoff`]. Lets an app download
+    /// in the background and install at its next start, before it opens
+    /// anything, with the same rollback as any update.
+    ///
+    /// Every download keeps what it verified in its staging folder: the
+    /// staged payload's hash, the release's `checksums.txt` and its
+    /// signature. A kept update is used only when its folder was never
+    /// handed to a helper, it is for this installation, its version is newer
+    /// than [`UpdateConfig::current_version`], its payload hashes as it did,
+    /// the signature still verifies against the configured keys, and the
+    /// package's listed checksum (macOS image, Windows installer, AppImage)
+    /// or the executable's `--version` (portable copy, AppImage) checks out.
+    /// When several are kept, the newest is taken; the next download or
+    /// acknowledged update removes the rest. `Ok(None)` when none is kept. A
+    /// kept update that fails a check is removed and the error says why.
+    pub fn kept(&self) -> Result<Option<Prepared>> {
+        let installation = self.installation()?;
+        download::kept(
+            &Inputs {
+                config: &self.config,
+                transport: self.transport.as_ref(),
+                source: &self.source,
+                host: self.host.as_ref(),
+                platform: Platform::current(),
+                arch: std::env::consts::ARCH,
+            },
+            &installation,
+        )
+    }
+
     /// An app's own feed ([`Source::feed`]) is only used with a publisher
     /// key: otherwise whoever controls the server controls the update.
     fn require_publisher_key(&self) -> Result<()> {

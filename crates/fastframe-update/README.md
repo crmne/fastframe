@@ -110,12 +110,41 @@ would report fastframe's version, so the app passes its own.
    `<slug>-data` folder a portable copy keeps beside it on Windows
    (`fastframe-dirs`) stays as it was, whether the update sticks, rolls
    back or moves the copy off a legacy name.
-6. Staging folders do not pile up. When the new app acknowledges, and
+6. A download nobody installs is kept for a later run. `kept` finds it at
+   the app's next start and checks it again (below), so an app can
+   download in the background and install before it opens anything.
+7. Staging folders do not pile up. When the new app acknowledges, and
    before each download, the staging folders of earlier updates go: those
    whose helper wrote `result.txt`, and those no helper ever took. A folder
    whose helper is still working stays, unless its `ready` is a day old.
    The latest update's folder stays until the next update or download, so
    an uninstaller should remove `.<slug>-update-*` folders itself.
+
+## Installing at the next start
+
+An app that downloads in the background but does not want to restart while
+it is in use can install at its next start instead:
+
+```rust
+// Early in the next start, before the app opens its documents:
+if let Ok(Some(prepared)) = updater.kept() {
+    updater.handoff(prepared, relaunch_arguments)?;
+    // quit now; the helper installs, relaunches and rolls back as usual
+}
+```
+
+Every download leaves `staged.json` (what it staged and the payload's
+hash), the release's `checksums.txt` and `checksums.txt.sig` in its staging
+folder. `kept` takes the newest folder that no helper has used, whose
+version is newer than the running app's, and that was staged for this very
+installation. It then checks it again: the payload's hash, the publisher
+signature over the kept checksum file, and the package's listed checksum
+(macOS image, Windows installer, AppImage) or the executable's `--version`
+(portable copy, AppImage). A kept update that fails any check is removed and
+reported as an error; one that is not newer, or belongs to another
+installation, is left for the sweep. Checks that need the network are not
+repeated, and a macOS image is not mounted again: its bundle was checked
+when it was downloaded, and the folder is the app's own (0700, beside it).
 
 ## Windows Installer packages
 
@@ -334,7 +363,7 @@ installs reads the receipt. These must not change without a transition:
 | Relaunch | `<arguments> --update-receipt <path to handoff.json>` |
 | Restart after rollback | `<arguments> --update-error "The update did not finish, so nothing changed. Restart to try again." --update-failure "<which step failed and why>"` |
 | Staging folder | `.<slug>-update-<16 lowercase hex digits>` beside the executable, or beside the bundle on macOS; 0700 |
-| Files in it | `handoff.json`, `ready`, `started`, `result.txt`, `previous`, `helper`/`helper.exe`/`helper.app`, `helper.log`, `installer.log`, `mounted-<hex>`, `failed.app` |
+| Files in it | `staged.json`, `checksums.txt`, `checksums.txt.sig`, `handoff.json`, `ready`, `started`, `result.txt`, `previous`, `helper`/`helper.exe`/`helper.app`, `helper.log`, `installer.log`, `mounted-<hex>`, `failed.app` |
 | `handoff.json` | compact JSON: `{"prepared":{"installation":{"executable":…,"kind":"Portable"\|"WindowsInstaller"\|"MacBundle"\|"AppImage"},"directory":…,"payload":…,"sha256":…,"version":…},"parent":<pid>,"arguments":[…]}`. `AppImage` is newer than the others: only a helper that knows it writes it, and only the newer app it installs reads it back. |
 | Markers | `<name>-portable.txt` containing `<name>-portable-v1`; `<name>-installer.txt` containing `<name>-installer-v1` |
 | Assets | `<slug>-v<version>-<target>.tar.gz` (Linux), `.zip` (Windows portable), `.msi` or else `-setup.exe` (Windows installer), `<slug>-v<version>-macos-universal.dmg` (or `-macos-arm64.dmg` with `MacTarget::Arm64Only`), `<slug>-<version>-<arch>.AppImage` (with `appimage: true`; `x86_64`, `aarch64`); targets `x86_64`/`aarch64` `-unknown-linux-gnu` and `-pc-windows-msvc` |
@@ -352,10 +381,12 @@ receipts, and that the published signature verifies.
 
 ## Safety rules
 
-- A `Prepared` update exists only as the result of `download`, is consumed
-  by `handoff`, and cannot be deserialized: nothing installs from paths an
-  app read back from a file. `Prepared::sample` is for demos, and a handoff
-  refuses it.
+- A `Prepared` update exists only as the result of `download` or `kept`,
+  is consumed by `handoff`, and cannot be deserialized by the app: nothing
+  installs from paths an app read back from a file. `kept` reads only the
+  record its own download wrote, in a staging folder beside this
+  installation, and checks the paths, hash and signature again before it
+  returns one. `Prepared::sample` is for demos, and a handoff refuses it.
 - Every download gets a new staging folder. A handoff refuses a folder that
   holds anything from an earlier attempt, so a stale `ready` or `started`
   cannot fake a helper or skip rollback, and nothing is retried on its own.

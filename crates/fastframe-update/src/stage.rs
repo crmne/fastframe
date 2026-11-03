@@ -10,6 +10,8 @@
 //! | `<asset name>` | download | the verified package; kept for the installer and disk image |
 //! | `<slug>` or `<slug>.exe` (or the configured portable executable) | download | the unpacked portable executable |
 //! | `<slug>-<version>-<arch>.AppImage` | download | the verified AppImage, renamed over the installed one |
+//! | `staged.json` | download | what it staged and the payload's hash, for `Updater::kept` |
+//! | `checksums.txt`, `checksums.txt.sig` | download | the release's signed checksums, checked again by `Updater::kept` |
 //! | `helper`, `helper.exe`, `helper.app` | handoff | the copy of the running app that installs |
 //! | `handoff.json` | handoff, helper | the job, and later the relaunched app's receipt |
 //! | `helper.log` | helper | the helper's standard error |
@@ -45,6 +47,11 @@ pub(crate) const HELPER_LOG: &str = "helper.log";
 pub(crate) const HELPER_APP: &str = "helper.app";
 pub(crate) const FAILED_APP: &str = "failed.app";
 pub(crate) const INSTALLER_LOG: &str = "installer.log";
+/// What a download staged, kept for a later run (`Updater::kept`).
+pub(crate) const KEPT: &str = "staged.json";
+/// The release's checksum file and signature, kept beside a download.
+pub(crate) const MANIFEST: &str = "checksums.txt";
+pub(crate) const SIGNATURE: &str = "checksums.txt.sig";
 
 /// Files whose presence means a staging folder was already used for an
 /// attempt. A handoff refuses such a folder: a stale `ready` would report a
@@ -84,9 +91,11 @@ pub(crate) struct Handoff {
 /// A verified update, staged beside the app and ready for
 /// [`Updater::handoff`](crate::Updater::handoff).
 ///
-/// Only [`Updater::download`](crate::Updater::download) makes one that can
-/// be installed, and a handoff consumes it. It cannot be saved and read
-/// back: an update never installs from paths an app read out of a file.
+/// Only [`Updater::download`](crate::Updater::download) and
+/// [`Updater::kept`](crate::Updater::kept) make one that can be installed,
+/// and a handoff consumes it. An app cannot save and read one back: `kept`
+/// reads only the record a download wrote in its own staging folder, and
+/// checks its paths, hash and signature again.
 #[derive(Debug)]
 pub struct Prepared {
     pub(crate) staged: Staged,
@@ -242,6 +251,28 @@ pub(crate) fn hash(path: &Path) -> Result<String> {
         hash.update(&buffer[..count]);
     }
     Ok(hex(&hash.finalize()))
+}
+
+/// Records a finished download in its folder, so a later run can find it.
+pub(crate) fn keep(staged: &Staged) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(staged.directory.join(KEPT))?;
+    serde_json::to_writer(&mut file, staged)?;
+    file.flush()?;
+    file.sync_all()?;
+    Ok(())
+}
+
+/// What a download in `directory` recorded, as written; the caller checks it.
+pub(crate) fn read_kept(directory: &Path) -> Result<Staged> {
+    let mut bytes = Vec::new();
+    File::open(directory.join(KEPT))
+        .context("No kept update")?
+        .take(1024 * 1024)
+        .read_to_end(&mut bytes)?;
+    serde_json::from_slice(&bytes).context("Invalid kept update")
 }
 
 pub(crate) fn read_handoff(job: &Path) -> Result<Handoff> {
