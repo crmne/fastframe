@@ -204,10 +204,22 @@ mod os {
                 .stderr(Stdio::null());
             hidden(&mut command);
             let mut child = command.spawn().ok()?;
-            // A package manager that doesn't answer (a held lock, say) gives
-            // no answer rather than holding the app up.
+            // A package manager that doesn't answer (a held lock, or a
+            // descendant keeping its output open) gives no answer rather than
+            // holding the app up: the output is read on a thread of its own,
+            // and both wait under one deadline.
             let timing = self.timing();
             let start = Instant::now();
+            let mut stdout = child.stdout.take()?;
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let mut output = String::new();
+                let read = (&mut stdout)
+                    .take(64 * 1024)
+                    .read_to_string(&mut output)
+                    .map(|_| output);
+                let _ = tx.send(read);
+            });
             let status = loop {
                 if let Some(status) = child.try_wait().ok()? {
                     break status;
@@ -219,13 +231,8 @@ mod os {
                 }
                 std::thread::sleep(timing.poll);
             };
-            let mut output = String::new();
-            child
-                .stdout
-                .take()?
-                .take(64 * 1024)
-                .read_to_string(&mut output)
-                .ok()?;
+            let left = timing.version_probe.saturating_sub(start.elapsed());
+            let output = rx.recv_timeout(left).ok()?.ok()?;
             let text = output.trim().to_owned();
             (status.success() && !text.is_empty()).then_some(text)
         }

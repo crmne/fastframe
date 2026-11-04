@@ -235,6 +235,11 @@ impl Updater {
         platform: Platform,
         arch: &str,
     ) -> Result<Installation, Unsupported> {
+        if !release.verified_by(&self.config, &self.source) {
+            return Err(Unsupported::Unavailable(
+                "The release was verified with another key or source".into(),
+            ));
+        }
         let version = &release.release().version;
         let target = release::target(platform, arch, self.config.mac_target)?;
         let name = release::asset_name(&self.config, version, target, installation.kind, platform);
@@ -286,16 +291,17 @@ impl Updater {
         )
         .inspect_err(|error| {
             // Without a check first: the next `installation` knows.
-            // Only for the release the last check read.
-            let key = appimage_key(&self.config, &self.source);
-            let checked = appimages()
-                .iter()
-                .any(|(k, version, _)| *k == key && *version == release.version);
-            if appimage
-                && checked
-                && error.downcast_ref::<Unsupported>() == Some(&Unsupported::MissingAsset)
-            {
-                remember_appimage(&key, Some((release.version.as_str(), false)));
+            // Only for the release the last check read, in one step so a
+            // check in between isn't overwritten.
+            if appimage && error.downcast_ref::<Unsupported>() == Some(&Unsupported::MissingAsset) {
+                let key = appimage_key(&self.config, &self.source);
+                let mut known = appimages();
+                if let Some(entry) = known
+                    .iter_mut()
+                    .find(|(k, version, _)| *k == key && *version == release.version)
+                {
+                    entry.2 = false;
+                }
             }
         })
     }
@@ -469,6 +475,7 @@ mod tests {
         let portable_only = VerifiedRelease::listing(
             release.clone(),
             &["zapfast-v0.17.0-x86_64-unknown-linux-gnu.tar.gz"],
+            &crate::tests::ZAPFAST,
         );
         assert_eq!(
             updater.check_listed(&portable_only, appimage.clone(), Platform::Linux, "x86_64"),
@@ -480,6 +487,7 @@ mod tests {
                 "zapfast-v0.17.0-x86_64-unknown-linux-gnu.tar.gz",
                 "zapfast-0.17.0-x86_64.AppImage",
             ],
+            &crate::tests::ZAPFAST,
         );
         assert_eq!(
             updater.check_listed(&with_appimage, appimage, Platform::Linux, "x86_64"),
@@ -493,13 +501,30 @@ mod tests {
             executable: "C:/Users/me/AppData/Local/Programs/ZapFast/zapfast.exe".into(),
             kind: Kind::WindowsInstaller,
         };
-        let msi =
-            VerifiedRelease::listing(release, &["zapfast-v0.17.0-x86_64-pc-windows-msvc.msi"]);
+        let msi = VerifiedRelease::listing(
+            release.clone(),
+            &["zapfast-v0.17.0-x86_64-pc-windows-msvc.msi"],
+            &crate::tests::ZAPFAST,
+        );
         assert!(
             updater
-                .check_listed(&msi, installer, Platform::Windows, "x86_64")
+                .check_listed(&msi, installer.clone(), Platform::Windows, "x86_64")
                 .is_ok()
         );
+        // Verified with another key: not this updater's.
+        let keyed = crate::UpdateConfig {
+            publisher_key: Some(crate::testing::fixture_key_hex()),
+            ..crate::tests::ZAPFAST
+        };
+        let other = VerifiedRelease::listing(
+            release,
+            &["zapfast-v0.17.0-x86_64-pc-windows-msvc.msi"],
+            &keyed,
+        );
+        assert!(matches!(
+            updater.check_listed(&other, installer, Platform::Windows, "x86_64"),
+            Err(Unsupported::Unavailable(_))
+        ));
     }
 
     #[test]

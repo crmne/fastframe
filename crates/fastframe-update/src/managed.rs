@@ -257,17 +257,24 @@ fn nix_element(executable: &Path, host: &dyn Host) -> Option<String> {
     }
     let home = var(host, "HOME")?;
     let state = var(host, "XDG_STATE_HOME").unwrap_or_else(|| format!("{home}/.local/state"));
-    let manifest = [
+    // The profile that holds it: ~/.nix-profile, or the XDG one when
+    // ~/.nix-profile is stale or absent.
+    [
         format!("{home}/.nix-profile/manifest.json"),
         format!("{state}/nix/profile/manifest.json"),
     ]
     .iter()
-    .find_map(|path| host.read_text(Path::new(path)))?;
-    let manifest: serde_json::Value = serde_json::from_str(&manifest).ok()?;
+    .filter_map(|path| host.read_text(Path::new(path)))
+    .find_map(|manifest| element_in(&manifest, &store))
+}
+
+/// The element of a profile manifest holding `store`.
+fn element_in(manifest: &str, store: &str) -> Option<String> {
+    let manifest: serde_json::Value = serde_json::from_str(manifest).ok()?;
     let holds = |element: &serde_json::Value| {
         element["storePaths"]
             .as_array()
-            .is_some_and(|paths| paths.iter().any(|p| p.as_str() == Some(store.as_str())))
+            .is_some_and(|paths| paths.iter().any(|p| p.as_str() == Some(store)))
     };
     match &manifest["elements"] {
         serde_json::Value::Object(elements) => elements
@@ -511,7 +518,14 @@ mod tests {
             command(on(Unsupported::Nix, exe, &v3)).as_deref(),
             Some("nix profile upgrade chatwithwork-desktop")
         );
-        let v2 = FakeHost::default().with_var("HOME", "/home/me").with_file(
+        // A stale ~/.nix-profile doesn't hide the XDG profile holding it.
+        let v2 = FakeHost::default()
+            .with_var("HOME", "/home/me")
+            .with_file(
+                "/home/me/.nix-profile/manifest.json",
+                r#"{"version":3,"elements":{"other":{"storePaths":["/nix/store/zzz"]}}}"#,
+            )
+            .with_file(
             "/home/me/.local/state/nix/profile/manifest.json",
             r#"{"version":2,"elements":[{"storePaths":["/nix/store/zzz"]},{"storePaths":["/nix/store/abc123-cww-0.11.1"]}]}"#,
         );

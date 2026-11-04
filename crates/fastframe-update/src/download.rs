@@ -113,6 +113,9 @@ fn signed_manifest(
 pub struct VerifiedRelease {
     release: Release,
     files: Vec<String>,
+    /// Who verified it: the publisher key and the source, so a release
+    /// verified by another updater isn't taken for this one's.
+    verifier: (Option<&'static str>, Source),
 }
 
 impl VerifiedRelease {
@@ -122,11 +125,17 @@ impl VerifiedRelease {
     }
 
     #[cfg(test)]
-    pub(crate) fn listing(release: Release, files: &[&str]) -> Self {
+    pub(crate) fn listing(release: Release, files: &[&str], config: &UpdateConfig) -> Self {
         Self {
             release,
             files: files.iter().map(|file| (*file).to_owned()).collect(),
+            verifier: (config.publisher_key, Source::github()),
         }
+    }
+
+    /// Whether `config` and `source` are the ones that verified it.
+    pub(crate) fn verified_by(&self, config: &UpdateConfig, source: &Source) -> bool {
+        self.verifier.0 == config.publisher_key && self.verifier.1 == *source
     }
 
     /// Whether the signed `checksums.txt` lists the file `name`.
@@ -181,7 +190,12 @@ pub(crate) fn verify(
     // download requires) and has attached, as a download finds them.
     let files: Vec<String> = signed_files(text)
         .into_iter()
-        .filter(|file| metadata.asset(file).is_ok())
+        .filter(|file| {
+            metadata.asset(file).is_ok_and(|asset| {
+                Url::parse(&asset.browser_download_url)
+                    .is_ok_and(|url| source.owns_asset(config, &url, &release.version, &asset.name))
+            })
+        })
         .collect();
     let stem = release::stem(config, &release.version, target);
     let appimage = release::appimage_name(config, &release.version, target);
@@ -198,6 +212,7 @@ pub(crate) fn verify(
     Ok(VerifiedRelease {
         release: release.clone(),
         files,
+        verifier: (config.publisher_key, source.clone()),
     })
 }
 
@@ -224,7 +239,11 @@ pub(crate) fn appimage_listed(
     let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
     // As a download would find it: one attached asset of a plausible size,
     // and one well-formed signed line.
-    Ok(metadata.asset(&name).is_ok() && release::checksum(text, &name).is_ok())
+    let attached = metadata.asset(&name).is_ok_and(|asset| {
+        Url::parse(&asset.browser_download_url)
+            .is_ok_and(|url| source.owns_asset(config, &url, version, &asset.name))
+    });
+    Ok(attached && release::checksum(text, &name).is_ok())
 }
 
 /// Downloads `release` for `installation` and verifies it. Nothing is
