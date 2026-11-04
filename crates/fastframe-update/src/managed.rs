@@ -131,7 +131,19 @@ pub(crate) fn describe(
                 .or_else(|| var(host, "SNAP_NAME"))
                 .filter(|name| plain(name)),
         ),
-        Unsupported::Nix => (Manager::Nix, nix_element(executable, host)),
+        Unsupported::Nix => {
+            // Upgraded in the profile that holds it, which may not be the
+            // default one.
+            let found = nix_element(executable, host);
+            return Some(ManagedUpdate {
+                manager: Manager::Nix,
+                command: found.as_ref().and_then(|(name, profile)| {
+                    plain_path(profile)
+                        .then(|| format!("nix profile upgrade --profile {profile} {name}"))
+                }),
+                package: found.map(|(name, _)| name),
+            });
+        }
         Unsupported::Cargo => {
             let home = var(host, "CARGO_HOME")
                 .map(PathBuf::from)
@@ -246,9 +258,18 @@ fn homebrew(executable: &Path) -> Option<(bool, String)> {
     None
 }
 
+/// A path that is safe to paste into a shell as one word.
+fn plain_path(path: &str) -> bool {
+    !path.is_empty()
+        && path
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.+@/".contains(&b))
+}
+
 /// The `nix profile` element holding `executable`'s store path, from the
-/// user's profile manifest: by name (manifest version 3), else by index.
-fn nix_element(executable: &Path, host: &dyn Host) -> Option<String> {
+/// user's profile manifest: by name (manifest version 3), else by index,
+/// with the profile it's in.
+fn nix_element(executable: &Path, host: &dyn Host) -> Option<(String, String)> {
     // Store paths are written with `/`, whatever the system's separator.
     let text = executable.to_string_lossy().replace('\\', "/");
     let store: String = text.split('/').take(4).collect::<Vec<_>>().join("/");
@@ -260,12 +281,14 @@ fn nix_element(executable: &Path, host: &dyn Host) -> Option<String> {
     // The profile that holds it: ~/.nix-profile, or the XDG one when
     // ~/.nix-profile is stale or absent.
     [
-        format!("{home}/.nix-profile/manifest.json"),
-        format!("{state}/nix/profile/manifest.json"),
+        format!("{home}/.nix-profile"),
+        format!("{state}/nix/profile"),
     ]
-    .iter()
-    .filter_map(|path| host.read_text(Path::new(path)))
-    .find_map(|manifest| element_in(&manifest, &store))
+    .into_iter()
+    .find_map(|profile| {
+        let manifest = host.read_text(Path::new(&format!("{profile}/manifest.json")))?;
+        element_in(&manifest, &store).map(|name| (name, profile))
+    })
 }
 
 /// The element of a profile manifest holding `store`.
@@ -516,7 +539,7 @@ mod tests {
         );
         assert_eq!(
             command(on(Unsupported::Nix, exe, &v3)).as_deref(),
-            Some("nix profile upgrade chatwithwork-desktop")
+            Some("nix profile upgrade --profile /home/me/.nix-profile chatwithwork-desktop")
         );
         // A stale ~/.nix-profile doesn't hide the XDG profile holding it.
         let v2 = FakeHost::default()
@@ -531,7 +554,7 @@ mod tests {
         );
         assert_eq!(
             command(on(Unsupported::Nix, exe, &v2)).as_deref(),
-            Some("nix profile upgrade 1")
+            Some("nix profile upgrade --profile /home/me/.local/state/nix/profile 1")
         );
     }
 

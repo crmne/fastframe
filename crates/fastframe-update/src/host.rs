@@ -126,6 +126,22 @@ mod os {
     use super::{Child, Host, OsHost};
     use crate::stage::LIMIT;
 
+    /// Stops a query and, on Unix, the process group it leads.
+    fn stop_group(child: &mut std::process::Child) {
+        #[cfg(unix)]
+        {
+            let mut kill = Command::new("kill");
+            kill.arg("-KILL")
+                .arg(format!("-{}", child.id()))
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let _ = kill.status();
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
     /// Keeps a console window from flashing up on Windows.
     fn hidden(command: &mut Command) {
         #[cfg(windows)]
@@ -203,6 +219,10 @@ mod os {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null());
             hidden(&mut command);
+            // Its own process group, so a timeout stops whatever it started
+            // too, and the reader below sees its output close.
+            #[cfg(unix)]
+            std::os::unix::process::CommandExt::process_group(&mut command, 0);
             let mut child = command.spawn().ok()?;
             // A package manager that doesn't answer (a held lock, or a
             // descendant keeping its output open) gives no answer rather than
@@ -225,14 +245,18 @@ mod os {
                     break status;
                 }
                 if start.elapsed() >= timing.version_probe {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    stop_group(&mut child);
                     return None;
                 }
                 std::thread::sleep(timing.poll);
             };
             let left = timing.version_probe.saturating_sub(start.elapsed());
-            let output = rx.recv_timeout(left).ok()?.ok()?;
+            let Ok(read) = rx.recv_timeout(left) else {
+                // A descendant still holds the output: stop the group.
+                stop_group(&mut child);
+                return None;
+            };
+            let output = read.ok()?;
             let text = output.trim().to_owned();
             (status.success() && !text.is_empty()).then_some(text)
         }

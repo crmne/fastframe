@@ -115,7 +115,7 @@ pub struct VerifiedRelease {
     files: Vec<String>,
     /// Who verified it: the publisher key and the source, so a release
     /// verified by another updater isn't taken for this one's.
-    verifier: (Option<&'static str>, Source),
+    verifier: (Vec<&'static str>, Source),
 }
 
 impl VerifiedRelease {
@@ -129,19 +129,28 @@ impl VerifiedRelease {
         Self {
             release,
             files: files.iter().map(|file| (*file).to_owned()).collect(),
-            verifier: (config.publisher_key, Source::github()),
+            verifier: (trusted(config), Source::github()),
         }
     }
 
     /// Whether `config` and `source` are the ones that verified it.
     pub(crate) fn verified_by(&self, config: &UpdateConfig, source: &Source) -> bool {
-        self.verifier.0 == config.publisher_key && self.verifier.1 == *source
+        self.verifier.0 == trusted(config) && self.verifier.1 == *source
     }
 
     /// Whether the signed `checksums.txt` lists the file `name`.
     pub fn lists(&self, name: &str) -> bool {
         self.files.iter().any(|file| file == name)
     }
+}
+
+/// Every key the configuration trusts, the primary one first.
+pub(crate) fn trusted(config: &UpdateConfig) -> Vec<&'static str> {
+    config
+        .publisher_key
+        .into_iter()
+        .chain(config.additional_publisher_keys.iter().copied())
+        .collect()
 }
 
 /// The names `checksums.txt` lists with a well-formed digest, once each,
@@ -212,7 +221,7 @@ pub(crate) fn verify(
     Ok(VerifiedRelease {
         release: release.clone(),
         files,
-        verifier: (config.publisher_key, source.clone()),
+        verifier: (trusted(config), source.clone()),
     })
 }
 

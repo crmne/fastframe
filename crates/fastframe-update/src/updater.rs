@@ -30,10 +30,11 @@ fn appimages() -> std::sync::MutexGuard<'static, Vec<(String, String, bool)>> {
 
 fn appimage_key(config: &UpdateConfig, source: &Source) -> String {
     format!(
-        "{}|{}|{}|{source:?}",
+        "{}|{}|{}|{source:?}|{:?}",
         config.repository,
         config.slug,
-        config.appimage_name.unwrap_or(config.slug)
+        config.appimage_name.unwrap_or(config.slug),
+        download::trusted(config)
     )
 }
 
@@ -290,7 +291,8 @@ impl Updater {
             progress,
         )
         .inspect_err(|error| {
-            // Without a check first: the next `installation` knows.
+            // Marks the release the last check read as unsigned, so the next
+            // `installation` refuses it; without a check nothing is recorded.
             // Only for the release the last check read, in one step so a
             // check in between isn't overwritten.
             if appimage && error.downcast_ref::<Unsupported>() == Some(&Unsupported::MissingAsset) {
@@ -522,7 +524,17 @@ mod tests {
             &keyed,
         );
         assert!(matches!(
-            updater.check_listed(&other, installer, Platform::Windows, "x86_64"),
+            updater.check_listed(&other, installer.clone(), Platform::Windows, "x86_64"),
+            Err(Unsupported::Unavailable(_))
+        ));
+        // Verified from another source: not this updater's either.
+        let elsewhere = Updater::new(
+            crate::tests::ZAPFAST,
+            crate::testing::FakeTransport::default(),
+        )
+        .with_source(Source::local("http://127.0.0.1:8799").unwrap());
+        assert!(matches!(
+            elsewhere.check_listed(&msi, installer, Platform::Windows, "x86_64"),
             Err(Unsupported::Unavailable(_))
         ));
     }
