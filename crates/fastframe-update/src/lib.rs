@@ -55,9 +55,15 @@
 //! 2. [`Updater::installation`] decides whether this copy may replace itself.
 //!    Package-manager installs (Flatpak, Snap, apt, dnf, pacman, Nix,
 //!    Homebrew, cargo) are refused with an [`Unsupported`] reason, as is any
-//!    Linux or Windows copy without a portable or installer marker file. An
-//!    AppImage the user owns may update itself when the app opts in with
-//!    [`UpdateConfig::appimage`].
+//!    Linux or Windows copy without a portable or installer marker file.
+//!    [`Updater::managed_update`] says which tool updates such a copy and
+//!    the command for it, which the app shows (and never runs). An
+//!    AppImage the user owns updates itself unless the app turns
+//!    [`UpdateConfig::appimage`] off. [`Updater::verify`] checks a
+//!    release's signed `checksums.txt` without downloading anything, and
+//!    [`Updater::installable`] says whether it has this copy's download, so
+//!    a copy that can't install the release still announces only a signed
+//!    one.
 //! 3. [`Updater::download`] fetches `checksums.txt`, verifies its Ed25519
 //!    signature (`checksums.txt.sig`) against the embedded publisher key,
 //!    downloads the package into a fresh staging folder beside the app and
@@ -86,6 +92,7 @@ mod download;
 mod helper;
 mod host;
 mod macos;
+mod managed;
 mod release;
 mod rename;
 #[cfg(feature = "reqwest")]
@@ -99,6 +106,8 @@ mod updater;
 mod version;
 
 pub use detect::{Installation, Kind, PackageManager, Unsupported};
+pub use download::VerifiedRelease;
+pub use managed::{ManagedUpdate, Manager};
 pub use release::Release;
 #[cfg(feature = "reqwest")]
 pub use reqwest_transport::ReqwestTransport;
@@ -183,16 +192,23 @@ pub struct UpdateConfig {
     /// Which macOS disk image a release carries. The default,
     /// [`MacTarget::Universal`], is `<slug>-v<version>-macos-universal.dmg`.
     pub mac_target: MacTarget,
-    /// Whether a Linux AppImage updates itself. The release must list
-    /// `<slug>-<version>-<arch>.AppImage` (`x86_64` or `aarch64`, the name
-    /// native-packages gives it) in the signed `checksums.txt`, beside the
-    /// other downloads. A copy started from an AppImage (`$APPIMAGE`) that
-    /// the user owns and can write to then downloads that file, checks it
-    /// like any other download, and replaces the AppImage in place. The
-    /// default, `false`, keeps refusing AppImages with
-    /// [`Unsupported::NotPortable`], for apps whose AppImage is not in the
-    /// signed checksums yet.
+    /// Whether a Linux AppImage updates itself, on by default. A copy
+    /// started from an AppImage (`$APPIMAGE`) that the user owns and can
+    /// write to downloads the release's `<name>-<version>-<arch>.AppImage`
+    /// ([`UpdateConfig::appimage_name`], `x86_64` or `aarch64`, the name
+    /// native-packages gives it), checks it like any other download, and
+    /// replaces the AppImage in place. A release whose signed
+    /// `checksums.txt` doesn't list that file is not an error:
+    /// [`Updater::installable`] answers [`Unsupported::MissingAsset`], and
+    /// the app tells people the release is out instead, as it does for
+    /// package installs. `false` refuses AppImages with
+    /// [`Unsupported::NotPortable`], as before 0.16.
     pub appimage: bool,
+    /// The name the release's AppImage starts with, when it isn't the slug:
+    /// native-packages names it after the package
+    /// (`chatwithwork-desktop-1.2.3-x86_64.AppImage`). `None`, the default,
+    /// uses [`UpdateConfig::slug`].
+    pub appimage_name: Option<&'static str>,
 }
 
 /// The macOS build a release publishes, which names its disk image.
@@ -252,7 +268,8 @@ impl UpdateConfig {
             additional_publisher_keys: &[],
             prereleases: Prereleases::Never,
             mac_target: MacTarget::Universal,
-            appimage: false,
+            appimage: true,
+            appimage_name: None,
         }
     }
 
@@ -285,6 +302,12 @@ impl UpdateConfig {
                     && !name.starts_with('.')
                     && !name.to_ascii_lowercase().ends_with(".exe"),
                 "The portable executable must be a plain file name without .exe: {name}"
+            );
+        }
+        if let Some(name) = self.appimage_name {
+            ensure!(
+                valid_name(name) && !name.starts_with('.'),
+                "The AppImage name must be a plain file name: {name}"
             );
         }
         ensure!(

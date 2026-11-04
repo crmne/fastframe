@@ -85,8 +85,9 @@ would report fastframe's version, so the app passes its own.
 2. `installation` refuses copies a package manager owns: Flatpak, Snap,
    apt, dnf, pacman (including the AUR), Nix, Homebrew (formula paths and
    casks, which link to the bundle from `Caskroom`) and `cargo install`, and
-   any Linux or Windows copy without a marker file next to it. With
-   `appimage: true`, an AppImage the user owns updates itself (below).
+   any Linux or Windows copy without a marker file next to it. An AppImage
+   the user owns updates itself unless the app sets `appimage: false`
+   (below).
 3. `download` reads the release by tag and requires the one asset named for
    this platform and installation, plus `checksums.txt` and, with a publisher
    key, `checksums.txt.sig`. The signature is checked before anything is
@@ -182,16 +183,26 @@ the package alone.
 
 ## AppImages
 
-An app whose release lists `<slug>-<version>-<arch>.AppImage` (`x86_64` or
-`aarch64`, the name native-packages gives it) in the signed
-`checksums.txt` turns AppImage updates on:
+AppImages update themselves by default (since 0.16; before, apps opted in
+with `appimage: true`). The release must list
+`<name>-<version>-<arch>.AppImage` (`x86_64` or `aarch64`, the name
+native-packages gives it) in the signed `checksums.txt`. `<name>` is the
+slug, or `appimage_name` when native-packages names the AppImage after a
+package rather than the program:
 
 ```rust
 pub const UPDATES: UpdateConfig = UpdateConfig {
-    appimage: true,
-    ..UpdateConfig::new("crmne/spotifast", "Spotifast", "spotifast", env!("CARGO_PKG_VERSION"))
+    appimage_name: Some("chatwithwork-desktop"),
+    ..UpdateConfig::new("crmne/chatwithwork-desktop", "Chat with Work", "cww-app", env!("CARGO_PKG_VERSION"))
 };
 ```
+
+A release whose signed `checksums.txt` doesn't list the AppImage (one
+attached after signing, say) is not a failed update: `Updater::installable`
+answers `Unsupported::MissingAsset`, and `download` fails with that
+`Unsupported` inside its error, so the app tells people the release is out
+instead, as for a package install (below). `appimage: false` refuses
+AppImages with `NotPortable`, as before 0.16.
 
 - A copy runs from an AppImage when `$APPIMAGE` is an absolute path and the
   running executable is inside `$APPDIR`, both of which the AppImage
@@ -221,8 +232,50 @@ pub const UPDATES: UpdateConfig = UpdateConfig {
   those built on it) can do delta updates from the `.zsync` files a release
   publishes beside its AppImages, through the update information embedded
   in each; the crate does not read either.
-- Without `appimage: true`, an AppImage is refused with `NotPortable`, as
-  before.
+- With `appimage: false`, an AppImage is refused with `NotPortable`, as
+  before 0.16.
+
+## Copies that can't update themselves
+
+Such a copy still hears about each release, and shouldn't hear about one
+the publisher didn't sign:
+
+```rust
+if let Some(release) = updater.check()? {
+    let verified = updater.verify(&release)?; // checksums.txt and its signature
+    match updater.installable(&verified) {
+        Ok(_) => { /* download, then Restart to Update */ }
+        Err(reason) => {
+            // "Version X is out", in the app's words, with its release notes.
+            if let Some(managed) = updater.managed_update() {
+                // managed.manager, managed.package, and managed.command
+                // ("yay -Syu zapfast-bin") with a Copy button. Never run it.
+            }
+        }
+    }
+}
+```
+
+`verify` fetches the release's `checksums.txt` and `checksums.txt.sig`, never
+its package, checks the signature with the publisher key, and requires a
+file of that version for this system in it. `managed_update` names the tool
+and the command, from what the computer tells:
+
+| Installed with | Found by | Command |
+| --- | --- | --- |
+| pacman, sync repository | `pacman -Qqo` | `sudo pacman -Syu <package>` |
+| pacman, not in a sync repository (AUR) | `pacman -Qqo`, then `pacman -Qqm` | `yay -Syu <package>` (or `paru` when only it is installed) |
+| apt | `dpkg-query -S` | `sudo apt update && sudo apt install --only-upgrade <package>` |
+| rpm on Fedora and relatives | `rpm -qf`, `/etc/os-release` | `sudo dnf upgrade --refresh <package>` |
+| rpm on openSUSE | `rpm -qf`, `/etc/os-release` | `sudo zypper refresh && sudo zypper update <package>` |
+| Homebrew formula or cask | the `Cellar` or `Caskroom` folder | `brew upgrade <formula>`, `brew upgrade --cask <cask>` |
+| Flatpak | `$FLATPAK_ID` | `flatpak update <app id>` |
+| Snap | `$SNAP_INSTANCE_NAME`, `$SNAP_NAME` | `sudo snap refresh <name>` |
+| Nix profile | the profile's `manifest.json` | `nix profile upgrade <element>`; none for NixOS or Home Manager |
+| cargo | `~/.cargo/.crates2.json` | `cargo install <crate>`, or `cargo install --git <url> <crate>` |
+
+Only names of letters, digits and `-_.+@` (and an HTTPS URL for a git
+crate) reach a command; anything else leaves `command` empty.
 
 ## Pre-releases
 
@@ -366,7 +419,7 @@ installs reads the receipt. These must not change without a transition:
 | Files in it | `staged.json`, `checksums.txt`, `checksums.txt.sig`, `handoff.json`, `ready`, `started`, `result.txt`, `previous`, `helper`/`helper.exe`/`helper.app`, `helper.log`, `installer.log`, `mounted-<hex>`, `failed.app` |
 | `handoff.json` | compact JSON: `{"prepared":{"installation":{"executable":…,"kind":"Portable"\|"WindowsInstaller"\|"MacBundle"\|"AppImage"},"directory":…,"payload":…,"sha256":…,"version":…},"parent":<pid>,"arguments":[…]}`. `AppImage` is newer than the others: only a helper that knows it writes it, and only the newer app it installs reads it back. |
 | Markers | `<name>-portable.txt` containing `<name>-portable-v1`; `<name>-installer.txt` containing `<name>-installer-v1` |
-| Assets | `<slug>-v<version>-<target>.tar.gz` (Linux), `.zip` (Windows portable), `.msi` or else `-setup.exe` (Windows installer), `<slug>-v<version>-macos-universal.dmg` (or `-macos-arm64.dmg` with `MacTarget::Arm64Only`), `<slug>-<version>-<arch>.AppImage` (with `appimage: true`; `x86_64`, `aarch64`); targets `x86_64`/`aarch64` `-unknown-linux-gnu` and `-pc-windows-msvc` |
+| Assets | `<slug>-v<version>-<target>.tar.gz` (Linux), `.zip` (Windows portable), `.msi` or else `-setup.exe` (Windows installer), `<slug>-v<version>-macos-universal.dmg` (or `-macos-arm64.dmg` with `MacTarget::Arm64Only`), `<slug or appimage_name>-<version>-<arch>.AppImage` (unless `appimage: false`; `x86_64`, `aarch64`); targets `x86_64`/`aarch64` `-unknown-linux-gnu` and `-pc-windows-msvc` |
 | Archive layout | `<slug>-v<version>-<target>/<slug>[.exe]`, or `<portable_executable>[.exe]` in place of the second `<slug>` |
 | Checksums | `checksums.txt` in `sha256sum` format; `checksums.txt.sig` is a raw 64-byte Ed25519 signature over its exact bytes |
 | Version probe | `<slug or legacy name> <version>` on standard output |

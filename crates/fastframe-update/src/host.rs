@@ -57,6 +57,11 @@ pub(crate) trait Host: Send + Sync {
     fn user_id(&self) -> Option<u32>;
     /// Whether `program flag path` succeeds: the package manager owns `path`.
     fn package_owner(&self, program: &str, flag: &str, path: &Path) -> bool;
+    /// What `program args` printed, trimmed, when it ran and succeeded with
+    /// some output: a package's name, say.
+    fn query(&self, program: &str, args: &[&std::ffi::OsStr]) -> Option<String>;
+    /// A small text file, such as `/etc/os-release`.
+    fn read_text(&self, path: &Path) -> Option<String>;
     /// Writes the archive member `entry` to the new file `destination`.
     fn extract(&self, archive: &Path, entry: &str, destination: &Path) -> Result<()>;
     /// What `executable --version` printed, trimmed.
@@ -187,6 +192,29 @@ mod os {
                 .stderr(Stdio::null());
             hidden(&mut command);
             command.status().is_ok_and(|status| status.success())
+        }
+
+        fn query(&self, program: &str, args: &[&std::ffi::OsStr]) -> Option<String> {
+            let mut command = Command::new(program);
+            command
+                .args(args)
+                .env("LC_ALL", "C")
+                .stdin(Stdio::null())
+                .stderr(Stdio::null());
+            hidden(&mut command);
+            let output = command.output().ok()?;
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            (output.status.success() && !text.is_empty()).then_some(text)
+        }
+
+        fn read_text(&self, path: &Path) -> Option<String> {
+            let mut text = String::new();
+            fs::File::open(path)
+                .ok()?
+                .take(LIMIT.min(4 * 1024 * 1024))
+                .read_to_string(&mut text)
+                .ok()?;
+            Some(text)
         }
 
         fn extract(&self, archive: &Path, entry: &str, destination: &Path) -> Result<()> {

@@ -109,6 +109,10 @@ pub enum Unsupported {
     Platform,
     /// The installation could not be inspected.
     Unavailable(String),
+    /// The release has no signed download for this kind of installation
+    /// (an AppImage whose release doesn't list it in `checksums.txt`, say).
+    /// The release is out; it just can't be installed from here.
+    MissingAsset,
 }
 
 impl std::fmt::Display for Unsupported {
@@ -145,6 +149,9 @@ impl std::fmt::Display for Unsupported {
             Self::Unavailable(reason) => {
                 write!(formatter, "Cannot inspect this installation: {reason}")
             }
+            Self::MissingAsset => formatter.write_str(
+                "This release has no signed download for this installation. Use the download page.",
+            ),
         }
     }
 }
@@ -836,11 +843,17 @@ mod tests {
                 format!("pacman -Qo {appimage}"),
             ]
         );
-        // Without the setting an AppImage is refused as before.
+        // With the setting off an AppImage is refused as before 0.16.
+        let off = UpdateConfig {
+            appimage: false,
+            ..SPOTIFAST
+        };
         assert_eq!(
-            mounted.detect(&SPOTIFAST, &mounted.host()),
+            mounted.detect(&off, &mounted.host()),
             Err(Unsupported::NotPortable)
         );
+        // On by default.
+        assert!(UpdateConfig::new("crmne/x", "X", "x", "1.0.0").appimage);
         // Unpacked with --appimage-extract-and-run, it is the same.
         let extracted = mounted
             .folder

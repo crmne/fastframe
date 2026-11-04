@@ -7,9 +7,10 @@ use anyhow::Result;
 
 #[cfg(doc)]
 use crate::MacTarget;
-use crate::detect::{self, Installation, Platform, Unsupported};
-use crate::download::{self, Inputs};
+use crate::detect::{self, Installation, Kind, Platform, Unsupported};
+use crate::download::{self, Inputs, VerifiedRelease};
 use crate::host::{Host, OsHost};
+use crate::managed::{self, ManagedUpdate};
 use crate::release::{self, Release};
 use crate::stage::Prepared;
 use crate::transport::{Source, Transport};
@@ -108,6 +109,75 @@ impl Updater {
         detect::detect(&self.config, self.host.as_ref(), platform, executable)
     }
 
+    /// Checks `release` without downloading it: its `checksums.txt` must
+    /// verify with the publisher key and list a download of that version
+    /// for this system. A copy that can't install a release announces it
+    /// only after this, so it trusts the same signature a download would,
+    /// not only the answer to "which release is the latest". Needs
+    /// [`UpdateConfig::publisher_key`].
+    pub fn verify(&self, release: &Release) -> Result<VerifiedRelease> {
+        self.require_publisher_key()?;
+        download::verify(
+            &self.config,
+            self.transport.as_ref(),
+            &self.source,
+            Platform::current(),
+            std::env::consts::ARCH,
+            release,
+        )
+    }
+
+    /// Whether this copy can install `release`: [`Updater::installation`],
+    /// and the signed `checksums.txt` lists this installation's download.
+    /// [`Unsupported::MissingAsset`] when it doesn't (an AppImage whose
+    /// release has none, say): tell people the release is out instead.
+    pub fn installable(&self, release: &VerifiedRelease) -> Result<Installation, Unsupported> {
+        let installation = self.installation()?;
+        self.check_listed(
+            release,
+            installation,
+            Platform::current(),
+            std::env::consts::ARCH,
+        )
+    }
+
+    fn check_listed(
+        &self,
+        release: &VerifiedRelease,
+        installation: Installation,
+        platform: Platform,
+        arch: &str,
+    ) -> Result<Installation, Unsupported> {
+        let version = &release.release().version;
+        let target = release::target(platform, arch, self.config.mac_target)?;
+        let name = release::asset_name(&self.config, version, target, installation.kind, platform);
+        let msi = release::msi_name(&release::stem(&self.config, version, target));
+        let listed = release.lists(&name)
+            || (installation.kind == Kind::WindowsInstaller && release.lists(&msi));
+        if listed {
+            Ok(installation)
+        } else {
+            Err(Unsupported::MissingAsset)
+        }
+    }
+
+    /// For a copy a package manager owns, the tool that updates it, the
+    /// package's name and the command for it, for the app to show in its
+    /// own words. `None` when the copy updates itself, or no package
+    /// manager owns it. Asks the package managers on Linux (`pacman -Qqo`,
+    /// `dpkg-query -S`, `rpm -qf`) and reads `/etc/os-release`, Nix's
+    /// profile manifest or Cargo's install list; never runs the command.
+    pub fn managed_update(&self) -> Option<ManagedUpdate> {
+        let executable = self.host.current_exe().ok()?;
+        let reason = self.installation_at(&executable).err()?;
+        managed::describe(
+            &reason,
+            &executable,
+            self.host.as_ref(),
+            Platform::current(),
+        )
+    }
+
     /// Downloads and verifies `release` into a new staging folder beside
     /// the app. `progress` receives bytes received and the published size.
     pub fn download(&self, release: &Release, progress: impl FnMut(u64, u64)) -> Result<Prepared> {
@@ -181,6 +251,70 @@ impl Updater {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_release_without_this_copys_signed_download_is_announced_not_installed() {
+        let updater = Updater::new(
+            crate::tests::ZAPFAST,
+            crate::testing::FakeTransport::default(),
+        );
+        let release = Release {
+            version: "0.17.0".into(),
+            url: String::new(),
+        };
+        let appimage = Installation {
+            executable: "/home/me/ZapFast.AppImage".into(),
+            kind: Kind::AppImage,
+        };
+        let portable_only = VerifiedRelease::listing(
+            release.clone(),
+            &["zapfast-v0.17.0-x86_64-unknown-linux-gnu.tar.gz"],
+        );
+        assert_eq!(
+            updater.check_listed(&portable_only, appimage.clone(), Platform::Linux, "x86_64"),
+            Err(Unsupported::MissingAsset)
+        );
+        let with_appimage = VerifiedRelease::listing(
+            release.clone(),
+            &[
+                "zapfast-v0.17.0-x86_64-unknown-linux-gnu.tar.gz",
+                "zapfast-0.17.0-x86_64.AppImage",
+            ],
+        );
+        assert_eq!(
+            updater.check_listed(&with_appimage, appimage, Platform::Linux, "x86_64"),
+            Ok(Installation {
+                executable: "/home/me/ZapFast.AppImage".into(),
+                kind: Kind::AppImage,
+            })
+        );
+        // The Windows installer takes its .msi or its setup program.
+        let installer = Installation {
+            executable: "C:/Users/me/AppData/Local/Programs/ZapFast/zapfast.exe".into(),
+            kind: Kind::WindowsInstaller,
+        };
+        let msi =
+            VerifiedRelease::listing(release, &["zapfast-v0.17.0-x86_64-pc-windows-msvc.msi"]);
+        assert!(
+            updater
+                .check_listed(&msi, installer, Platform::Windows, "x86_64")
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_package_install_says_how_to_update_it() {
+        let updater = Updater::new(
+            crate::tests::ZAPFAST,
+            crate::testing::FakeTransport::default(),
+        )
+        .with_host(crate::testing::FakeHost::default().with_current_exe(
+            std::path::Path::new("/opt/homebrew/Cellar/zapfast/0.16.3/bin/zapfast"),
+        ));
+        let update = updater.managed_update().unwrap();
+        assert_eq!(update.manager, crate::Manager::Homebrew);
+        assert_eq!(update.command.as_deref(), Some("brew upgrade zapfast"));
+    }
     use crate::detect::Kind;
     use crate::testing::{FakeHost, FakeTransport};
     use crate::tests::ZAPFAST;
