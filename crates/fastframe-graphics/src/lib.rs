@@ -11,7 +11,9 @@
 //! [`Graphics::run_native`] opens the window with glow. When glow cannot draw
 //! it and the `wgpu` feature is on, it opens it again with wgpu, which on
 //! Windows draws through Direct3D 12 and, without a vendor driver, through
-//! WARP, Windows' own software renderer. When no renderer can draw, it shows
+//! WARP, Windows' own software renderer. On macOS with the `wgpu` feature the
+//! order turns around: wgpu draws through Metal first, and glow is the
+//! fallback. When no renderer can draw, it shows
 //! a native dialog that names the cause and what to do, with a link to the
 //! app's help page, and returns the error.
 
@@ -34,9 +36,17 @@ pub use eframe::Renderer;
 
 /// The renderers [`Graphics::run_native`] tries, in order: glow, which every
 /// app has drawn with so far, then wgpu when the `wgpu` feature is on.
+///
+/// On macOS with the `wgpu` feature, wgpu comes first. Apple deprecated
+/// OpenGL, and on a 120 Hz ProMotion display a glow window misses refreshes
+/// while it scrolls: Spotifast measured a p95 frame interval of 13 to 18 ms
+/// with glow and 9 to 10 ms with wgpu on Metal, on the same MacBook, with
+/// 1 to 4 ms of CPU per frame in both. Glow stays as the fallback.
 pub const RENDERERS: &[Renderer] = &[
+    #[cfg(all(feature = "wgpu", target_os = "macos"))]
+    Renderer::Wgpu,
     Renderer::Glow,
-    #[cfg(feature = "wgpu")]
+    #[cfg(all(feature = "wgpu", not(target_os = "macos")))]
     Renderer::Wgpu,
 ];
 
@@ -620,9 +630,16 @@ mod tests {
     }
 
     #[test]
-    fn glow_is_always_tried_first() {
-        assert_eq!(RENDERERS.first(), Some(&Renderer::Glow));
+    fn glow_is_tried_first_except_on_macos_with_wgpu() {
+        let metal_first = cfg!(all(feature = "wgpu", target_os = "macos"));
+        let first = if metal_first {
+            Renderer::Wgpu
+        } else {
+            Renderer::Glow
+        };
+        assert_eq!(RENDERERS.first(), Some(&first));
         assert_eq!(RENDERERS.len(), if cfg!(feature = "wgpu") { 2 } else { 1 });
+        assert!(RENDERERS.contains(&Renderer::Glow), "glow is always a choice");
     }
 
     fn trouble(cause: Cause, help_url: Option<&'static str>) -> Trouble<'static> {
