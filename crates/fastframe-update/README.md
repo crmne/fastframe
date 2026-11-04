@@ -286,6 +286,29 @@ and the command, from what the computer tells:
 Only names of letters, digits and `-_.+@` (and an HTTPS URL for a git
 crate) reach a command; anything else leaves `command` empty.
 
+## Updating on its own
+
+`fastframe_update::policy` holds the rules Solco follows (its ADR 0343), so
+every app can install updates by itself the same way:
+
+- `policy::offer(current, release, automatic, installable, newest_run)`: a
+  newer release on the same major version is `Offer::Automatic` while the
+  app's setting is on; a new major version, the setting off, or a person who
+  went back to an older version on purpose (`newest_run`, which the app
+  remembers with `policy::newest_run`) is `Offer::Ask`; a copy that can't
+  replace itself is `Offer::Elsewhere`.
+- `policy::may_download(&offer, quiet)`: download in the background only
+  while nothing the app does would be disturbed.
+- `policy::installs_at_start(current, kept, automatic, newest_run, quiet)`:
+  at the next start, before anything opens, call `Updater::kept()`. When it
+  returns `Ok(Some(prepared))`, ask `installs_at_start` with
+  `prepared.version()` as `kept`, and only when it answers `true` hand
+  `prepared` to `Updater::handoff` and quit. The helper installs it, starts
+  the new version and rolls back as for any update.
+
+What "quiet" means is the app's: a track playing, an export, a command
+running.
+
 ## Pre-releases
 
 An app whose releases are all pre-releases (Solco's alphas, for which
