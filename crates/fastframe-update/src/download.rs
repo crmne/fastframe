@@ -191,6 +191,38 @@ pub(crate) fn verify(
     })
 }
 
+/// Whether `version`'s release has this processor's AppImage and its
+/// (signed, with a publisher key) `checksums.txt` lists it. What a check
+/// learns for an AppImage copy, so an app that never calls
+/// [`Updater::installable`] still hears "can't update here" from
+/// [`Updater::installation`] instead of a failed download.
+///
+/// [`Updater::installable`]: crate::Updater::installable
+/// [`Updater::installation`]: crate::Updater::installation
+pub(crate) fn appimage_listed(
+    config: &UpdateConfig,
+    transport: &dyn Transport,
+    source: &Source,
+    platform: Platform,
+    arch: &str,
+    version: &str,
+) -> Result<bool> {
+    let target = release::target(platform, arch, config.mac_target)?;
+    let name = release::appimage_name(config, version, target);
+    let metadata = release::metadata(config, transport, source, version)?;
+    if !metadata.assets.iter().any(|asset| asset.name == name) {
+        return Ok(false);
+    }
+    let (manifest, _) = signed_manifest(config, transport, source, &metadata, version)?;
+    let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
+    Ok(text.lines().any(|line| {
+        line.split_whitespace()
+            .nth(1)
+            .map(|file| file.trim_start_matches('*'))
+            == Some(name.as_str())
+    }))
+}
+
 /// Downloads `release` for `installation` and verifies it. Nothing is
 /// written before the checksum file's publisher signature checks out, and
 /// a failure removes the staging folder again.

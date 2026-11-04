@@ -16,6 +16,33 @@ use crate::stage::Prepared;
 use crate::transport::{Source, Transport};
 use crate::{UpdateConfig, helper};
 
+/// Whether the latest release a check read signs this app's AppImage, per
+/// app (repository and slug). Process-wide, since apps make an `Updater`
+/// for each call.
+static APPIMAGES: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
+
+fn appimage_key(config: &UpdateConfig) -> String {
+    format!("{}/{}", config.repository, config.slug)
+}
+
+fn remember_appimage(config: &UpdateConfig, listed: bool) {
+    let key = appimage_key(config);
+    let mut known = APPIMAGES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    known.retain(|(k, _)| *k != key);
+    known.push((key, listed));
+}
+
+fn appimage_unsigned(config: &UpdateConfig) -> bool {
+    let key = appimage_key(config);
+    APPIMAGES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .iter()
+        .any(|(k, listed)| *k == key && !listed)
+}
+
 /// Checks for, downloads and installs updates. Cheap to clone; every call
 /// blocks, so run them off the interface thread.
 #[derive(Clone)]
@@ -71,20 +98,64 @@ impl Updater {
 
     /// The newest release, when it is newer than
     /// [`UpdateConfig::current_version`].
+    ///
+    /// For a copy running from an AppImage, it also reads whether that
+    /// release signs this AppImage, so that [`Updater::installation`] then
+    /// refuses the copy with [`Unsupported::MissingAsset`] when it doesn't,
+    /// as it refused AppImages before they updated themselves, instead of a
+    /// download that fails.
     pub fn check(&self) -> Result<Option<Release>> {
         self.require_publisher_key()?;
-        release::newer(&self.config, self.transport.as_ref(), &self.source)
+        let release = release::newer(&self.config, self.transport.as_ref(), &self.source)?;
+        if let Some(release) = &release {
+            self.learn_appimage(release, Platform::current(), std::env::consts::ARCH);
+        }
+        Ok(release)
+    }
+
+    /// Records whether `release` signs this copy's AppImage, when this copy
+    /// is one. A failure to find out records nothing: the download then
+    /// says what went wrong, as before.
+    fn learn_appimage(&self, release: &Release, platform: Platform, arch: &str) {
+        if !self.config.appimage || platform != Platform::Linux {
+            return;
+        }
+        let Ok(executable) = self.host.current_exe() else {
+            return;
+        };
+        let appimage = detect::detect(&self.config, self.host.as_ref(), platform, &executable)
+            .is_ok_and(|installation| installation.kind == Kind::AppImage);
+        if !appimage {
+            return;
+        }
+        if let Ok(listed) = download::appimage_listed(
+            &self.config,
+            self.transport.as_ref(),
+            &self.source,
+            platform,
+            arch,
+            &release.version,
+        ) {
+            remember_appimage(&self.config, listed);
+        }
     }
 
     /// How this copy was installed, or why it cannot update itself. Reads
     /// files next to the executable and, on Linux, asks dpkg, rpm and pacman
     /// whether they own it.
+    ///
+    /// An AppImage whose latest checked release doesn't sign it (see
+    /// [`Updater::check`]) is refused with [`Unsupported::MissingAsset`].
     pub fn installation(&self) -> Result<Installation, Unsupported> {
         let executable = self
             .host
             .current_exe()
             .map_err(|error| Unsupported::Unavailable(error.to_string()))?;
-        self.installation_at(&executable)
+        let installation = self.installation_at(&executable)?;
+        if installation.kind == Kind::AppImage && appimage_unsigned(&self.config) {
+            return Err(Unsupported::MissingAsset);
+        }
+        Ok(installation)
     }
 
     /// How the executable at `executable` (canonicalized) was installed, by
@@ -183,6 +254,7 @@ impl Updater {
     pub fn download(&self, release: &Release, progress: impl FnMut(u64, u64)) -> Result<Prepared> {
         self.require_publisher_key()?;
         let installation = self.installation()?;
+        let appimage = installation.kind == Kind::AppImage;
         download::download(
             &Inputs {
                 config: &self.config,
@@ -196,6 +268,12 @@ impl Updater {
             release,
             progress,
         )
+        .inspect_err(|error| {
+            // Without a check first: the next `installation` knows.
+            if appimage && error.downcast_ref::<Unsupported>() == Some(&Unsupported::MissingAsset) {
+                remember_appimage(&self.config, false);
+            }
+        })
     }
 
     /// The update an earlier run of this app downloaded and did not install,
@@ -251,6 +329,104 @@ impl Updater {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An app that bumps fastframe and calls only `check`, `installation`
+    /// and `download`, as ZapFast and TonePush do, running from an AppImage
+    /// its releases don't sign: it hears "can't update here", as before
+    /// AppImages updated themselves, never a failed download. One whose
+    /// release signs it updates itself.
+    #[cfg(unix)]
+    #[test]
+    fn an_app_using_only_the_old_calls_is_refused_an_unsigned_appimage_not_failed() {
+        use crate::testing::{FakeHost, FakeTransport, fixture_key, fixture_key_hex};
+        use std::fs;
+        use std::os::unix::fs::MetadataExt;
+
+        fn run(repository: &'static str, sign_appimage: bool) -> Result<Installation, Unsupported> {
+            let folder = tempfile::tempdir().unwrap();
+            let root = folder.path().canonicalize().unwrap();
+            let appimage = root.join("ZapFast.AppImage");
+            fs::write(&appimage, b"appimage").unwrap();
+            let mount = root.join(".mount_zapfas");
+            let executable = mount.join("usr/bin/zapfast");
+            fs::create_dir_all(executable.parent().unwrap()).unwrap();
+            fs::write(&executable, b"app").unwrap();
+            let user = fs::metadata(&appimage).unwrap().uid();
+            let host = FakeHost::default()
+                .with_current_exe(&executable)
+                .with_var("APPIMAGE", appimage.as_os_str())
+                .with_var("APPDIR", mount.as_os_str())
+                .with_user_id(user);
+
+            let arch = std::env::consts::ARCH;
+            let version = "0.17.0";
+            let asset = |name: &str| {
+                format!("https://github.com/{repository}/releases/download/v{version}/{name}")
+            };
+            let portable = format!("zapfast-v{version}-{arch}-unknown-linux-gnu.tar.gz");
+            let image = format!("zapfast-{version}-{arch}.AppImage");
+            let mut manifest = format!("{}  {portable}\n", "a".repeat(64));
+            if sign_appimage {
+                manifest.push_str(&format!("{}  {image}\n", "b".repeat(64)));
+            }
+            let signature = fixture_key().sign(manifest.as_bytes());
+            // The AppImage is attached either way, as packaging.yml attaches
+            // it after signing.
+            let metadata = serde_json::json!({
+                "tag_name": format!("v{version}"),
+                "assets": [
+                    {"name": portable, "size": 10, "browser_download_url": asset(&portable)},
+                    {"name": image, "size": 10, "browser_download_url": asset(&image)},
+                    {"name": "checksums.txt", "size": manifest.len(), "browser_download_url": asset("checksums.txt")},
+                    {"name": "checksums.txt.sig", "size": 64, "browser_download_url": asset("checksums.txt.sig")},
+                ],
+            });
+            let latest = serde_json::json!({
+                "tag_name": format!("v{version}"),
+                "html_url": format!("https://github.com/{repository}/releases/tag/v{version}"),
+            });
+            let transport = FakeTransport::default()
+                .serve(
+                    &format!("https://api.github.com/repos/{repository}/releases/latest"),
+                    latest.to_string().as_bytes(),
+                )
+                .serve(
+                    &format!("https://api.github.com/repos/{repository}/releases/tags/v{version}"),
+                    metadata.to_string().as_bytes(),
+                )
+                .serve(&asset("checksums.txt"), manifest.as_bytes())
+                .serve(&asset("checksums.txt.sig"), signature.as_ref());
+            let config = UpdateConfig {
+                publisher_key: Some(fixture_key_hex()),
+                ..UpdateConfig::new(repository, "ZapFast", "zapfast", "0.16.0")
+            };
+            let updater = Updater::new(config, transport).with_host(host);
+            let release = updater.check().unwrap().unwrap();
+            assert_eq!(release.version, version);
+            // A new updater, as apps make one per call.
+            let result = updater.clone().installation();
+            if result.is_err() {
+                let error = updater.download(&release, |_, _| {}).unwrap_err();
+                assert_eq!(
+                    error.downcast_ref::<Unsupported>(),
+                    Some(&Unsupported::MissingAsset)
+                );
+            }
+            result
+        }
+
+        if !matches!(std::env::consts::ARCH, "x86_64" | "aarch64") {
+            return;
+        }
+        assert_eq!(
+            run("crmne/zapfast-unsigned-appimage", false),
+            Err(Unsupported::MissingAsset)
+        );
+        assert_eq!(
+            run("crmne/zapfast-signed-appimage", true).unwrap().kind,
+            Kind::AppImage
+        );
+    }
 
     #[test]
     fn a_release_without_this_copys_signed_download_is_announced_not_installed() {

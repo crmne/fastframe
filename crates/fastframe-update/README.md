@@ -198,10 +198,14 @@ pub const UPDATES: UpdateConfig = UpdateConfig {
 ```
 
 A release whose signed `checksums.txt` doesn't list the AppImage (one
-attached after signing, say) is not a failed update: `Updater::installable`
-answers `Unsupported::MissingAsset`, and `download` fails with that
-`Unsupported` inside its error, so the app tells people the release is out
-instead, as for a package install (below). `appimage: false` refuses
+attached after signing, say) is not a failed update. `check` reads whether
+the release signs this copy's AppImage, and `installation` then refuses it
+with `Unsupported::MissingAsset`, as it refused AppImages before 0.16, so
+an app that only bumps fastframe keeps saying "update from the download
+page". `Updater::installable` answers the same for apps that call it, and
+`download` fails with that `Unsupported` inside its error if it is reached
+anyway. The app tells people the release is out instead, as for a package
+install (below). `appimage: false` refuses
 AppImages with `NotPortable`, as before 0.16.
 
 - A copy runs from an AppImage when `$APPIMAGE` is an absolute path and the
