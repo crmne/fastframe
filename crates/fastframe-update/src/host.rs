@@ -130,7 +130,8 @@ mod os {
     fn stop_group(child: &mut std::process::Child) {
         #[cfg(unix)]
         {
-            let mut kill = Command::new("kill");
+            // /bin/kill, not one from PATH: macOS and Linux both have it.
+            let mut kill = Command::new("/bin/kill");
             kill.arg("-KILL")
                 .arg(format!("-{}", child.id()))
                 .stdin(Stdio::null())

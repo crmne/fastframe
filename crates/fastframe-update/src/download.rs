@@ -115,7 +115,7 @@ pub struct VerifiedRelease {
     files: Vec<String>,
     /// Who verified it: the publisher key and the source, so a release
     /// verified by another updater isn't taken for this one's.
-    verifier: (Vec<&'static str>, Source),
+    verifier: Verifier,
 }
 
 impl VerifiedRelease {
@@ -129,18 +129,43 @@ impl VerifiedRelease {
         Self {
             release,
             files: files.iter().map(|file| (*file).to_owned()).collect(),
-            verifier: (trusted(config), Source::github()),
+            verifier: Verifier::of(config, &Source::github()),
         }
     }
 
     /// Whether `config` and `source` are the ones that verified it.
     pub(crate) fn verified_by(&self, config: &UpdateConfig, source: &Source) -> bool {
-        self.verifier.0 == trusted(config) && self.verifier.1 == *source
+        self.verifier == Verifier::of(config, source)
     }
 
     /// Whether the signed `checksums.txt` lists the file `name`.
     pub fn lists(&self, name: &str) -> bool {
         self.files.iter().any(|file| file == name)
+    }
+}
+
+/// Who verified a release: the repository, the source, and the keys trusted
+/// (decoded and sorted, so equivalent spellings and orders match).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Verifier {
+    repository: &'static str,
+    source: Source,
+    keys: Vec<[u8; 32]>,
+}
+
+impl Verifier {
+    fn of(config: &UpdateConfig, source: &Source) -> Self {
+        let mut keys: Vec<[u8; 32]> = trusted(config)
+            .into_iter()
+            .filter_map(|key| signing::decode_key(key).ok())
+            .collect();
+        keys.sort_unstable();
+        keys.dedup();
+        Self {
+            repository: config.repository,
+            source: source.clone(),
+            keys,
+        }
     }
 }
 
@@ -221,7 +246,7 @@ pub(crate) fn verify(
     Ok(VerifiedRelease {
         release: release.clone(),
         files,
-        verifier: (trusted(config), source.clone()),
+        verifier: Verifier::of(config, source),
     })
 }
 
