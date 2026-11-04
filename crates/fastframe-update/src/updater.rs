@@ -16,31 +16,39 @@ use crate::stage::Prepared;
 use crate::transport::{Source, Transport};
 use crate::{UpdateConfig, helper};
 
-/// Whether the latest release a check read signs this app's AppImage, per
-/// app (repository and slug). Process-wide, since apps make an `Updater`
-/// for each call.
-static APPIMAGES: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
+/// What the latest check learned about this app's AppImage: the release it
+/// read and whether that release signs the AppImage. Per app, feed and
+/// AppImage name, and process-wide, since apps make an `Updater` for each
+/// call.
+static APPIMAGES: std::sync::Mutex<Vec<(String, String, bool)>> = std::sync::Mutex::new(Vec::new());
 
-fn appimage_key(config: &UpdateConfig) -> String {
-    format!("{}/{}", config.repository, config.slug)
-}
-
-fn remember_appimage(config: &UpdateConfig, listed: bool) {
-    let key = appimage_key(config);
-    let mut known = APPIMAGES
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    known.retain(|(k, _)| *k != key);
-    known.push((key, listed));
-}
-
-fn appimage_unsigned(config: &UpdateConfig) -> bool {
-    let key = appimage_key(config);
+fn appimages() -> std::sync::MutexGuard<'static, Vec<(String, String, bool)>> {
     APPIMAGES
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .iter()
-        .any(|(k, listed)| *k == key && !listed)
+}
+
+fn appimage_key(config: &UpdateConfig, source: &Source) -> String {
+    format!(
+        "{}|{}|{}|{source:?}",
+        config.repository,
+        config.slug,
+        config.appimage_name.unwrap_or(config.slug)
+    )
+}
+
+/// Records what a check learned, or forgets it (`None`): no newer release,
+/// or one whose listing couldn't be read.
+fn remember_appimage(key: &str, learned: Option<(&str, bool)>) {
+    let mut known = appimages();
+    known.retain(|(k, _, _)| k != key);
+    if let Some((version, listed)) = learned {
+        known.push((key.to_owned(), version.to_owned(), listed));
+    }
+}
+
+fn appimage_unsigned(key: &str) -> bool {
+    appimages().iter().any(|(k, _, listed)| k == key && !listed)
 }
 
 /// Checks for, downloads and installs updates. Cheap to clone; every call
@@ -107,8 +115,11 @@ impl Updater {
     pub fn check(&self) -> Result<Option<Release>> {
         self.require_publisher_key()?;
         let release = release::newer(&self.config, self.transport.as_ref(), &self.source)?;
-        if let Some(release) = &release {
-            self.learn_appimage(release, Platform::current(), std::env::consts::ARCH);
+        match &release {
+            Some(release) => {
+                self.learn_appimage(release, Platform::current(), std::env::consts::ARCH)
+            }
+            None => remember_appimage(&appimage_key(&self.config, &self.source), None),
         }
         Ok(release)
     }
@@ -128,16 +139,19 @@ impl Updater {
         if !appimage {
             return;
         }
-        if let Ok(listed) = download::appimage_listed(
+        let listed = download::appimage_listed(
             &self.config,
             self.transport.as_ref(),
             &self.source,
             platform,
             arch,
             &release.version,
-        ) {
-            remember_appimage(&self.config, listed);
-        }
+        )
+        .ok();
+        remember_appimage(
+            &appimage_key(&self.config, &self.source),
+            listed.map(|listed| (release.version.as_str(), listed)),
+        );
     }
 
     /// How this copy was installed, or why it cannot update itself. Reads
@@ -152,7 +166,9 @@ impl Updater {
             .current_exe()
             .map_err(|error| Unsupported::Unavailable(error.to_string()))?;
         let installation = self.installation_at(&executable)?;
-        if installation.kind == Kind::AppImage && appimage_unsigned(&self.config) {
+        if installation.kind == Kind::AppImage
+            && appimage_unsigned(&appimage_key(&self.config, &self.source))
+        {
             return Err(Unsupported::MissingAsset);
         }
         Ok(installation)
@@ -270,8 +286,16 @@ impl Updater {
         )
         .inspect_err(|error| {
             // Without a check first: the next `installation` knows.
-            if appimage && error.downcast_ref::<Unsupported>() == Some(&Unsupported::MissingAsset) {
-                remember_appimage(&self.config, false);
+            // Only for the release the last check read.
+            let key = appimage_key(&self.config, &self.source);
+            let checked = appimages()
+                .iter()
+                .any(|(k, version, _)| *k == key && *version == release.version);
+            if appimage
+                && checked
+                && error.downcast_ref::<Unsupported>() == Some(&Unsupported::MissingAsset)
+            {
+                remember_appimage(&key, Some((release.version.as_str(), false)));
             }
         })
     }
@@ -335,7 +359,7 @@ mod tests {
     /// its releases don't sign: it hears "can't update here", as before
     /// AppImages updated themselves, never a failed download. One whose
     /// release signs it updates itself.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn an_app_using_only_the_old_calls_is_refused_an_unsigned_appimage_not_failed() {
         use crate::testing::{FakeHost, FakeTransport, fixture_key, fixture_key_hex};

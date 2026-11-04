@@ -135,6 +135,25 @@ impl VerifiedRelease {
     }
 }
 
+/// The names `checksums.txt` lists with a well-formed digest, once each,
+/// by the rules a download checks its file with.
+fn signed_files(text: &str) -> Vec<String> {
+    let mut names: Vec<String> = text
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            match (fields.next(), fields.next(), fields.next()) {
+                (Some(_), Some(file), None) => Some(file.trim_start_matches('*').to_owned()),
+                _ => None,
+            }
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names.retain(|name| release::checksum(text, name).is_ok());
+    names
+}
+
 /// Checks `release` without downloading it: its `checksums.txt` must
 /// verify with the publisher key and list a file of that version for this
 /// system (`<slug>-v<version>-<target>...` or its AppImage).
@@ -154,35 +173,26 @@ pub(crate) fn verify(
         config.accepts_version(&release.version),
         "Invalid release version"
     );
+    let target = release::target(platform, arch, config.mac_target)?;
     let metadata = release::metadata(config, transport, source, &release.version)?;
     let (manifest, _) = signed_manifest(config, transport, source, &metadata, &release.version)?;
-    let files: Vec<String> = std::str::from_utf8(&manifest)
-        .context("Invalid update checksum text")?
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split_whitespace();
-            match (fields.next(), fields.next(), fields.next()) {
-                (Some(_), Some(file), None) => Some(file.trim_start_matches('*').to_owned()),
-                _ => None,
-            }
-        })
+    let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
+    // The files the release both signs (one well-formed line each, as a
+    // download requires) and has attached, as a download finds them.
+    let files: Vec<String> = signed_files(text)
+        .into_iter()
+        .filter(|file| metadata.asset(file).is_ok())
         .collect();
-    let ours = match release::target(platform, arch, config.mac_target) {
-        Ok(target) => {
-            let stem = format!("{}.", release::stem(config, &release.version, target));
-            let appimage = release::appimage_name(config, &release.version, target);
-            files
-                .iter()
-                .any(|file| file.starts_with(&stem) || *file == appimage)
-        }
-        Err(_) => {
-            let prefix = format!("{}-v{}-", config.slug, release.version);
-            files.iter().any(|file| file.starts_with(&prefix))
-        }
-    };
+    let stem = release::stem(config, &release.version, target);
+    let appimage = release::appimage_name(config, &release.version, target);
+    let ours = files.iter().any(|file| {
+        file.starts_with(&format!("{stem}."))
+            || *file == format!("{stem}-setup.exe")
+            || *file == appimage
+    });
     ensure!(
         ours,
-        "The signed checksums list no download of version {}",
+        "The signed checksums list no download of version {} for this system",
         release.version
     );
     Ok(VerifiedRelease {
@@ -210,17 +220,11 @@ pub(crate) fn appimage_listed(
     let target = release::target(platform, arch, config.mac_target)?;
     let name = release::appimage_name(config, version, target);
     let metadata = release::metadata(config, transport, source, version)?;
-    if !metadata.assets.iter().any(|asset| asset.name == name) {
-        return Ok(false);
-    }
     let (manifest, _) = signed_manifest(config, transport, source, &metadata, version)?;
     let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
-    Ok(text.lines().any(|line| {
-        line.split_whitespace()
-            .nth(1)
-            .map(|file| file.trim_start_matches('*'))
-            == Some(name.as_str())
-    }))
+    // As a download would find it: one attached asset of a plausible size,
+    // and one well-formed signed line.
+    Ok(metadata.asset(&name).is_ok() && release::checksum(text, &name).is_ok())
 }
 
 /// Downloads `release` for `installation` and verifies it. Nothing is
@@ -249,6 +253,35 @@ pub(crate) fn download(
     let target = release::target(platform, arch, config.mac_target)?;
     let metadata = release::metadata(config, transport, source, &release.version)?;
     let stem = release::stem(config, &release.version, target);
+    // A download the release attaches from outside itself is refused before
+    // anything is fetched.
+    let candidates = [
+        release::asset_name(
+            config,
+            &release.version,
+            target,
+            installation.kind,
+            platform,
+        ),
+        release::msi_name(&stem),
+    ];
+    for asset in metadata
+        .assets
+        .iter()
+        .filter(|asset| candidates.contains(&asset.name))
+    {
+        let url = Url::parse(&asset.browser_download_url)?;
+        ensure!(
+            source.owns_asset(config, &url, &release.version, &asset.name),
+            "Update asset does not belong to this release"
+        );
+    }
+    // Which download, and whether there is one, only once checksums.txt
+    // verifies.
+    let (manifest, signature_bytes) =
+        signed_manifest(config, transport, source, &metadata, &release.version)?;
+    let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
+    let signed = signed_files(text);
     let mut name = release::asset_name(
         config,
         &release.version,
@@ -256,16 +289,20 @@ pub(crate) fn download(
         installation.kind,
         platform,
     );
-    // A release that ships a Windows Installer package installs through it;
+    // A release that signs a Windows Installer package installs through it;
     // older releases only have the setup program.
     if installation.kind == Kind::WindowsInstaller {
         let msi = release::msi_name(&stem);
-        if metadata.assets.iter().any(|asset| asset.name == msi) {
+        if signed.contains(&msi) && metadata.asset(&msi).is_ok() {
             name = msi;
         }
     }
+    // A release that doesn't sign this installation's download (an AppImage
+    // left out of checksums.txt), or hasn't attached it, is out, just not
+    // installable from here: say so in a way the app can tell from a failed
+    // download.
     ensure!(
-        metadata.assets.iter().any(|asset| asset.name == name),
+        signed.contains(&name) && metadata.asset(&name).is_ok(),
         crate::detect::Unsupported::MissingAsset
     );
     let package = metadata.asset(&name)?;
@@ -273,20 +310,6 @@ pub(crate) fn download(
     ensure!(
         source.owns_asset(config, &url, &release.version, &package.name),
         "Update asset does not belong to this release"
-    );
-    let (manifest, signature_bytes) =
-        signed_manifest(config, transport, source, &metadata, &release.version)?;
-    let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
-    // A release that doesn't sign this installation's download (an AppImage
-    // left out of checksums.txt) is out, just not installable from here:
-    // say so in a way the app can tell from a failed download.
-    ensure!(
-        text.lines().any(|line| line
-            .split_whitespace()
-            .nth(1)
-            .map(|f| f.trim_start_matches('*'))
-            == Some(name.as_str())),
-        crate::detect::Unsupported::MissingAsset
     );
     let expected = release::checksum(text, &name)?;
     let directory = stage::staging(config, &installation)?;
@@ -748,7 +771,8 @@ mod tests {
         )
         .unwrap();
         assert!(verified.lists(&fixture.name()));
-        assert!(verified.lists("checksums-other.txt"));
+        // Signed but not attached: not a download.
+        assert!(!verified.lists("checksums-other.txt"));
         assert!(!verified.lists("zapfast-0.17.0-x86_64.AppImage"));
         assert_eq!(verified.release().version, VERSION);
         assert!(

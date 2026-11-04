@@ -88,10 +88,10 @@ pub(crate) fn describe(
             query("dpkg-query", &["-S".as_ref(), path]).and_then(|out| dpkg_package(&out)),
         ),
         Unsupported::SystemPackage(PackageManager::Dnf) => {
-            let manager = if host
-                .read_text(Path::new("/etc/os-release"))
-                .is_some_and(|text| opensuse(&text))
-            {
+            // dnf or zypper by the distribution; without /etc/os-release
+            // there's no telling, so no command.
+            let release = host.read_text(Path::new("/etc/os-release"));
+            let manager = if release.as_deref().is_some_and(opensuse) {
                 Manager::Zypper
             } else {
                 Manager::Dnf
@@ -101,6 +101,13 @@ pub(crate) fn describe(
                 &["-qf".as_ref(), "--qf".as_ref(), "%{NAME}".as_ref(), path],
             )
             .filter(|n| plain(n));
+            if release.is_none() {
+                return Some(ManagedUpdate {
+                    manager,
+                    package: name,
+                    command: None,
+                });
+            }
             (manager, name)
         }
         Unsupported::Homebrew => {
@@ -134,7 +141,7 @@ pub(crate) fn describe(
                 .and_then(|text| cargo_crate(&text, executable));
             return Some(ManagedUpdate {
                 manager: Manager::Cargo,
-                command: crate_.as_ref().map(CargoCrate::command),
+                command: crate_.as_ref().and_then(CargoCrate::command),
                 package: crate_.map(|c| c.name),
             });
         }
@@ -242,8 +249,10 @@ fn homebrew(executable: &Path) -> Option<(bool, String)> {
 /// The `nix profile` element holding `executable`'s store path, from the
 /// user's profile manifest: by name (manifest version 3), else by index.
 fn nix_element(executable: &Path, host: &dyn Host) -> Option<String> {
-    let store: PathBuf = executable.components().take(4).collect();
-    if !store.starts_with("/nix/store") || store.components().count() < 4 {
+    // Store paths are written with `/`, whatever the system's separator.
+    let text = executable.to_string_lossy().replace('\\', "/");
+    let store: String = text.split('/').take(4).collect::<Vec<_>>().join("/");
+    if !store.starts_with("/nix/store/") || store.len() <= "/nix/store/".len() {
         return None;
     }
     let home = var(host, "HOME")?;
@@ -258,7 +267,7 @@ fn nix_element(executable: &Path, host: &dyn Host) -> Option<String> {
     let holds = |element: &serde_json::Value| {
         element["storePaths"]
             .as_array()
-            .is_some_and(|paths| paths.iter().any(|p| p.as_str() == store.to_str()))
+            .is_some_and(|paths| paths.iter().any(|p| p.as_str() == Some(store.as_str())))
     };
     match &manifest["elements"] {
         serde_json::Value::Object(elements) => elements
@@ -274,19 +283,28 @@ fn nix_element(executable: &Path, host: &dyn Host) -> Option<String> {
     }
 }
 
-/// A crate `cargo install` put there.
+/// A crate `cargo install` put there, and where it came from.
 #[derive(Debug, PartialEq, Eq)]
 struct CargoCrate {
     name: String,
-    /// The repository, for a crate installed with `--git`.
-    git: Option<String>,
+    source: CrateSource,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CrateSource {
+    CratesIo,
+    /// An HTTPS git repository, for a crate installed with `--git`.
+    Git(String),
+    /// Anything else (another registry, SSH git, a path): no one command.
+    Other,
 }
 
 impl CargoCrate {
-    fn command(&self) -> String {
-        match &self.git {
-            Some(url) => format!("cargo install --git {url} {}", self.name),
-            None => format!("cargo install {}", self.name),
+    fn command(&self) -> Option<String> {
+        match &self.source {
+            CrateSource::CratesIo => Some(format!("cargo install {}", self.name)),
+            CrateSource::Git(url) => Some(format!("cargo install --git {url} {}", self.name)),
+            CrateSource::Other => None,
         }
     }
 }
@@ -314,11 +332,19 @@ fn cargo_crate(crates2: &str, executable: &Path) -> Option<CargoCrate> {
         .nth(1)
         .unwrap_or_default()
         .trim_matches(|c| c == '(' || c == ')');
-    let git = source.strip_prefix("git+").and_then(|url| {
-        let url = url::Url::parse(url).ok()?;
-        (url.scheme() == "https" && url.username().is_empty() && url.password().is_none())
-            .then(|| {
-                let mut url = url;
+    let source = if matches!(
+        source,
+        "registry+https://github.com/rust-lang/crates.io-index" | "sparse+https://index.crates.io/"
+    ) {
+        CrateSource::CratesIo
+    } else {
+        source
+            .strip_prefix("git+")
+            .and_then(|url| url::Url::parse(url).ok())
+            .filter(|url| {
+                url.scheme() == "https" && url.username().is_empty() && url.password().is_none()
+            })
+            .map(|mut url| {
                 url.set_query(None);
                 url.set_fragment(None);
                 url.to_string()
@@ -327,8 +353,9 @@ fn cargo_crate(crates2: &str, executable: &Path) -> Option<CargoCrate> {
                 url.bytes()
                     .all(|b| b.is_ascii_graphic() && !b"'\"`$\\;&|<>(){}".contains(&b))
             })
-    });
-    Some(CargoCrate { name, git })
+            .map_or(CrateSource::Other, CrateSource::Git)
+    };
+    Some(CargoCrate { name, source })
 }
 
 #[cfg(test)]
@@ -403,6 +430,11 @@ mod tests {
             update.command.as_deref(),
             Some("sudo dnf upgrade --refresh spotifast")
         );
+        // Without /etc/os-release: dnf or zypper can't be told, so no command.
+        let unknown = FakeHost::default().answering("rpm -qf", "spotifast");
+        let update = on(rpm.clone(), "/usr/bin/spotifast", &unknown).unwrap();
+        assert_eq!(update.package.as_deref(), Some("spotifast"));
+        assert_eq!(update.command, None);
         for release in [
             "ID=\"opensuse-tumbleweed\"\nID_LIKE=\"opensuse suse\"\n",
             "ID=\"opensuse-leap\"\n",
@@ -508,6 +540,23 @@ mod tests {
             command(on(Unsupported::Cargo, "/home/me/.cargo/bin/rg", &host)).as_deref(),
             Some("cargo install ripgrep")
         );
+        // Another registry or SSH git: no command that would take crates.io's.
+        let other = r#"{"installs":{
+            "tool 1.0.0 (registry+https://my.registry/index)":{"bins":["tool"]},
+            "app 1.0.0 (git+ssh://git@github.com/me/app#abc)":{"bins":["app"]}}}"#;
+        let host = FakeHost::default()
+            .with_var("HOME", "/home/me")
+            .with_file("/home/me/.cargo/.crates2.json", other);
+        for bin in ["tool", "app"] {
+            let update = on(
+                Unsupported::Cargo,
+                &format!("/home/me/.cargo/bin/{bin}"),
+                &host,
+            )
+            .unwrap();
+            assert!(update.package.is_some());
+            assert_eq!(update.command, None, "{bin}");
+        }
     }
 
     #[test]

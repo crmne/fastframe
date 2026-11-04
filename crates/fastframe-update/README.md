@@ -39,14 +39,19 @@ fn main() {
 // On a worker thread, when the app decides to check:
 let updater = Updater::new(UPDATES, ReqwestTransport::new(app_client_builder())?);
 if let Some(release) = updater.check()? {
-    match updater.installation() {
+    // Only a release whose checksums.txt carries the publisher's signature.
+    let verified = updater.verify(&release)?;
+    match updater.installable(&verified) {
         Ok(_) => {
             let prepared = updater.download(&release, |received, total| { /* progress */ })?;
             // When the user clicks "Restart to update":
             updater.handoff(prepared, relaunch_arguments)?;
             // quit now
         }
-        Err(reason) => { /* show `reason` and the release page */ }
+        Err(reason) => {
+            // Show `reason` and the release page, and the command from
+            // `updater.managed_update()` when there is one (below).
+        }
     }
 }
 ```

@@ -200,11 +200,34 @@ mod os {
                 .args(args)
                 .env("LC_ALL", "C")
                 .stdin(Stdio::null())
+                .stdout(Stdio::piped())
                 .stderr(Stdio::null());
             hidden(&mut command);
-            let output = command.output().ok()?;
-            let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            (output.status.success() && !text.is_empty()).then_some(text)
+            let mut child = command.spawn().ok()?;
+            // A package manager that doesn't answer (a held lock, say) gives
+            // no answer rather than holding the app up.
+            let timing = self.timing();
+            let start = Instant::now();
+            let status = loop {
+                if let Some(status) = child.try_wait().ok()? {
+                    break status;
+                }
+                if start.elapsed() >= timing.version_probe {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(timing.poll);
+            };
+            let mut output = String::new();
+            child
+                .stdout
+                .take()?
+                .take(64 * 1024)
+                .read_to_string(&mut output)
+                .ok()?;
+            let text = output.trim().to_owned();
+            (status.success() && !text.is_empty()).then_some(text)
         }
 
         fn read_text(&self, path: &Path) -> Option<String> {
