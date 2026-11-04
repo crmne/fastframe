@@ -300,9 +300,11 @@ every app can install updates by itself the same way:
 - `policy::may_download(&offer, quiet)`: download in the background only
   while nothing the app does would be disturbed.
 - `policy::installs_at_start(current, kept, automatic, newest_run, quiet)`:
-  at the next start, before anything opens, hand `Updater::kept()` to
-  `Updater::handoff` and quit; the helper installs it, starts the new version
-  and rolls back as for any update.
+  at the next start, before anything opens, call `Updater::kept()`. When it
+  returns `Ok(Some(prepared))`, ask `installs_at_start` with
+  `prepared.version()` as `kept`, and only when it answers `true` hand
+  `prepared` to `Updater::handoff` and quit. The helper installs it, starts
+  the new version and rolls back as for any update.
 
 What "quiet" means is the app's: a track playing, an export, a command
 running.
