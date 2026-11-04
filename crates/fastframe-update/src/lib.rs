@@ -93,6 +93,7 @@ mod helper;
 mod host;
 mod macos;
 mod managed;
+pub mod policy;
 mod release;
 mod rename;
 #[cfg(feature = "reqwest")]
