@@ -288,7 +288,8 @@ pub(crate) fn asset_name(
 /// `aarch64`) where the other downloads carry the whole target.
 pub(crate) fn appimage_name(config: &UpdateConfig, version: &str, target: &str) -> String {
     let arch = target.split('-').next().unwrap_or(target);
-    format!("{}-{version}-{arch}.AppImage", config.slug)
+    let name = config.appimage_name.unwrap_or(config.slug);
+    format!("{name}-{version}-{arch}.AppImage")
 }
 
 /// The Windows Installer package a release publishes beside the setup
@@ -789,6 +790,24 @@ mod tests {
         assert_eq!(
             appimage_name(&SPOTIFAST, "0.14.0-rc.1", target),
             "spotifast-0.14.0-rc.1-x86_64.AppImage"
+        );
+        // native-packages names it after the package, not the program.
+        const DESKTOP: UpdateConfig = UpdateConfig {
+            appimage_name: Some("chatwithwork-desktop"),
+            ..UpdateConfig::new(
+                "crmne/chatwithwork-desktop",
+                "Chat with Work",
+                "cww-app",
+                "0.11.1",
+            )
+        };
+        assert_eq!(
+            asset_name(&DESKTOP, "0.12.0", target, Kind::AppImage, Platform::Linux),
+            "chatwithwork-desktop-0.12.0-x86_64.AppImage"
+        );
+        assert_eq!(
+            asset_name(&DESKTOP, "0.12.0", target, Kind::Portable, Platform::Linux),
+            "cww-app-v0.12.0-x86_64-unknown-linux-gnu.tar.gz"
         );
     }
 }

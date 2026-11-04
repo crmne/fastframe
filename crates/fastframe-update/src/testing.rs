@@ -148,6 +148,8 @@ pub(crate) struct FakeHost {
     user_id: Option<u32>,
     owners: Vec<String>,
     queries: Mutex<Vec<String>>,
+    answers: HashMap<String, String>,
+    files: HashMap<PathBuf, String>,
     entries: HashMap<String, Vec<u8>>,
     version: Option<String>,
     probes: Mutex<Vec<PathBuf>>,
@@ -176,6 +178,8 @@ impl Default for FakeHost {
             user_id: None,
             owners: Vec::new(),
             queries: Mutex::default(),
+            answers: HashMap::new(),
+            files: HashMap::new(),
             entries: HashMap::new(),
             version: None,
             probes: Mutex::default(),
@@ -217,6 +221,17 @@ impl FakeHost {
 
     pub(crate) fn owned_by(mut self, program: &str) -> Self {
         self.owners.push(program.to_owned());
+        self
+    }
+
+    /// What `program first-argument ...` prints, keyed `"program first"`.
+    pub(crate) fn answering(mut self, command: &str, output: &str) -> Self {
+        self.answers.insert(command.to_owned(), output.to_owned());
+        self
+    }
+
+    pub(crate) fn with_file(mut self, path: &str, text: &str) -> Self {
+        self.files.insert(PathBuf::from(path), text.to_owned());
         self
     }
 
@@ -376,6 +391,18 @@ impl Host for FakeHost {
     fn package_owner(&self, program: &str, flag: &str, path: &Path) -> bool {
         lock(&self.queries).push(format!("{program} {flag} {}", path.display()));
         self.owners.iter().any(|owner| owner == program)
+    }
+
+    fn query(&self, program: &str, args: &[&std::ffi::OsStr]) -> Option<String> {
+        let first = args
+            .first()
+            .map(|a| a.to_string_lossy())
+            .unwrap_or_default();
+        self.answers.get(&format!("{program} {first}")).cloned()
+    }
+
+    fn read_text(&self, path: &Path) -> Option<String> {
+        self.files.get(path).cloned()
     }
 
     fn extract(&self, _archive: &Path, entry: &str, destination: &Path) -> Result<()> {

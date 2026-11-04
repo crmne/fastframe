@@ -27,6 +27,259 @@ pub(crate) struct Inputs<'a> {
     pub(crate) arch: &'a str,
 }
 
+/// The publisher keys the configuration trusts, the first one first.
+fn keys(config: &UpdateConfig) -> Result<Vec<[u8; 32]>> {
+    config
+        .publisher_key
+        .into_iter()
+        .chain(config.additional_publisher_keys.iter().copied())
+        .map(signing::decode_key)
+        .collect()
+}
+
+/// The release's `checksums.txt` and, with a publisher key, its signature,
+/// once that verifies with one of the trusted keys. Nothing in it may be
+/// read before this returns.
+fn signed_manifest(
+    config: &UpdateConfig,
+    transport: &dyn Transport,
+    source: &Source,
+    metadata: &release::Metadata,
+    version: &str,
+) -> Result<(Vec<u8>, Option<Vec<u8>>)> {
+    let keys = keys(config)?;
+    let checksums = metadata.asset("checksums.txt")?;
+    let signature = (!keys.is_empty())
+        .then(|| metadata.asset("checksums.txt.sig"))
+        .transpose()?;
+    ensure!(
+        checksums.size <= MANIFEST_LIMIT && signature.is_none_or(|signature| signature.size == 64),
+        "Invalid signed update metadata size"
+    );
+    for asset in [Some(checksums), signature].into_iter().flatten() {
+        let url = Url::parse(&asset.browser_download_url)?;
+        ensure!(
+            source.owns_asset(config, &url, version, &asset.name),
+            "Update asset does not belong to this release"
+        );
+    }
+    let mut manifest = Vec::new();
+    fetch(
+        transport,
+        source,
+        config,
+        &checksums.browser_download_url,
+        BINARY,
+    )?
+    .take(MANIFEST_LIMIT + 1)
+    .read_to_end(&mut manifest)?;
+    ensure!(
+        manifest.len() as u64 == checksums.size,
+        "Invalid update checksum download size"
+    );
+    let Some(signature) = signature else {
+        return Ok((manifest, None));
+    };
+    let mut bytes = Vec::new();
+    fetch(
+        transport,
+        source,
+        config,
+        &signature.browser_download_url,
+        BINARY,
+    )?
+    .take(65)
+    .read_to_end(&mut bytes)?;
+    // Any trusted key will do: during a key rotation releases are signed
+    // with one while installs trust both.
+    let mut result = signing::verify(&manifest, &bytes, &keys[0]);
+    for other in &keys[1..] {
+        if result.is_ok() {
+            break;
+        }
+        result = signing::verify(&manifest, &bytes, other);
+    }
+    result?;
+    Ok((manifest, Some(bytes)))
+}
+
+/// A release whose `checksums.txt` verified with the publisher key and
+/// names a download of its version for this system. What a copy that
+/// can't install it may announce, and what [`Updater::installable`]
+/// checks a copy's download against.
+///
+/// [`Updater::installable`]: crate::Updater::installable
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedRelease {
+    release: Release,
+    files: Vec<String>,
+    /// Who verified it: the publisher key and the source, so a release
+    /// verified by another updater isn't taken for this one's.
+    verifier: Verifier,
+}
+
+impl VerifiedRelease {
+    /// The release.
+    pub fn release(&self) -> &Release {
+        &self.release
+    }
+
+    #[cfg(test)]
+    pub(crate) fn listing(release: Release, files: &[&str], config: &UpdateConfig) -> Self {
+        Self {
+            release,
+            files: files.iter().map(|file| (*file).to_owned()).collect(),
+            verifier: Verifier::of(config, &Source::github()),
+        }
+    }
+
+    /// Whether `config` and `source` are the ones that verified it.
+    pub(crate) fn verified_by(&self, config: &UpdateConfig, source: &Source) -> bool {
+        self.verifier == Verifier::of(config, source)
+    }
+
+    /// Whether the signed `checksums.txt` lists the file `name`.
+    pub fn lists(&self, name: &str) -> bool {
+        self.files.iter().any(|file| file == name)
+    }
+}
+
+/// Who verified a release: the repository, the source, and the keys trusted
+/// (decoded and sorted, so equivalent spellings and orders match).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Verifier {
+    repository: &'static str,
+    source: Source,
+    keys: Vec<[u8; 32]>,
+}
+
+impl Verifier {
+    fn of(config: &UpdateConfig, source: &Source) -> Self {
+        let mut keys: Vec<[u8; 32]> = trusted(config)
+            .into_iter()
+            .filter_map(|key| signing::decode_key(key).ok())
+            .collect();
+        keys.sort_unstable();
+        keys.dedup();
+        Self {
+            repository: config.repository,
+            source: source.clone(),
+            keys,
+        }
+    }
+}
+
+/// Every key the configuration trusts, the primary one first.
+pub(crate) fn trusted(config: &UpdateConfig) -> Vec<&'static str> {
+    config
+        .publisher_key
+        .into_iter()
+        .chain(config.additional_publisher_keys.iter().copied())
+        .collect()
+}
+
+/// The names `checksums.txt` lists with a well-formed digest, once each,
+/// by the rules a download checks its file with.
+fn signed_files(text: &str) -> Vec<String> {
+    let mut names: Vec<String> = text
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            match (fields.next(), fields.next(), fields.next()) {
+                (Some(_), Some(file), None) => Some(file.trim_start_matches('*').to_owned()),
+                _ => None,
+            }
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names.retain(|name| release::checksum(text, name).is_ok());
+    names
+}
+
+/// Checks `release` without downloading it: its `checksums.txt` must
+/// verify with the publisher key and list a file of that version for this
+/// system (`<slug>-v<version>-<target>...` or its AppImage).
+pub(crate) fn verify(
+    config: &UpdateConfig,
+    transport: &dyn Transport,
+    source: &Source,
+    platform: Platform,
+    arch: &str,
+    release: &Release,
+) -> Result<VerifiedRelease> {
+    ensure!(
+        config.publisher_key.is_some(),
+        "Verifying a release needs a publisher key"
+    );
+    ensure!(
+        config.accepts_version(&release.version),
+        "Invalid release version"
+    );
+    let target = release::target(platform, arch, config.mac_target)?;
+    let metadata = release::metadata(config, transport, source, &release.version)?;
+    let (manifest, _) = signed_manifest(config, transport, source, &metadata, &release.version)?;
+    let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
+    // The files the release both signs (one well-formed line each, as a
+    // download requires) and has attached, as a download finds them.
+    let files: Vec<String> = signed_files(text)
+        .into_iter()
+        .filter(|file| {
+            metadata.asset(file).is_ok_and(|asset| {
+                Url::parse(&asset.browser_download_url)
+                    .is_ok_and(|url| source.owns_asset(config, &url, &release.version, &asset.name))
+            })
+        })
+        .collect();
+    let stem = release::stem(config, &release.version, target);
+    let appimage = release::appimage_name(config, &release.version, target);
+    let ours = files.iter().any(|file| {
+        file.starts_with(&format!("{stem}."))
+            || *file == format!("{stem}-setup.exe")
+            || *file == appimage
+    });
+    ensure!(
+        ours,
+        "The signed checksums list no download of version {} for this system",
+        release.version
+    );
+    Ok(VerifiedRelease {
+        release: release.clone(),
+        files,
+        verifier: Verifier::of(config, source),
+    })
+}
+
+/// Whether `version`'s release has this processor's AppImage and its
+/// (signed, with a publisher key) `checksums.txt` lists it. What a check
+/// learns for an AppImage copy, so an app that never calls
+/// [`Updater::installable`] still hears "can't update here" from
+/// [`Updater::installation`] instead of a failed download.
+///
+/// [`Updater::installable`]: crate::Updater::installable
+/// [`Updater::installation`]: crate::Updater::installation
+pub(crate) fn appimage_listed(
+    config: &UpdateConfig,
+    transport: &dyn Transport,
+    source: &Source,
+    platform: Platform,
+    arch: &str,
+    version: &str,
+) -> Result<bool> {
+    let target = release::target(platform, arch, config.mac_target)?;
+    let name = release::appimage_name(config, version, target);
+    let metadata = release::metadata(config, transport, source, version)?;
+    let (manifest, _) = signed_manifest(config, transport, source, &metadata, version)?;
+    let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
+    // As a download would find it: one attached asset of a plausible size,
+    // and one well-formed signed line.
+    let attached = metadata.asset(&name).is_ok_and(|asset| {
+        Url::parse(&asset.browser_download_url)
+            .is_ok_and(|url| source.owns_asset(config, &url, version, &asset.name))
+    });
+    Ok(attached && release::checksum(text, &name).is_ok())
+}
+
 /// Downloads `release` for `installation` and verifies it. Nothing is
 /// written before the checksum file's publisher signature checks out, and
 /// a failure removes the staging folder again.
@@ -48,43 +301,27 @@ pub(crate) fn download(
         config.accepts_version(&release.version),
         "Invalid release version"
     );
-    let keys = config
-        .publisher_key
-        .into_iter()
-        .chain(config.additional_publisher_keys.iter().copied())
-        .map(signing::decode_key)
-        .collect::<Result<Vec<_>>>()?;
-    let key = keys.first().copied();
+    // A bad key fails before anything is fetched.
+    keys(config)?;
     let target = release::target(platform, arch, config.mac_target)?;
     let metadata = release::metadata(config, transport, source, &release.version)?;
     let stem = release::stem(config, &release.version, target);
-    let mut name = release::asset_name(
-        config,
-        &release.version,
-        target,
-        installation.kind,
-        platform,
-    );
-    // A release that ships a Windows Installer package installs through it;
-    // older releases only have the setup program.
-    if installation.kind == Kind::WindowsInstaller {
-        let msi = release::msi_name(&stem);
-        if metadata.assets.iter().any(|asset| asset.name == msi) {
-            name = msi;
-        }
-    }
-    let package = metadata.asset(&name)?;
-    let checksums = metadata.asset("checksums.txt")?;
-    let signature = key
-        .map(|_| metadata.asset("checksums.txt.sig"))
-        .transpose()?;
-    ensure!(
-        checksums.size <= MANIFEST_LIMIT && signature.is_none_or(|signature| signature.size == 64),
-        "Invalid signed update metadata size"
-    );
-    for asset in [Some(package), Some(checksums), signature]
-        .into_iter()
-        .flatten()
+    // A download the release attaches from outside itself is refused before
+    // anything is fetched.
+    let candidates = [
+        release::asset_name(
+            config,
+            &release.version,
+            target,
+            installation.kind,
+            platform,
+        ),
+        release::msi_name(&stem),
+    ];
+    for asset in metadata
+        .assets
+        .iter()
+        .filter(|asset| candidates.contains(&asset.name))
     {
         let url = Url::parse(&asset.browser_download_url)?;
         ensure!(
@@ -92,50 +329,42 @@ pub(crate) fn download(
             "Update asset does not belong to this release"
         );
     }
-    let mut manifest = Vec::new();
-    fetch(
-        transport,
-        source,
+    // Which download, and whether there is one, only once checksums.txt
+    // verifies.
+    let (manifest, signature_bytes) =
+        signed_manifest(config, transport, source, &metadata, &release.version)?;
+    let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
+    let signed = signed_files(text);
+    let mut name = release::asset_name(
         config,
-        &checksums.browser_download_url,
-        BINARY,
-    )?
-    .take(MANIFEST_LIMIT + 1)
-    .read_to_end(&mut manifest)?;
-    ensure!(
-        manifest.len() as u64 == checksums.size,
-        "Invalid update checksum download size"
+        &release.version,
+        target,
+        installation.kind,
+        platform,
     );
-    let mut signature_bytes = None;
-    if let (Some(_), Some(signature)) = (key, signature) {
-        let mut bytes = Vec::new();
-        fetch(
-            transport,
-            source,
-            config,
-            &signature.browser_download_url,
-            BINARY,
-        )?
-        .take(65)
-        .read_to_end(&mut bytes)?;
-        // Do not parse a checksum, download a package or create staging
-        // files until the manifest is authorized by the embedded key.
-        // Any trusted key will do: during a key rotation releases are
-        // signed with one while installs trust both.
-        let mut result = signing::verify(&manifest, &bytes, &keys[0]);
-        for other in &keys[1..] {
-            if result.is_ok() {
-                break;
-            }
-            result = signing::verify(&manifest, &bytes, other);
+    // A release that signs a Windows Installer package installs through it;
+    // older releases only have the setup program.
+    if installation.kind == Kind::WindowsInstaller {
+        let msi = release::msi_name(&stem);
+        if signed.contains(&msi) && metadata.asset(&msi).is_ok() {
+            name = msi;
         }
-        result?;
-        signature_bytes = Some(bytes);
     }
-    let expected = release::checksum(
-        std::str::from_utf8(&manifest).context("Invalid update checksum text")?,
-        &name,
-    )?;
+    // A release that doesn't sign this installation's download (an AppImage
+    // left out of checksums.txt), or hasn't attached it, is out, just not
+    // installable from here: say so in a way the app can tell from a failed
+    // download.
+    ensure!(
+        signed.contains(&name) && metadata.asset(&name).is_ok(),
+        crate::detect::Unsupported::MissingAsset
+    );
+    let package = metadata.asset(&name)?;
+    let url = Url::parse(&package.browser_download_url)?;
+    ensure!(
+        source.owns_asset(config, &url, &release.version, &package.name),
+        "Update asset does not belong to this release"
+    );
+    let expected = release::checksum(text, &name)?;
     let directory = stage::staging(config, &installation)?;
     let result = (|| -> Result<Staged> {
         let archive = directory.join(&name);
@@ -541,6 +770,106 @@ mod tests {
             publisher_key: Some(key),
             ..ZAPFAST
         }
+    }
+
+    fn verify_fixture(fixture: &Fixture, config: &UpdateConfig) -> Result<VerifiedRelease> {
+        verify(
+            config,
+            &fixture.transport(),
+            &Source::github(),
+            fixture.platform,
+            fixture.arch,
+            &Release {
+                version: fixture.version.into(),
+                url: String::new(),
+            },
+        )
+    }
+
+    #[test]
+    fn an_appimage_the_release_does_not_sign_is_missing_not_failed() {
+        // The release publishes only the portable archive.
+        let fixture = Fixture::default();
+        let folder = tempfile::tempdir().unwrap();
+        let error = run(
+            &fixture,
+            &config(),
+            &FakeHost::default(),
+            Installation {
+                executable: folder.path().join("ZapFast.AppImage"),
+                kind: Kind::AppImage,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<crate::Unsupported>(),
+            Some(&crate::Unsupported::MissingAsset)
+        );
+    }
+
+    #[test]
+    fn a_signed_release_verifies_without_downloading_its_package() {
+        let fixture = Fixture::default();
+        let transport = fixture.transport();
+        let verified = verify(
+            &config(),
+            &transport,
+            &Source::github(),
+            Platform::Linux,
+            "x86_64",
+            &Release {
+                version: VERSION.into(),
+                url: String::new(),
+            },
+        )
+        .unwrap();
+        assert!(verified.lists(&fixture.name()));
+        // Signed but not attached: not a download.
+        assert!(!verified.lists("checksums-other.txt"));
+        assert!(!verified.lists("zapfast-0.17.0-x86_64.AppImage"));
+        assert_eq!(verified.release().version, VERSION);
+        assert!(
+            !transport
+                .requested()
+                .iter()
+                .any(|url| url.contains("release-assets")),
+            "the package was fetched: {:?}",
+            transport.requested()
+        );
+    }
+
+    #[test]
+    fn verifying_refuses_other_keys_changed_manifests_and_other_versions() {
+        let mut other = config();
+        other.publisher_key = Some("11".repeat(32).leak());
+        assert!(verify_fixture(&Fixture::default(), &other).is_err());
+        let changed = Fixture {
+            signed_manifest: Some("something else".into()),
+            ..Fixture::default()
+        };
+        assert!(verify_fixture(&changed, &config()).is_err());
+        let unsigned = Fixture {
+            signature: false,
+            ..Fixture::default()
+        };
+        assert!(verify_fixture(&unsigned, &config()).is_err());
+        // Without a publisher key there's nothing to verify against.
+        assert!(verify_fixture(&Fixture::default(), &ZAPFAST).is_err());
+        // checksums.txt must list a download of this version for this system.
+        let transport = Fixture::default().transport();
+        let error = verify(
+            &config(),
+            &transport,
+            &Source::github(),
+            Platform::Windows,
+            "x86_64",
+            &Release {
+                version: VERSION.into(),
+                url: String::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("no download"), "{error:#}");
     }
 
     fn run(

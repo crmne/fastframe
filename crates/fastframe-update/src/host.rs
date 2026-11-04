@@ -57,6 +57,11 @@ pub(crate) trait Host: Send + Sync {
     fn user_id(&self) -> Option<u32>;
     /// Whether `program flag path` succeeds: the package manager owns `path`.
     fn package_owner(&self, program: &str, flag: &str, path: &Path) -> bool;
+    /// What `program args` printed, trimmed, when it ran and succeeded with
+    /// some output: a package's name, say.
+    fn query(&self, program: &str, args: &[&std::ffi::OsStr]) -> Option<String>;
+    /// A small text file, such as `/etc/os-release`.
+    fn read_text(&self, path: &Path) -> Option<String>;
     /// Writes the archive member `entry` to the new file `destination`.
     fn extract(&self, archive: &Path, entry: &str, destination: &Path) -> Result<()>;
     /// What `executable --version` printed, trimmed.
@@ -120,6 +125,23 @@ mod os {
 
     use super::{Child, Host, OsHost};
     use crate::stage::LIMIT;
+
+    /// Stops a query and, on Unix, the process group it leads.
+    fn stop_group(child: &mut std::process::Child) {
+        #[cfg(unix)]
+        {
+            // /bin/kill, not one from PATH: macOS and Linux both have it.
+            let mut kill = Command::new("/bin/kill");
+            kill.arg("-KILL")
+                .arg(format!("-{}", child.id()))
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let _ = kill.status();
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 
     /// Keeps a console window from flashing up on Windows.
     fn hidden(command: &mut Command) {
@@ -187,6 +209,67 @@ mod os {
                 .stderr(Stdio::null());
             hidden(&mut command);
             command.status().is_ok_and(|status| status.success())
+        }
+
+        fn query(&self, program: &str, args: &[&std::ffi::OsStr]) -> Option<String> {
+            let mut command = Command::new(program);
+            command
+                .args(args)
+                .env("LC_ALL", "C")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+            hidden(&mut command);
+            // Its own process group, so a timeout stops whatever it started
+            // too, and the reader below sees its output close.
+            #[cfg(unix)]
+            std::os::unix::process::CommandExt::process_group(&mut command, 0);
+            let mut child = command.spawn().ok()?;
+            // A package manager that doesn't answer (a held lock, or a
+            // descendant keeping its output open) gives no answer rather than
+            // holding the app up: the output is read on a thread of its own,
+            // and both wait under one deadline.
+            let timing = self.timing();
+            let start = Instant::now();
+            let mut stdout = child.stdout.take()?;
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let mut output = String::new();
+                let read = (&mut stdout)
+                    .take(64 * 1024)
+                    .read_to_string(&mut output)
+                    .map(|_| output);
+                let _ = tx.send(read);
+            });
+            let status = loop {
+                if let Some(status) = child.try_wait().ok()? {
+                    break status;
+                }
+                if start.elapsed() >= timing.version_probe {
+                    stop_group(&mut child);
+                    return None;
+                }
+                std::thread::sleep(timing.poll);
+            };
+            let left = timing.version_probe.saturating_sub(start.elapsed());
+            let Ok(read) = rx.recv_timeout(left) else {
+                // A descendant still holds the output: stop the group.
+                stop_group(&mut child);
+                return None;
+            };
+            let output = read.ok()?;
+            let text = output.trim().to_owned();
+            (status.success() && !text.is_empty()).then_some(text)
+        }
+
+        fn read_text(&self, path: &Path) -> Option<String> {
+            let mut text = String::new();
+            fs::File::open(path)
+                .ok()?
+                .take(LIMIT.min(4 * 1024 * 1024))
+                .read_to_string(&mut text)
+                .ok()?;
+            Some(text)
         }
 
         fn extract(&self, archive: &Path, entry: &str, destination: &Path) -> Result<()> {
