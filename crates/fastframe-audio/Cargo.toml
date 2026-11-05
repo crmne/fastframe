@@ -38,7 +38,7 @@ log.workspace = true
 # Spotifast mixes with. Without default features, so neither its `playback`
 # (which would bring cpal 0.16 and a second output stream) nor its decoders
 # come in: only the mixer and sources, on `dasp_sample` and `num-rational`.
-rodio = { version = "0.21", default-features = false, optional = true }
+rodio = { version = "0.23", default-features = false, optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Registers the stream's thread with the Multimedia Class Scheduler Service.
