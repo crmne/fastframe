@@ -13,10 +13,10 @@ keywords = ["egui", "eframe", "opengl", "wgpu", "desktop"]
 categories = ["gui"]
 
 [features]
-## Retry with eframe's wgpu renderer when OpenGL cannot draw the window:
-## Direct3D 12 on Windows (WARP, Windows' own software renderer, without a
-## vendor driver), Metal on macOS, Vulkan or OpenGL ES on Linux. It adds wgpu
-## to the app's build, several megabytes, so each app chooses it.
+## Enable eframe's wgpu renderer: Metal first on macOS, with OpenGL as the
+## fallback; Direct3D 12 on Windows (including WARP without a vendor driver)
+## and Vulkan or OpenGL ES on Linux when OpenGL cannot draw the window.
+## It adds several megabytes to the app's build, so each app chooses it.
 wgpu = ["eframe/wgpu"]
 
 [dependencies]

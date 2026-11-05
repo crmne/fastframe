@@ -631,15 +631,37 @@ mod tests {
 
     #[test]
     fn glow_is_tried_first_except_on_macos_with_wgpu() {
-        let metal_first = cfg!(all(feature = "wgpu", target_os = "macos"));
-        let first = if metal_first {
-            Renderer::Wgpu
-        } else {
-            Renderer::Glow
-        };
+        #[cfg(all(feature = "wgpu", target_os = "macos"))]
+        let first = Renderer::Wgpu;
+        #[cfg(not(all(feature = "wgpu", target_os = "macos")))]
+        let first = Renderer::Glow;
         assert_eq!(RENDERERS.first(), Some(&first));
         assert_eq!(RENDERERS.len(), if cfg!(feature = "wgpu") { 2 } else { 1 });
-        assert!(RENDERERS.contains(&Renderer::Glow), "glow is always a choice");
+        assert!(
+            RENDERERS.contains(&Renderer::Glow),
+            "glow is always a choice"
+        );
+    }
+
+    #[cfg(all(feature = "wgpu", target_os = "macos"))]
+    #[test]
+    fn a_metal_startup_failure_falls_back_to_glow() {
+        let mut tried = Vec::new();
+        let worked = try_renderers(
+            None,
+            RENDERERS,
+            |renderer| {
+                tried.push(renderer);
+                match renderer {
+                    Renderer::Wgpu => (Err("no Metal adapter"), false),
+                    Renderer::Glow => (Ok(()), true),
+                }
+            },
+            |_| true,
+        )
+        .expect("OpenGL can still open the window");
+        assert_eq!(tried, [Renderer::Wgpu, Renderer::Glow]);
+        assert_eq!(worked, Renderer::Glow);
     }
 
     fn trouble(cause: Cause, help_url: Option<&'static str>) -> Trouble<'static> {

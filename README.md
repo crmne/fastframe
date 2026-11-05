@@ -79,7 +79,7 @@ apps replaced.
 | [`fastframe-dock`](crates/fastframe-dock) | macOS Dock icons and visibility, plus desktop unread badges. |
 | [`fastframe-titlebar`](crates/fastframe-titlebar) | Draggable headers, native button layouts, double-click actions, and resize edges. |
 | [`fastframe-shell`](crates/fastframe-shell) | Keep running without a window, reopen it, and restore its size, position, and zoom. |
-| [`fastframe-graphics`](crates/fastframe-graphics) | Open the window without OpenGL 2 through wgpu, or explain the missing graphics driver in a native dialog. |
+| [`fastframe-graphics`](crates/fastframe-graphics) | Choose Metal first on macOS with `wgpu`, fall back to available graphics, or explain why no window opens. |
 | [`fastframe-audio`](crates/fastframe-audio) | Maintained audio input and output, preallocated output conversion, guarded Linux real-time promotion, device changes, app and stream names in volume mixers, and rodio mixing. |
 | [`fastframe-scroll`](crates/fastframe-scroll) | Platform wheel steps, touchpad momentum, and axis locking. |
 | [`fastframe-autostart`](crates/fastframe-autostart) | Start at login through each platform, including Flatpak and hidden startup. |
