@@ -130,8 +130,8 @@ draws on the processor, so animation costs CPU time; the app runs, slowly
 rather than not at all.
 
 - With both renderers compiled in, eframe's own default becomes wgpu.
-  `run_native` always sets glow first, so the app keeps its renderer on
-  every computer that has OpenGL 2.
+  `run_native` tries wgpu first on macOS and glow first elsewhere. On other
+  platforms, the app keeps glow on every computer that has OpenGL 2.
 - Code that draws with glow directly (paint callbacks, `cc.gl`) needs a wgpu
   path or must check `renderer()`. `eframe::App::on_exit` receives `None` for
   the GL context under wgpu.
