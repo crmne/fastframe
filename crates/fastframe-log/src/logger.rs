@@ -70,6 +70,12 @@ impl Logging {
     /// has its log after the restart. The folder it is in is made when it is
     /// missing, as on a first run. If the file cannot be created, logging
     /// continues on stderr and says why.
+    ///
+    /// An app that lets several copies run at once keeps each copy's log: a
+    /// file a running copy still writes is never replaced. When the previous
+    /// log is one, the earlier run's file goes to the first of
+    /// `app.previous.2.log`, `app.previous.3.log` and so on that no running
+    /// copy writes.
     pub fn file(mut self, path: impl Into<PathBuf>) -> Self {
         self.file = Some(path.into());
         self
@@ -141,18 +147,12 @@ impl Logging {
         builder.parse_filters(rust_log.unwrap_or(&self.filter));
         let mut file_error = None;
         if let Some(path) = &self.file {
-            // The earlier run's log is worth more than a failed rename: the
-            // new file is made either way.
-            let previous = previous_log(path);
-            if std::fs::rename(path, &previous).is_ok() {
-                // A version before logs were private left it readable by
-                // others.
-                make_private(&previous);
-            }
+            keep_earlier_log(path);
             let mut options = std::fs::OpenOptions::new();
             options.write(true).create(true).truncate(true);
             match make_folder(path).and_then(|()| open_private(path, &mut options)) {
                 Ok(file) => {
+                    hold(&file);
                     builder.target(env_logger::Target::Pipe(Box::new(Tee {
                         stderr: std::io::stderr(),
                         file,
@@ -172,14 +172,101 @@ impl Logging {
 
 /// Where [`Logging::file`] keeps the earlier run's log: `app.log` becomes
 /// `app.previous.log`, and a name without an extension gains `.previous`.
+///
+/// While a copy of the app that is still running writes this file, the
+/// earlier run's log is kept as `app.previous.2.log` (or the next number
+/// that no running copy writes) instead.
 pub fn previous_log(path: &Path) -> PathBuf {
+    kept_log(path, 1)
+}
+
+/// The `number`th name for an earlier run's log: [`previous_log`] for the
+/// first, then `app.previous.2.log`, `app.previous.3.log` and so on.
+fn kept_log(path: &Path, number: usize) -> PathBuf {
     let mut name = path.file_stem().unwrap_or_default().to_os_string();
     name.push(".previous");
+    if number > 1 {
+        name.push(format!(".{number}"));
+    }
     if let Some(extension) = path.extension() {
         name.push(".");
         name.push(extension);
     }
     path.with_file_name(name)
+}
+
+/// Moves the earlier run's log at `path` aside, to the first kept name
+/// ([`kept_log`]) that no running copy of the app writes, so a copy started
+/// while others run never replaces their logs.
+///
+/// The earlier run's log is worth more than a failed rename: the new file is
+/// made either way.
+fn keep_earlier_log(path: &Path) {
+    let Some(kept) = (1..)
+        .map(|number| kept_log(path, number))
+        .find(|kept| !in_use(kept))
+    else {
+        return;
+    };
+    if std::fs::rename(path, &kept).is_ok() {
+        // A version before logs were private left it readable by others.
+        make_private(&kept);
+    }
+}
+
+/// Marks the log this run writes as in use, for [`in_use`] in copies of the
+/// app started while this one runs. On Unix it is an advisory lock, which
+/// readers of the log never notice, and which moves with the file when a
+/// later copy renames it. On Windows the open file is mark enough: a lock
+/// there would keep everyone else from reading the log.
+fn hold(file: &std::fs::File) {
+    // Without the lock the log is still written, as before there was one.
+    #[cfg(unix)]
+    let _ = file.try_lock();
+    #[cfg(not(unix))]
+    let _ = file;
+}
+
+/// Whether a running copy of the app writes the log at `path`. A missing
+/// file, a link, or one whose state cannot be told is not in use, and is
+/// replaced as before.
+fn in_use(path: &Path) -> bool {
+    // A link may lead to a pipe, which would block the open below.
+    std::fs::symlink_metadata(path).is_ok_and(|found| found.is_file()) && held(path)
+}
+
+/// Whether another open file holds the log at `path`: on Unix, the lock that
+/// [`hold`] takes.
+#[cfg(unix)]
+fn held(path: &Path) -> bool {
+    std::fs::File::open(path).is_ok_and(|file| {
+        matches!(
+            file.try_lock_shared(),
+            Err(std::fs::TryLockError::WouldBlock)
+        )
+    })
+}
+
+/// Whether another open file holds the log at `path`: on Windows, whether it
+/// cannot be opened for this process alone. A running copy writing it is the
+/// usual reason; anything else holding it open only leaves it in place too.
+#[cfg(windows)]
+fn held(path: &Path) -> bool {
+    use std::os::windows::fs::OpenOptionsExt;
+    // `ERROR_SHARING_VIOLATION`.
+    const SHARING_VIOLATION: i32 = 32;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(path)
+        .is_err_and(|error| error.raw_os_error() == Some(SHARING_VIOLATION))
+}
+
+/// Whether another open file holds the log at `path`: never known here, so
+/// the earlier run's log replaces the previous one as before.
+#[cfg(not(any(unix, windows)))]
+fn held(_path: &Path) -> bool {
+    false
 }
 
 /// One log line: `[time LEVEL target] message`, with the message rewritten
@@ -374,6 +461,94 @@ mod tests {
             previous_log(Path::new("/state/log")),
             Path::new("/state/log.previous")
         );
+        assert_eq!(
+            kept_log(Path::new("/state/zapfast.log"), 2),
+            Path::new("/state/zapfast.previous.2.log")
+        );
+        assert_eq!(
+            kept_log(Path::new("/state/log"), 3),
+            Path::new("/state/log.previous.3")
+        );
+    }
+
+    /// Writes `message` through `logger`, as a running copy of the app would.
+    fn log_through(logger: &env_logger::Logger, message: &str) {
+        use log::Log as _;
+        logger.log(
+            &log::Record::builder()
+                .level(log::Level::Warn)
+                .target("zapfast")
+                .args(format_args!("{message}"))
+                .build(),
+        );
+        logger.flush();
+    }
+
+    #[test]
+    fn a_log_is_in_use_while_its_copy_runs() {
+        let dir = std::env::temp_dir().join(format!("fastframe-log-use-{}", std::process::id()));
+        let path = dir.join("app.log");
+        let missing = in_use(&path);
+        let (running, _) = Logging::new("zapfast", "1.0.0").file(&path).build(None);
+        let while_running = in_use(&path);
+        drop(running);
+        let after = in_use(&path);
+        std::fs::remove_dir_all(dir).unwrap();
+        assert_eq!((missing, while_running, after), (false, true, false));
+    }
+
+    /// Several copies of an app running at once: the third start keeps the
+    /// second copy's log under a new name instead of replacing the previous
+    /// log, which the first copy still writes.
+    #[test]
+    fn copies_running_at_once_each_keep_their_log() {
+        let dir = std::env::temp_dir().join(format!("fastframe-log-copies-{}", std::process::id()));
+        let path = dir.join("app.log");
+        let logging = Logging::new("zapfast", "1.0.0").file(&path);
+        let (first, _) = logging.build(None);
+        let (second, _) = logging.build(None);
+        let (third, _) = logging.build(None);
+        log_through(&first, "from the first copy");
+        log_through(&second, "from the second copy");
+        log_through(&third, "from the third copy");
+        let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
+        let logs = [
+            read("app.log"),
+            read("app.previous.log"),
+            read("app.previous.2.log"),
+        ];
+        drop((first, second, third));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(logs[0].ends_with("] from the third copy\n"), "{logs:?}");
+        assert!(logs[1].ends_with("] from the first copy\n"), "{logs:?}");
+        assert!(logs[2].ends_with("] from the second copy\n"), "{logs:?}");
+    }
+
+    /// Kept logs no running copy writes are replaced as before: once the
+    /// first copy quits, the previous log takes the next earlier run again,
+    /// and a numbered log left by a copy that quit is reused, not added to.
+    #[test]
+    fn a_kept_log_no_copy_writes_is_replaced() {
+        let dir = std::env::temp_dir().join(format!("fastframe-log-quit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("app.log");
+        std::fs::write(dir.join("app.previous.2.log"), "a copy that quit\n").unwrap();
+        let logging = Logging::new("zapfast", "1.0.0").file(&path);
+        let (first, _) = logging.build(None);
+        let (second, _) = logging.build(None);
+        let (third, _) = logging.build(None);
+        log_through(&second, "from the second copy");
+        log_through(&third, "from the third copy");
+        drop(first);
+        let (fourth, _) = logging.build(None);
+        let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
+        let logs = [read("app.previous.log"), read("app.previous.2.log")];
+        let third_kept = dir.join("app.previous.3.log").exists();
+        drop((second, third, fourth));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(logs[0].ends_with("] from the third copy\n"), "{logs:?}");
+        assert!(logs[1].ends_with("] from the second copy\n"), "{logs:?}");
+        assert!(!third_kept, "no new name while a free one is left");
     }
 
     #[test]
