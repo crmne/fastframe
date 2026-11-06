@@ -42,6 +42,15 @@ pub(crate) fn align(frame: &eframe::Frame, height: f64) {
     if container.frame() != rect {
         container.setFrame(rect);
     }
+    let left = |kind| {
+        window
+            .standardWindowButton(kind)
+            .map(|b| b.frame().origin.x)
+    };
+    let spacing = super::spacing(
+        left(NSWindowButton::CloseButton),
+        left(NSWindowButton::MiniaturizeButton),
+    );
     let mut parent_rect = parent.frame();
     parent_rect.origin.y = 0.0;
     parent_rect.size.height = height;
@@ -57,12 +66,16 @@ pub(crate) fn align(frame: &eframe::Frame, height: f64) {
     .enumerate()
     {
         if let Some(button) = window.standardWindowButton(kind) {
-            let (x, y) = super::button_origin(index, height, button.frame().size.height);
+            let size = button.frame().size;
+            let (x, y) = super::button_origin(index, height, size.height, spacing);
             let mut origin = button.frame().origin;
             origin.x = x;
             origin.y = y;
             if button.frame().origin != origin {
                 button.setFrameOrigin(origin);
+            }
+            if kind == NSWindowButton::ZoomButton {
+                super::measured(x + size.width);
             }
         }
     }
