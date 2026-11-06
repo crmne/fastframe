@@ -24,8 +24,8 @@ log.workspace = true
 fastframe-file = { path = "../fastframe-file" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# Reads `niri msg --json windows` to find this process's window. Already in
-# every app's tree.
+# Reads `niri msg --json windows` and `hyprctl clients -j` to find this
+# process's window. Already in every app's tree.
 serde_json.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -48,7 +48,7 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Securit
 # The interactive lifecycle regression creates a real tray and native windows.
 fastframe-tray = { path = "../fastframe-tray" }
 eframe = { workspace = true, features = ["default_fonts"] }
-# The niri parser's tests run on every platform.
+# The niri and Hyprland parsers' tests run on every platform.
 serde_json.workspace = true
 
 # The workspace's lints with `unsafe_code` lowered to `deny`, allowed only in

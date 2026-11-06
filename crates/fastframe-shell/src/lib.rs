@@ -55,8 +55,8 @@
 //!   maximized state, and opens the next window with them.
 //! - [`window::recover_offscreen`] moves a window that opened on no connected
 //!   monitor onto the primary one.
-//! - [`window::raise_on_compositor`] asks niri to focus the existing window,
-//!   which Wayland does not let the app do itself.
+//! - [`window::raise_on_compositor`] asks niri or Hyprland to focus the
+//!   existing window, which Wayland does not let the app do itself.
 //! - [`StallWatch`] logs a warning when an update freezes the window.
 //!
 //! [`Shell::run`] marks its thread as the UI thread for `fastframe-file`,
