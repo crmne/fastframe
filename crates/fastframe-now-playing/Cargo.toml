@@ -21,7 +21,7 @@ log.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # MPRIS, as Spotifast and Solco already serve it.
-mpris-server = { version = "0.10", features = ["tokio"] }
+mpris-server = { version = "0.11", features = ["tokio"] }
 # mpris-server speaks zbus with the tokio executor, which fastframe's other
 # Linux crates already turn on. It runs on a current-thread runtime on the
 # controls' own thread, whatever runtime the app uses.
@@ -30,7 +30,7 @@ tokio = { version = "1", default-features = false, features = ["rt", "sync", "ma
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 # The System Media Transport Controls and MPNowPlayingInfoCenter, as
 # Spotifast already uses them.
-souvlaki = { version = "0.8", default-features = false }
+souvlaki = { version = "0.9", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # The hidden window and message loop the Windows controls belong to.

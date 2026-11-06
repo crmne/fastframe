@@ -35,7 +35,7 @@ eframe = { version = "0.36.2", default-features = false, features = ["glow", "wa
 
 # The tray (fastframe-tray): the versions ZapFast and Spotifast build with.
 ksni = { version = "0.3", features = ["blocking"] }
-tray-icon = { version = "0.25", default-features = false }
+tray-icon = { version = "0.26", default-features = false }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSGraphicsContext", "NSResponder", "NSRunningApplication"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDate", "NSGeometry", "NSObjCRuntime", "NSRunLoop", "NSString"] }
@@ -44,7 +44,7 @@ raw-window-handle = "0.6"
 # Win32 calls (fastframe-fonts, fastframe-tray, fastframe-update). arboard,
 # under egui-winit, already brings this version; each crate names the
 # features it calls.
-windows-sys = "0.60"
+windows-sys = "0.61"
 
 # Shared by several crates, at the versions every app already builds.
 directories = "6"
