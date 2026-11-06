@@ -8,10 +8,11 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use egui::epaint::{ClippedShape, Galley, Shape, TextShape};
-use egui::{Color32, FullOutput, Pos2, Rect, TextureId, Vec2};
+use egui::text::{ByteIndex, LayoutJob};
+use egui::{Color32, FullOutput, Pos2, Rect, Stroke, TextureId, Vec2};
 
 use crate::paint::{fit, texture};
-use crate::segment::{Piece, pieces};
+use crate::segment::{Piece, flag_letters, pieces};
 
 /// Draws every emoji in every egui text in colour: labels, buttons, menus,
 /// tooltips, text fields and text an app paints itself.
@@ -46,6 +47,9 @@ struct Coloured {
     galley: Arc<Galley>,
     /// Pictures and where they go, relative to the galley.
     pictures: Vec<(TextureId, Rect)>,
+    /// Flags no font draws, spelled out, and where each goes, relative to
+    /// the galley.
+    spelled: Vec<(Pos2, Arc<Galley>)>,
     /// Whether the text shape's `override_text_color` was baked into the
     /// glyphs and must be dropped.
     baked: bool,
@@ -54,6 +58,9 @@ struct Coloured {
 /// A cluster's picture: ready (its texture and size), `Some(None)` when no
 /// font draws it, `None` while it is being drawn.
 type Lookup<'a> = dyn FnMut(&str) -> Option<Option<(TextureId, Vec2)>> + 'a;
+
+/// Lays text out with the context's fonts.
+type Layout<'a> = dyn FnMut(LayoutJob) -> Arc<Galley> + 'a;
 
 impl egui::Plugin for EmojiPlugin {
     fn debug_name(&self) -> &'static str {
@@ -67,7 +74,17 @@ impl egui::Plugin for EmojiPlugin {
         let mut lookup = |cluster: &str| {
             texture(ctx, cluster).map(|ready| ready.map(|handle| (handle.id(), handle.size_vec2())))
         };
-        self.colour(&mut output.shapes, &mut lookup);
+        let mut spelled = false;
+        let mut layout = |job: LayoutJob| {
+            spelled = true;
+            ctx.fonts_mut(|fonts| fonts.layout_job(job))
+        };
+        self.colour(&mut output.shapes, &mut lookup, &mut layout);
+        if spelled {
+            // A spelled flag's letters may be new to the font texture, which
+            // egui uploads at the end of the next frame.
+            ctx.request_repaint();
+        }
         // egui took this frame's texture uploads before the hook ran;
         // pictures uploaded above belong to this frame.
         let uploaded = ctx.tex_manager().write().take_delta();
@@ -78,11 +95,16 @@ impl egui::Plugin for EmojiPlugin {
 impl EmojiPlugin {
     /// Colours the emoji in `shapes`, keeping what this frame used for the
     /// next one.
-    fn colour(&mut self, shapes: &mut Vec<ClippedShape>, lookup: &mut Lookup<'_>) {
+    fn colour(
+        &mut self,
+        shapes: &mut Vec<ClippedShape>,
+        lookup: &mut Lookup<'_>,
+        layout: &mut Layout<'_>,
+    ) {
         let mut previous = std::mem::take(&mut self.seen);
         let mut inserts: Vec<(usize, ClippedShape)> = Vec::new();
         for (index, clipped) in shapes.iter_mut().enumerate() {
-            for picture in self.visit(&mut clipped.shape, &mut previous, lookup) {
+            for picture in self.visit(&mut clipped.shape, &mut previous, lookup, layout) {
                 inserts.push((
                     index,
                     ClippedShape {
@@ -102,13 +124,14 @@ impl EmojiPlugin {
         shape: &mut Shape,
         previous: &mut HashMap<Key, Seen>,
         lookup: &mut Lookup<'_>,
+        layout: &mut Layout<'_>,
     ) -> Vec<Shape> {
         match shape {
-            Shape::Text(text) => self.text(text, previous, lookup),
+            Shape::Text(text) => self.text(text, previous, lookup, layout),
             Shape::Vec(shapes) => {
                 let mut inserts = Vec::new();
                 for (index, inner) in shapes.iter_mut().enumerate() {
-                    for picture in self.visit(inner, previous, lookup) {
+                    for picture in self.visit(inner, previous, lookup, layout) {
                         inserts.push((index, picture));
                     }
                 }
@@ -124,6 +147,7 @@ impl EmojiPlugin {
         text: &mut TextShape,
         previous: &mut HashMap<Key, Seen>,
         lookup: &mut Lookup<'_>,
+        layout: &mut Layout<'_>,
     ) -> Vec<Shape> {
         if text.angle != 0.0 || !may_hold_emoji(&text.galley.job.text) {
             return Vec::new();
@@ -134,7 +158,8 @@ impl EmojiPlugin {
             self.seen.insert(key, seen);
             coloured
         } else {
-            let (coloured, settled) = colour_galley(&text.galley, text.override_text_color, lookup);
+            let (coloured, settled) =
+                colour_galley(&text.galley, text.override_text_color, lookup, layout);
             if settled {
                 self.seen.insert(
                     key,
@@ -155,11 +180,21 @@ impl EmojiPlugin {
         }
         let tint = Color32::WHITE.gamma_multiply(text.opacity_factor);
         let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-        coloured
+        let mut shapes: Vec<Shape> = coloured
             .pictures
             .iter()
             .map(|(id, rect)| Shape::image(*id, rect.translate(text.pos.to_vec2()), uv, tint))
-            .collect()
+            .collect();
+        shapes.extend(coloured.spelled.iter().map(|(at, letters)| {
+            let mut spelled = TextShape::new(
+                text.pos + at.to_vec2(),
+                letters.clone(),
+                text.fallback_color,
+            );
+            spelled.opacity_factor = text.opacity_factor;
+            Shape::Text(spelled)
+        }));
+        shapes
     }
 }
 
@@ -185,13 +220,14 @@ fn may_hold_emoji(text: &str) -> bool {
     !text.is_ascii() && text.chars().any(|c| u32::from(c) >= 0xA9)
 }
 
-/// The galley with its emoji hidden and their pictures, or `None` when it
-/// has nothing to colour; and whether that answer can be kept (no picture
-/// still on its way).
+/// The galley with its emoji hidden and their pictures (for a flag no font
+/// draws, its letters), or `None` when it has nothing to colour; and whether
+/// that answer can be kept (no picture still on its way).
 fn colour_galley(
     galley: &Arc<Galley>,
     override_color: Option<Color32>,
     lookup: &mut Lookup<'_>,
+    layout: &mut Layout<'_>,
 ) -> (Option<Coloured>, bool) {
     let text = &galley.job.text;
     let clusters: Vec<(Range<usize>, &str)> = {
@@ -215,6 +251,7 @@ fn colour_galley(
 
     let mut settled = true;
     let mut pictures = Vec::new();
+    let mut spellings = Vec::new();
     // (row, first vertex) of each glyph quad to hide.
     let mut hide: Vec<(usize, usize)> = Vec::new();
     for (range, cluster) in clusters {
@@ -246,21 +283,41 @@ fn colour_galley(
         let Some(rect) = cluster_rect(galley, &mine) else {
             continue;
         };
-        match lookup(cluster) {
+        let drawn = match lookup(cluster) {
             Some(Some((id, size))) => {
                 pictures.push((id, fit(rect, size)));
-                for &(row, glyph) in &visible {
-                    let first_vertex = galley.rows[row].row.glyphs[glyph].first_vertex as usize;
-                    hide.push((row, first_vertex));
+                true
+            }
+            Some(None) => {
+                let baseline = galley.rows[row].pos.y + first_glyph.pos.y;
+                if let Some(spelling) =
+                    spell(galley, range.start, cluster, rect, baseline, override_color)
+                {
+                    spellings.push(spelling);
+                    true
+                } else {
+                    false
                 }
             }
-            Some(None) => {}
-            None => settled = false,
+            None => {
+                settled = false;
+                false
+            }
+        };
+        if drawn {
+            for &(row, glyph) in &visible {
+                let first_vertex = galley.rows[row].row.glyphs[glyph].first_vertex as usize;
+                hide.push((row, first_vertex));
+            }
         }
     }
-    if pictures.is_empty() {
+    if pictures.is_empty() && spellings.is_empty() {
         return (None, settled);
     }
+    let spelled = spellings
+        .into_iter()
+        .filter_map(|spelling| spelling.lay_out(layout))
+        .collect();
 
     let mut copy = (**galley).clone();
     let baked = override_color.is_some();
@@ -286,10 +343,74 @@ fn colour_galley(
         Some(Coloured {
             galley: Arc::new(copy),
             pictures,
+            spelled,
             baked,
         }),
         settled,
     )
+}
+
+/// A flag to spell out: its letters' job, the room its emoji takes and the
+/// baseline it sits on, relative to the galley.
+struct Spelling {
+    job: LayoutJob,
+    room: Rect,
+    baseline: f32,
+}
+
+/// A flag no font draws, as its two letters (🇳🇱 as "NL") in the text's own
+/// font and colour, as browsers on Windows show it. `None` for any other
+/// cluster.
+fn spell(
+    galley: &Galley,
+    byte: usize,
+    cluster: &str,
+    room: Rect,
+    baseline: f32,
+    override_color: Option<Color32>,
+) -> Option<Spelling> {
+    let letters = flag_letters(cluster)?;
+    let section = galley
+        .job
+        .sections
+        .iter()
+        .find(|section| section.byte_range.contains(&ByteIndex(byte)))?;
+    let mut format = section.format.clone();
+    // The text already draws its background and lines under the emoji.
+    format.background = Color32::TRANSPARENT;
+    format.underline = Stroke::NONE;
+    format.strikethrough = Stroke::NONE;
+    if let Some(color) = override_color {
+        format.color = color;
+    }
+    Some(Spelling {
+        job: LayoutJob::single_section(letters, format),
+        room,
+        baseline,
+    })
+}
+
+impl Spelling {
+    /// The letters laid out, shrunk to fit the emoji's room, and where they
+    /// go: centred on the room, on the text's baseline.
+    fn lay_out(self, layout: &mut Layout<'_>) -> Option<(Pos2, Arc<Galley>)> {
+        let mut letters = layout(self.job.clone());
+        let width = letters.size().x;
+        if width > self.room.width() {
+            let mut job = self.job;
+            for section in &mut job.sections {
+                section.format.font_id.size *= self.room.width() / width;
+            }
+            letters = layout(job);
+        }
+        let placed = letters.rows.first()?;
+        let own_baseline = placed.pos.y + placed.row.glyphs.first()?.pos.y;
+        let at = Pos2::new(
+            self.room.center().x - letters.size().x / 2.0,
+            self.baseline - own_baseline,
+        );
+        Some((at, letters))
+    }
 }
 
 /// Every glyph with the byte offset of the character it draws, as
@@ -447,10 +568,27 @@ mod tests {
         out
     }
 
+    /// The layout for texts with no flag to spell.
+    fn nothing_to_spell(_: egui::text::LayoutJob) -> Arc<Galley> {
+        panic!("no flag to spell")
+    }
+
     fn frame(ctx: &egui::Context, ui: impl FnMut(&mut egui::Ui)) -> Vec<(Rect, Shape)> {
         let mut output = ctx.run_ui(egui::RawInput::default(), ui);
         output.textures_delta.clear();
         flatten(&output.shapes)
+    }
+
+    /// Runs empty frames until egui asks for no other.
+    fn settle(ctx: &egui::Context) {
+        for _ in 0..10 {
+            if !ctx.has_requested_repaint() {
+                return;
+            }
+            let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+            output.textures_delta.clear();
+        }
+        panic!("egui keeps asking for frames");
     }
 
     #[test]
@@ -521,7 +659,7 @@ mod tests {
             .collect();
         let mut lookup =
             |_: &str| -> Option<Option<(TextureId, Vec2)>> { panic!("no emoji to look up") };
-        plugin.colour(&mut shapes, &mut lookup);
+        plugin.colour(&mut shapes, &mut lookup, &mut nothing_to_spell);
         assert_eq!(shapes.len(), 2, "nothing painted");
         for (shape, galley) in shapes.iter().zip(&galleys) {
             let Shape::Text(text) = &shape.shape else {
@@ -533,6 +671,125 @@ mod tests {
         // having nothing to colour, so it is not segmented again.
         assert_eq!(plugin.seen.len(), 1);
         assert!(plugin.seen.values().all(|seen| seen.coloured.is_none()));
+    }
+
+    #[test]
+    fn a_flag_no_font_draws_is_spelled_in_the_texts_font_and_colour() {
+        // The Noto subset has no Italian flag.
+        let ctx = context();
+        let shapes = frame(&ctx, |ui| {
+            ui.label(egui::RichText::new("🇮🇹 Italia").color(Color32::RED));
+        });
+        assert!(
+            pictures(&shapes).is_empty(),
+            "no picture of its first letter"
+        );
+        let texts = texts(&shapes);
+        let label = texts
+            .iter()
+            .find(|text| text.galley.job.text == "🇮🇹 Italia")
+            .expect("the label's text");
+        let glyphs = glyphs(label);
+        let flag: Vec<&(char, Rect, bool)> = glyphs
+            .iter()
+            .filter(|glyph| ('\u{1F1E6}'..='\u{1F1FF}').contains(&glyph.0))
+            .collect();
+        assert!(!flag.is_empty());
+        assert!(
+            flag.iter().all(|glyph| glyph.2),
+            "the flag's glyphs are hidden"
+        );
+        let room = flag
+            .iter()
+            .map(|glyph| glyph.1)
+            .reduce(|a, b| a.union(b))
+            .expect("the flag's room");
+
+        let letters = texts
+            .iter()
+            .find(|text| text.galley.job.text == "IT")
+            .expect("the flag spelled out");
+        let format = &letters.galley.job.sections[0].format;
+        let label_format = &label.galley.job.sections[0].format;
+        assert_eq!(format.font_id, label_format.font_id);
+        assert_eq!(format.color, Color32::RED);
+        assert_eq!(letters.fallback_color, label.fallback_color);
+        let left = letters.pos.x;
+        let right = left + letters.galley.size().x;
+        assert!(left >= room.left() - 0.5 && right <= room.right() + 0.5);
+        // On the label's baseline.
+        let baseline = |text: &TextShape, chr: char| {
+            let placed = &text.galley.rows[0];
+            let glyph = placed
+                .row
+                .glyphs
+                .iter()
+                .find(|g| g.chr == chr)
+                .expect("glyph");
+            text.pos.y + placed.pos.y + glyph.pos.y
+        };
+        assert!((baseline(letters, 'I') - baseline(label, 'I')).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_spelled_flag_asks_for_one_more_frame_once() {
+        install();
+        let ctx = egui::Context::default();
+        let mut galley = None;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            galley = Some(ui.painter().layout_no_wrap(
+                "🇮🇹".to_owned(),
+                egui::FontId::proportional(14.0),
+                Color32::WHITE,
+            ));
+        });
+        output.textures_delta.clear();
+        let galley = galley.expect("laid out");
+        let mut plugin = EmojiPlugin::default();
+        let hook = |plugin: &mut EmojiPlugin| {
+            let mut output = FullOutput::default();
+            output.shapes.push(ClippedShape {
+                clip_rect: Rect::EVERYTHING,
+                shape: Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
+            });
+            egui::Plugin::output_hook(plugin, &ctx, &mut output);
+            output.textures_delta.clear();
+        };
+        settle(&ctx);
+        hook(&mut plugin);
+        assert!(
+            ctx.has_requested_repaint(),
+            "the letters' glyphs upload next frame"
+        );
+
+        // Spelled once, the flag asks for no more frames.
+        settle(&ctx);
+        hook(&mut plugin);
+        assert!(!ctx.has_requested_repaint());
+    }
+
+    #[test]
+    fn a_spelled_flag_shrinks_to_the_emojis_room() {
+        let ctx = context();
+        let mut galley = None;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            galley = Some(ui.painter().layout_no_wrap(
+                "🇲🇼".to_owned(),
+                egui::FontId::proportional(14.0),
+                Color32::WHITE,
+            ));
+        });
+        output.textures_delta.clear();
+        let galley = galley.expect("laid out");
+        let room = Rect::from_min_size(Pos2::new(3.0, 0.0), egui::vec2(12.0, 20.0));
+        let spelling = spell(&galley, 0, "🇲🇼", room, 15.0, None).expect("a flag");
+        let mut layout = |job: egui::text::LayoutJob| ctx.fonts_mut(|fonts| fonts.layout_job(job));
+        let (at, letters) = spelling.lay_out(&mut layout).expect("laid out");
+        assert_eq!(letters.job.text, "MW");
+        assert!(letters.job.sections[0].format.font_id.size < 14.0);
+        assert!(letters.size().x <= room.width() + 0.01);
+        assert!((at.x + letters.size().x / 2.0 - room.center().x).abs() < 0.01);
+        assert!(spell(&galley, 0, "😀", room, 15.0, None).is_none());
     }
 
     #[test]
@@ -570,7 +827,7 @@ mod tests {
             shape: Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
         }];
         let mut lookup = |_: &str| None;
-        plugin.colour(&mut shapes, &mut lookup);
+        plugin.colour(&mut shapes, &mut lookup, &mut nothing_to_spell);
         assert_eq!(shapes.len(), 1, "no picture yet");
         let Shape::Text(text) = &shapes[0].shape else {
             panic!("still text");
@@ -580,8 +837,37 @@ mod tests {
 
         // Next frame the picture is there.
         let mut ready = |_: &str| Some(Some((TextureId::User(7), egui::vec2(77.0, 72.0))));
-        plugin.colour(&mut shapes, &mut ready);
+        plugin.colour(&mut shapes, &mut ready, &mut nothing_to_spell);
         assert_eq!(shapes.len(), 2);
+    }
+
+    #[test]
+    fn an_emoji_with_no_picture_keeps_its_glyph() {
+        install();
+        let ctx = egui::Context::default();
+        let mut galley = None;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            galley = Some(ui.painter().layout_no_wrap(
+                "wait 😀".to_owned(),
+                egui::FontId::proportional(14.0),
+                Color32::WHITE,
+            ));
+        });
+        output.textures_delta.clear();
+        let galley = galley.expect("laid out");
+        let mut plugin = EmojiPlugin::default();
+        let mut shapes = vec![ClippedShape {
+            clip_rect: Rect::EVERYTHING,
+            shape: Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
+        }];
+        let mut none = |_: &str| Some(None);
+        plugin.colour(&mut shapes, &mut none, &mut nothing_to_spell);
+        assert_eq!(shapes.len(), 1, "nothing painted over it");
+        let Shape::Text(text) = &shapes[0].shape else {
+            panic!("still text");
+        };
+        assert!(Arc::ptr_eq(&text.galley, &galley), "the glyph stays drawn");
+        assert_eq!(plugin.seen.len(), 1, "not asked again next frame");
     }
 
     #[test]
@@ -615,7 +901,7 @@ mod tests {
             asked.push(cluster.to_owned());
             Some(Some((TextureId::User(1), egui::vec2(72.0, 72.0))))
         };
-        plugin.colour(&mut shapes, &mut lookup);
+        plugin.colour(&mut shapes, &mut lookup, &mut nothing_to_spell);
         assert_eq!(asked, vec!["\u{2B1B}\u{FE0F}".to_owned()]);
         assert_eq!(shapes.len(), 3, "one picture, after the typed square");
         assert!(matches!(shapes[2].shape, Shape::Mesh(_)));
@@ -725,7 +1011,7 @@ mod tests {
             shape: Shape::Text(text),
         }];
         let mut lookup = |_: &str| Some(Some((TextureId::User(1), egui::vec2(72.0, 72.0))));
-        plugin.colour(&mut shapes, &mut lookup);
+        plugin.colour(&mut shapes, &mut lookup, &mut nothing_to_spell);
         let Shape::Text(text) = &shapes[0].shape else {
             panic!("still text");
         };
