@@ -41,8 +41,20 @@ fn inset(on_macos: bool, fullscreen: bool, zoom: f32) -> f32 {
 /// passes its height divided by `ctx.zoom_factor()`.
 pub fn align_traffic_lights(frame: &eframe::Frame, ctx: &egui::Context, title_bar_height: f32) {
     #[cfg(target_os = "macos")]
-    if !ctx.input(|input| input.viewport().fullscreen.unwrap_or(false)) {
-        appkit::align(frame, f64::from(title_bar_height * ctx.zoom_factor()));
+    {
+        // Which window the root viewport's header presses belong to. `frame`
+        // is always the root window's, even in a child viewport, which
+        // therefore stays unnamed.
+        if ctx.viewport_id() == egui::ViewportId::ROOT
+            && let Some(number) = appkit::window_number(frame)
+        {
+            // Outside the closure: it holds the context's lock.
+            let id = window_id(ctx);
+            ctx.data_mut(|data| data.insert_temp(id, number));
+        }
+        if !ctx.input(|input| input.viewport().fullscreen.unwrap_or(false)) {
+            appkit::align(frame, f64::from(title_bar_height * ctx.zoom_factor()));
+        }
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (frame, ctx, title_bar_height);
@@ -92,20 +104,45 @@ pub(crate) fn double_click_action() -> DoubleClick {
     DoubleClick::Zoom
 }
 
-/// Handles a press on a header drawn under the hidden title bar, and says
-/// whether it should move the window.
-///
-/// Call it on the press itself (`primary_pressed`), and on `true` send
-/// `ViewportCommand::StartDrag`: AppKit starts a window drag only during the
-/// mouse-down event that began it. The second press of a double-click
-/// performs the system's setting ([`double_click_action`]) and returns
-/// `false`. Fill needs nothing here: AppKit's own window drag, started by the
-/// first press, fills the screen. Off macOS it always returns `true`.
-pub(crate) fn title_bar_press() -> bool {
+/// Keeps each left mouse-down as AppKit dispatches it, for
+/// [`title_bar_press`]. Installs one application-wide monitor the first time.
+pub(crate) fn record_presses() {
     #[cfg(target_os = "macos")]
-    return appkit::title_bar_press();
+    appkit::record_presses();
+}
+
+/// Handles a press on a header drawn under the hidden title bar, and says
+/// whether the caller should still send `ViewportCommand::StartDrag`.
+///
+/// Call it on the press itself (`primary_pressed`); `down` says whether the
+/// button is still held. egui sees the press after AppKit has dispatched it,
+/// when `currentEvent` is often a Force Touch pressure or drag event, so the
+/// press is the mouse-down [`record_presses`] kept for the window
+/// [`align_traffic_lights`] named for this viewport, taken once. A viewport
+/// it never named reads the current event, as before. The second
+/// click performs the system's setting ([`double_click_action`]); any other
+/// press starts AppKit's window drag from that mouse-down, as AppKit requires.
+/// Fill needs nothing here: AppKit's own window drag, started by the first
+/// press, fills the screen. Once another strip or egui pass has taken the
+/// press it returns `false`; with no mouse-down seen in the window yet, and
+/// off macOS, it returns `down`.
+pub(crate) fn title_bar_press(ctx: &egui::Context, down: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let id = window_id(ctx);
+        appkit::title_bar_press(ctx.data(|data| data.get_temp(id)), down)
+    }
     #[cfg(not(target_os = "macos"))]
-    true
+    {
+        let _ = ctx;
+        down
+    }
+}
+
+/// Where [`align_traffic_lights`] keeps the viewport's window number.
+#[cfg(target_os = "macos")]
+fn window_id(ctx: &egui::Context) -> egui::Id {
+    egui::Id::new("fastframe-titlebar-window").with(ctx.viewport_id())
 }
 
 /// Reads `AppleActionOnDoubleClick`, where System Settings stores Zoom as
@@ -135,6 +172,13 @@ mod tests {
         assert_eq!(inset(true, false, 2.0), 42.0, "the buttons do not zoom");
         assert_eq!(inset(true, true, 1.0), 0.0, "no buttons in full screen");
         assert_eq!(inset(false, false, 1.0), 0.0);
+    }
+
+    #[test]
+    fn a_press_with_nothing_kept_drags_while_held() {
+        let ctx = egui::Context::default();
+        assert!(title_bar_press(&ctx, true));
+        assert!(!title_bar_press(&ctx, false));
     }
 
     #[test]
