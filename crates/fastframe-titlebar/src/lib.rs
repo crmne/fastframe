@@ -24,7 +24,8 @@
 //! before the window is made, and the drawn title bar does nothing while it
 //! is off and in full screen. On macOS [`drag`] and [`footprint`] always
 //! work outside full screen, and [`align_traffic_lights`], called every
-//! frame, centres the traffic lights in the header.
+//! frame, centres the traffic lights in the header ([`align_traffic_lights_at`]
+//! also moves them further in).
 //!
 //! ```no_run
 //! # struct Settings { custom_titlebar: bool }
@@ -62,7 +63,7 @@ use egui::{Align2, Rect, vec2};
 mod linux;
 mod macos;
 
-pub use macos::{TRAFFIC_LIGHTS_WIDTH, align_traffic_lights};
+pub use macos::{TRAFFIC_LIGHTS_WIDTH, align_traffic_lights, align_traffic_lights_at};
 
 /// One caption button's slot: Windows' button width, and the room a GNOME
 /// button takes with its spacing.
