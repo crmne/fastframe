@@ -69,7 +69,7 @@ apps replaced.
 | Crate | What it does |
 | --- | --- |
 | [`fastframe-text`](crates/fastframe-text) | Desktop font rendering settings, text scaling, and pixel snapping. |
-| [`fastframe-fonts`](crates/fastframe-fonts) | Inter, system or validated local interface fonts, with script and regional Han fallbacks. |
+| [`fastframe-fonts`](crates/fastframe-fonts) | Inter, system or validated local interface fonts, with script and regional Han fallbacks; variable fallbacks use regular weight. |
 | [`fastframe-emoji`](crates/fastframe-emoji) | Platform colour emoji, drawn off the UI thread, with a bundled fallback. |
 | [`fastframe-icons`](crates/fastframe-icons) | Embedded SVG icon sets, persistent image loading, and shared Lucide icons. |
 | [`fastframe-theme`](crates/fastframe-theme) | Editable JSON palettes, system appearance, live Omarchy themes, and colour transitions. |
