@@ -35,7 +35,7 @@ features:
     link_text: fastframe-text
   - icon: 🎨
     title: Themes people can edit
-    details: JSON palettes loaded off the interface thread, eight shared palettes, light and dark pairs that follow the system, and live Omarchy theme following with a reveal from the middle of the window.
+    details: JSON palettes loaded off the interface thread, nine shared palettes including Pure Black, light and dark pairs that follow the system, and live Omarchy theme following with a reveal from the middle of the window.
     link: /fastframe-theme/
     link_text: fastframe-theme
   - icon: 🪟
