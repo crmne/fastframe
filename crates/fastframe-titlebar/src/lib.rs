@@ -370,15 +370,11 @@ pub fn controls(ui: &mut egui::Ui, style: &Style, labels: &Labels<'_>) {
         .ctx()
         .input(|input| input.viewport().maximized.unwrap_or(false));
     let linux = cfg!(target_os = "linux");
-    // Windows centres its buttons in the header's height.
+    let (inset, height) = windows_buttons(maximized, style.header_height);
     let (margin, top, spacing) = if linux {
         (LINUX_MARGIN, LINUX_MARGIN, 8.0)
     } else {
-        (
-            RESIZE_BORDER,
-            (style.header_height - BUTTON) / 2.0 + 2.0,
-            0.0,
-        )
+        (inset, inset, 0.0)
     };
     let layout = layout();
     for (right, buttons) in [(false, &layout.left), (true, &layout.right)] {
@@ -401,17 +397,28 @@ pub fn controls(ui: &mut egui::Ui, style: &Style, labels: &Labels<'_>) {
                 }
                 ui.horizontal(|ui| {
                     for &button in buttons {
-                        caption_button(ui, button, maximized, style, labels);
+                        caption_button(ui, button, maximized, height, style, labels);
                     }
                 });
             });
     }
 }
 
+/// How far in from the window's top and right edges Windows' buttons start,
+/// and how tall they are: from the edges themselves down to the header's
+/// foot while the window is maximized, so a pointer pushed along the top
+/// edge or into the corner lands on them, as on Windows' own title bar.
+/// Otherwise they start where the resize border ends.
+fn windows_buttons(maximized: bool, header_height: f32) -> (f32, f32) {
+    let inset = if maximized { 0.0 } else { RESIZE_BORDER };
+    (inset, header_height - inset)
+}
+
 fn caption_button(
     ui: &mut egui::Ui,
     button: Button,
     maximized: bool,
+    height: f32,
     style: &Style,
     labels: &Labels<'_>,
 ) {
@@ -450,7 +457,7 @@ fn caption_button(
         ui.scope(|ui| {
             caption_feedback(ui, button == Button::Close);
             ui.add_sized(
-                egui::Vec2::splat(BUTTON),
+                vec2(BUTTON, height),
                 egui::Button::image(image).frame_when_inactive(false),
             )
         })
@@ -478,7 +485,8 @@ fn theme_icon(icon: Icon) -> Option<egui::Image<'static>> {
 }
 
 /// Windows' caption feedback: a light wash over Minimize and Maximize while
-/// hovered, red under Close, each dimmer while pressed.
+/// hovered, red under Close, each dimmer while pressed, square to meet the
+/// window's edges.
 fn caption_feedback(ui: &mut egui::Ui, close: bool) {
     let (hover, pressed) = if close {
         (
@@ -495,9 +503,11 @@ fn caption_feedback(ui: &mut egui::Ui, close: bool) {
     visuals.hovered.bg_fill = hover;
     visuals.hovered.weak_bg_fill = hover;
     visuals.hovered.bg_stroke = egui::Stroke::NONE;
+    visuals.hovered.corner_radius = egui::CornerRadius::ZERO;
     visuals.active.bg_fill = pressed;
     visuals.active.weak_bg_fill = pressed;
     visuals.active.bg_stroke = egui::Stroke::NONE;
+    visuals.active.corner_radius = egui::CornerRadius::ZERO;
 }
 
 /// Lets a press on the window's edges or corners resize it, with the
