@@ -59,6 +59,15 @@ if let Some(release) = updater.check()? {
 `env!("CARGO_PKG_VERSION")` must be expanded in the app. Inside this crate it
 would report fastframe's version, so the app passes its own.
 
+### Which release a person may have
+
+`check` answers "the newest release, when it is newer". An app whose licence
+decides which release someone may have uses `Updater::releases`: every
+published release on this build's channel, newest first, older ones too, each
+with `published_at` when the listing says it. `Updater::download_link` gives
+that release's download for this copy, for a person to open by hand, and
+`Prepared::published_at` says when a kept download's release came out.
+
 ### What the app keeps
 
 - When to check (`CHECK_INTERVAL` is one day), on which thread, and the

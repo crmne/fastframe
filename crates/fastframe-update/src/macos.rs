@@ -589,6 +589,7 @@ mod tests {
             installation,
             sha256: String::new(),
             version: "0.17.0".into(),
+            published_at: None,
         }
     }
 

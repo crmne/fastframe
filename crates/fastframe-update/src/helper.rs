@@ -450,6 +450,7 @@ mod tests {
             directory,
             payload,
             version: "0.17.0".into(),
+            published_at: None,
         }
     }
 
@@ -663,6 +664,7 @@ mod tests {
                 directory,
                 payload,
                 version: "0.17.0".into(),
+                published_at: None,
             };
             let job = write_job(&staged);
             let host = FakeHost::default().on_spawn(if acknowledged {
@@ -883,6 +885,7 @@ mod tests {
                 directory,
                 payload,
                 version: "0.10.4".into(),
+                published_at: None,
             };
             let job = write_job(&staged);
             let host = FakeHost::default().on_spawn(if acknowledges {
@@ -943,6 +946,7 @@ mod tests {
                 directory,
                 payload,
                 version: "0.10.4".into(),
+                published_at: None,
             };
             let job = write_job(&staged);
             let host = FakeHost::default().on_spawn(if acknowledges {
@@ -1021,6 +1025,7 @@ mod tests {
                 directory,
                 payload,
                 version: "0.10.4".into(),
+                published_at: None,
             };
             let job = write_job(&staged);
             let host = FakeHost::default().on_spawn(if acknowledges {
@@ -1282,6 +1287,7 @@ mod tests {
             directory,
             payload,
             version: "0.17.0".into(),
+            published_at: None,
         }
     }
 
