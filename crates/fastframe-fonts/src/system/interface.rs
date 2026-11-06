@@ -356,7 +356,7 @@ fn resolve() -> Option<Interface> {
 /// that is scanning its font folders again, or cannot reach one of them, can
 /// take far longer.
 #[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
-const FC_MATCH_LIMIT: Duration = Duration::from_secs(1);
+pub(super) const FC_MATCH_LIMIT: Duration = Duration::from_secs(1);
 
 /// The pause between two looks at a process that has not ended.
 #[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
@@ -371,7 +371,7 @@ const PAUSE: Duration = Duration::from_millis(1);
 /// one line `fc-match` prints: a process that filled the pipe would wait for
 /// a reader, and be stopped at the deadline.
 #[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
-fn printed(mut child: std::process::Child, deadline: Instant) -> Option<String> {
+pub(super) fn printed(mut child: std::process::Child, deadline: Instant) -> Option<String> {
     use std::io::Read as _;
 
     let status = match wait_until(deadline, || child.try_wait().transpose()) {
@@ -411,7 +411,7 @@ fn wait_until<T>(deadline: Instant, mut finished: impl FnMut() -> Option<T>) -> 
 
 /// The `fc-match` format [`parse_fc_match`] reads.
 #[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
-const FC_FORMAT: &str = "%{index}|%{family[0]}|%{file}";
+pub(super) const FC_FORMAT: &str = "%{index}|%{family[0]}|%{file}";
 
 /// The `fc-match` pattern for `system-ui` at `weight`. The `-` is escaped:
 /// unescaped, fontconfig reads `system-ui` as the family `system` at a size
@@ -424,7 +424,7 @@ fn fontconfig_pattern(weight: Weight) -> String {
 
 /// fontconfig's weight scale for a [`Weight`].
 #[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
-fn fontconfig_weight(weight: Weight) -> u32 {
+pub(super) fn fontconfig_weight(weight: Weight) -> u32 {
     match weight {
         Weight::Regular => 80,
         Weight::Medium => 100,
@@ -437,7 +437,7 @@ fn fontconfig_weight(weight: Weight) -> u32 {
 /// instance of a variable face sets the index's upper bits; the weight's
 /// own coordinates are set from the axes instead.
 #[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
-fn parse_fc_match(output: &str) -> Option<(String, Choice)> {
+pub(super) fn parse_fc_match(output: &str) -> Option<(String, Choice)> {
     let mut fields = output.lines().next()?.splitn(3, '|');
     let index: u32 = fields.next()?.trim().parse().ok()?;
     let family = fields.next()?.trim();
