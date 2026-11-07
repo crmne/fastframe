@@ -32,6 +32,13 @@ options:
 3. When no renderer can draw, it shows a native dialog that names the cause
    and what to do, with a link to the app's help page, and returns the error.
 
+On macOS with the `wgpu` feature, steps 1 and 2 swap: the window opens with
+wgpu, which draws through Metal, and glow is the fallback. Apple deprecated
+OpenGL, and a glow window misses refreshes on a 120 Hz ProMotion display while
+it scrolls (Spotifast measured a p95 frame interval of 13 to 18 ms with glow
+and 9 to 10 ms with Metal on the same MacBook). Without the feature, macOS
+keeps glow.
+
 Another renderer is tried only when the window never started (the app
 creator did not run) and the error is a graphics one
 (`is_graphics_failure`: glutin found no configuration or context, OpenGL is
@@ -123,8 +130,8 @@ draws on the processor, so animation costs CPU time; the app runs, slowly
 rather than not at all.
 
 - With both renderers compiled in, eframe's own default becomes wgpu.
-  `run_native` always sets glow first, so the app keeps its renderer on
-  every computer that has OpenGL 2.
+  `run_native` tries wgpu first on macOS and glow first elsewhere. On other
+  platforms, the app keeps glow on every computer that has OpenGL 2.
 - Code that draws with glow directly (paint callbacks, `cc.gl`) needs a wgpu
   path or must check `renderer()`. `eframe::App::on_exit` receives `None` for
   the GL context under wgpu.
