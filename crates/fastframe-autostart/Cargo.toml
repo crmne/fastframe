@@ -16,7 +16,7 @@ categories = ["gui", "os"]
 # Why a registration could not be read or made.
 log.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 # The autostart entry is replaced atomically, never left half written.
 fastframe-file = { path = "../fastframe-file" }
 # Inside a Flatpak, the background portal registers the app instead: the

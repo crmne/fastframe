@@ -106,7 +106,7 @@ struct Loaded<P> {
     problem: Option<Problem>,
     follows_omarchy: bool,
     system_theme: Option<CustomTheme<P>>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     watch: Option<crate::watch::ThemeWatch>,
 }
 
@@ -117,7 +117,7 @@ impl<P> Default for Loaded<P> {
             problem: None,
             follows_omarchy: false,
             system_theme: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             watch: None,
         }
     }
@@ -144,11 +144,11 @@ pub struct Catalog<P> {
     follows_omarchy: bool,
     system_theme: Option<CustomTheme<P>>,
     desktop: Option<DesktopThemes>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     watch: Option<crate::watch::ThemeWatch>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     setup: Option<omarchy::Setup>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     setup_pending: bool,
 }
 
@@ -162,11 +162,11 @@ impl<P> Default for Catalog<P> {
             follows_omarchy: false,
             system_theme: None,
             desktop: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             watch: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             setup: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             setup_pending: false,
         }
     }
@@ -210,7 +210,7 @@ impl<P: Palette> Catalog<P> {
     /// installed for the user on the next scan.
     pub fn enable_desktop_themes(&mut self, desktop: DesktopThemes) {
         self.desktop = Some(desktop);
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
             self.setup = omarchy::Setup::discover(
                 desktop.slug,
@@ -224,7 +224,7 @@ impl<P: Palette> Catalog<P> {
     /// Whether a watched file changed since the last call, so the app
     /// should [`Self::start`] a scan. Always `false` outside Linux.
     pub fn needs_reload(&self) -> bool {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         if let Some(watch) = &self.watch {
             return watch.take_changed();
         }
@@ -259,15 +259,15 @@ impl<P: Palette> Catalog<P> {
 
     fn scan(&mut self, scan: Scan) {
         let presets = self.desktop.is_some_and(|desktop| desktop.presets);
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         let needs_watch = self.desktop.is_some() && self.watch.is_none();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         let setup = self.setup.clone();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         let install = std::mem::take(&mut self.setup_pending);
         let waker = scan.waker.clone();
         self.spawn(&waker, move || {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             if install
                 && let Some(setup) = &setup
                 && let Err(error) = setup.install::<P>(&scan.directory)
@@ -283,7 +283,7 @@ impl<P: Palette> Catalog<P> {
                 std::collections::BTreeSet::new()
             };
             let loaded = with_presets(&scan.directory, &scan.selected, presets, &installed);
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             let loaded = {
                 let mut loaded = loaded;
                 if needs_watch {
@@ -374,7 +374,7 @@ impl<P: Palette> Catalog<P> {
                 self.problem = loaded.problem;
                 self.follows_omarchy = loaded.follows_omarchy;
                 self.system_theme = loaded.system_theme;
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "freebsd"))]
                 if loaded.watch.is_some() {
                     self.watch = loaded.watch;
                 }

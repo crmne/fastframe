@@ -10,9 +10,9 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::{mpsc, oneshot, watch};
 
 mod logo;
-#[cfg(any(target_os = "linux", target_os = "windows", test))]
+#[cfg(any(any(target_os = "linux", target_os = "freebsd"), target_os = "windows", test))]
 mod mapping;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 #[path = "linux.rs"]
 mod platform;
 #[cfg(target_os = "macos")]
@@ -21,7 +21,7 @@ mod platform;
 #[cfg(target_os = "windows")]
 #[path = "windows.rs"]
 mod platform;
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), target_os = "macos", target_os = "windows")))]
 #[path = "unsupported.rs"]
 mod platform;
 mod worker;
@@ -320,7 +320,7 @@ impl Client {
     /// Supported presentation features. Linux desktops may ignore optional hints.
     pub fn capabilities(&self) -> Capabilities {
         Capabilities {
-            progress: cfg!(target_os = "linux"),
+            progress: cfg!(any(target_os = "linux", target_os = "freebsd")),
             persistent_keys: cfg!(any(target_os = "macos", target_os = "windows")),
         }
     }

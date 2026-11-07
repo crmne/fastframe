@@ -30,7 +30,7 @@ objc2.workspace = true
 objc2-app-kit = { workspace = true, features = ["NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { workspace = true, features = ["NSUserDefaults"] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 # GNOME's button layout and icon theme, read through the portal.
 fastframe-desktop = { path = "../fastframe-desktop" }
 # The user's icon folders. Already in every app's tree.

@@ -88,7 +88,7 @@ pub struct Scrolling {
 
 impl Default for Scrolling {
     fn default() -> Self {
-        Self::with_touchpad_help(cfg!(target_os = "linux"))
+        Self::with_touchpad_help(cfg!(any(target_os = "linux", target_os = "freebsd")))
     }
 }
 

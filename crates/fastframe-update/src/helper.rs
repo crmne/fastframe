@@ -64,7 +64,7 @@ pub(crate) fn handoff(
             fs::copy(&running, &helper).context("Could not prepare the update helper")?;
             // Its libraries come along: Windows looks beside the program,
             // and a Linux program linked with `$ORIGIN` does too.
-            if cfg!(any(windows, target_os = "linux")) {
+            if cfg!(any(windows, any(target_os = "linux", target_os = "freebsd"))) {
                 copy_libraries(&running, &staged.directory)
                     .context("Could not prepare the update helper")?;
             }
@@ -1316,7 +1316,7 @@ mod tests {
         assert_eq!(host.spawned()[0].executable, helper);
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     #[test]
     fn an_appimage_is_renamed_into_place_and_rolled_back_by_rename() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -1374,7 +1374,7 @@ mod tests {
 
     /// The relaunched app runs from the AppImage's mount: the receipt is
     /// for it when `$APPIMAGE` names the installed file.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     #[test]
     fn an_appimage_receipt_is_matched_by_its_file() {
         let root = tempfile::tempdir().unwrap();

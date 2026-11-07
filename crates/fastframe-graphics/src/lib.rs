@@ -15,7 +15,7 @@
 //! a native dialog that names the cause and what to do, with a link to the
 //! app's help page, and returns the error.
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod linux;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)] // NSAlert and NSWorkspace, with safety notes at each call.
@@ -470,9 +470,9 @@ fn show(message: &Dialog) -> bool {
     return windows::show(message);
     #[cfg(target_os = "macos")]
     return macos::show(message);
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     return linux::show(message);
-    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(windows, target_os = "macos", any(target_os = "linux", target_os = "freebsd"))))]
     {
         let _ = message;
         false
@@ -484,9 +484,9 @@ fn open_url(url: &str) {
     windows::open_url(url);
     #[cfg(target_os = "macos")]
     macos::open_url(url);
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     linux::open_url(url);
-    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(windows, target_os = "macos", any(target_os = "linux", target_os = "freebsd"))))]
     let _ = url;
 }
 

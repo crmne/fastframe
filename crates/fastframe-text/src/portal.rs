@@ -83,7 +83,7 @@ pub fn parse_text_scale(factor: f64) -> Option<f32> {
 /// Returns `None` when there is no session bus, no portal, or no font keys.
 /// Each call gives up after about a second, so a portal that is being
 /// activated cannot stall startup for long.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 #[must_use]
 pub fn read() -> Option<TextRendering> {
     let connection = bus::connect().ok()?;
@@ -97,7 +97,7 @@ pub fn read() -> Option<TextRendering> {
 ///
 /// Returns `None` when there is no session bus, no portal, or no usable
 /// `text-scaling-factor`. The call gives up after about a second.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 #[must_use]
 pub fn read_text_scale() -> Option<f32> {
     let connection = bus::connect().ok()?;
@@ -106,7 +106,7 @@ pub fn read_text_scale() -> Option<f32> {
 }
 
 /// Version-one portals lack ReadOne. Other failures must not double the wait.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(any(target_os = "linux", target_os = "freebsd"), test))]
 fn read_compatible<T, E>(
     mut call: impl FnMut(&str) -> Result<T, E>,
     unknown_method: impl FnOnce(&E) -> bool,
@@ -118,13 +118,13 @@ fn read_compatible<T, E>(
 }
 
 /// No desktop portal is available on this platform.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
 #[must_use]
 pub fn read_text_scale() -> Option<f32> {
     None
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub(crate) mod bus {
     use std::time::Duration;
     use zbus::blocking::{Connection, Proxy, connection};
@@ -291,7 +291,7 @@ mod tests {
         assert_eq!(parse_text_scale(f64::INFINITY), None);
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     #[test]
     fn values_unwrap_nested_variants() {
         use zbus::zvariant::Value;
@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(bus::string(&Value::from(3u32)), None);
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     #[test]
     fn numbers_unwrap_nested_variants() {
         use zbus::zvariant::Value;

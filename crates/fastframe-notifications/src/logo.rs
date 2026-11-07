@@ -107,7 +107,7 @@ fn encode(side: u32, rgb: &[u8]) -> Vec<u8> {
 /// named after the app's ID in the per-user cache, `~/.cache` (or
 /// `$XDG_CACHE_HOME`) on Linux and `%LOCALAPPDATA%` on Windows. It is
 /// rewritten whenever it differs, so deleting it is harmless.
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(any(target_os = "linux", target_os = "freebsd"), target_os = "windows"))]
 pub(crate) fn path(id: &str) -> Option<PathBuf> {
     directories::BaseDirs::new().map(|dirs| dirs.cache_dir().join(id).join("notification-logo.png"))
 }
@@ -115,7 +115,7 @@ pub(crate) fn path(id: &str) -> Option<PathBuf> {
 /// Write `bytes` to `path` unless it already holds them. The new file is
 /// written beside it and renamed over it, so the desktop never reads half
 /// an image.
-#[cfg(any(target_os = "linux", target_os = "windows", test))]
+#[cfg(any(any(target_os = "linux", target_os = "freebsd"), target_os = "windows", test))]
 pub(crate) fn write(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
     if std::fs::read(path).is_ok_and(|current| current == bytes) {
         return Ok(());
@@ -135,9 +135,9 @@ pub(crate) fn file(app: &crate::App) -> Option<PathBuf> {
     let logo = app.logo.as_ref()?;
     #[cfg(target_os = "windows")]
     let bytes = tile(&decode(&logo.png).ok()?, logo.background);
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     let bytes = logo.png.to_vec();
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(any(target_os = "linux", target_os = "freebsd"), target_os = "windows"))]
     {
         let path = path(&app.id)?;
         match write(&path, &bytes) {
@@ -148,7 +148,7 @@ pub(crate) fn file(app: &crate::App) -> Option<PathBuf> {
             }
         }
     }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), target_os = "windows")))]
     {
         let _ = logo;
         None

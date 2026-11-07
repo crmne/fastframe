@@ -59,7 +59,7 @@ pub fn is_font_setting(namespace: &str, key: &str) -> bool {
 /// it and `read` gives a usable one that differs from `last`. The value is
 /// read rather than taken from the signal, so a signal that waited while a
 /// newer value was read cannot bring an older size back.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(any(target_os = "linux", target_os = "freebsd"), test))]
 fn text_scale_change(
     last: f32,
     namespace: &str,
@@ -108,7 +108,7 @@ impl Changes {
 ///
 /// [`WatchError::Unsupported`] off Linux, [`WatchError::Bus`] without a
 /// session bus or portal, [`WatchError::Thread`] if the thread cannot start.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub fn watch<F>(current: TextRendering, on_change: F) -> Result<(), WatchError>
 where
     F: Fn(TextRendering) + Send + 'static,
@@ -152,7 +152,7 @@ where
 /// # Errors
 ///
 /// Always [`WatchError::Unsupported`].
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
 pub fn watch<F>(current: TextRendering, on_change: F) -> Result<(), WatchError>
 where
     F: Fn(TextRendering) + Send + 'static,
@@ -174,7 +174,7 @@ where
 /// [`WatchError::Unsupported`] off Linux and under X11 (see
 /// [`crate::text_scale`]), [`WatchError::Bus`] without a session bus or
 /// portal, [`WatchError::Thread`] if the thread cannot start.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub fn watch_text_scale<F>(current: f32, on_change: F) -> Result<(), WatchError>
 where
     F: Fn(f32) + Send + 'static,
@@ -225,7 +225,7 @@ where
 /// # Errors
 ///
 /// Always [`WatchError::Unsupported`].
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
 pub fn watch_text_scale<F>(current: f32, on_change: F) -> Result<(), WatchError>
 where
     F: Fn(f32) + Send + 'static,

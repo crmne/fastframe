@@ -58,7 +58,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use egui::{Align2, Rect, vec2};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod linux;
 mod macos;
 
@@ -88,7 +88,7 @@ pub fn set_enabled(on: bool) {
 /// Linux.
 pub fn enabled() -> bool {
     enabled_for(
-        cfg!(any(windows, target_os = "linux")),
+        cfg!(any(windows, any(target_os = "linux", target_os = "freebsd"))),
         CHOSEN.load(Ordering::Relaxed),
     )
 }
@@ -109,7 +109,7 @@ pub fn visible(ctx: &egui::Context) -> bool {
 /// the first frame; it asks the desktop portal, which can take up to half a
 /// second per setting. Elsewhere it does nothing.
 pub fn init() {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     linux::init();
 }
 
@@ -194,9 +194,9 @@ impl Layout {
 /// The buttons this desktop shows: GNOME's layout as [`init`] read it on
 /// Linux, otherwise [`Layout::standard`].
 pub fn layout() -> &'static Layout {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     return linux::layout();
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
     {
         static STANDARD: std::sync::OnceLock<Layout> = std::sync::OnceLock::new();
         STANDARD.get_or_init(Layout::standard)
@@ -298,7 +298,7 @@ pub fn footprint(ctx: &egui::Context, header_height: f32) -> Footprint {
     if !visible(ctx) {
         return Footprint::default();
     }
-    footprint_for(cfg!(target_os = "linux"), layout(), header_height)
+    footprint_for(cfg!(any(target_os = "linux", target_os = "freebsd")), layout(), header_height)
 }
 
 fn footprint_for(linux: bool, layout: &Layout, header_height: f32) -> Footprint {
@@ -369,7 +369,7 @@ pub fn controls(ui: &mut egui::Ui, style: &Style, labels: &Labels<'_>) {
     let maximized = ui
         .ctx()
         .input(|input| input.viewport().maximized.unwrap_or(false));
-    let linux = cfg!(target_os = "linux");
+    let linux = cfg!(any(target_os = "linux", target_os = "freebsd"));
     // Windows centres its buttons in the header's height.
     let (margin, top, spacing) = if linux {
         (LINUX_MARGIN, LINUX_MARGIN, 8.0)
@@ -433,7 +433,7 @@ fn caption_button(
         ),
         Button::Close => (Icon::Close, labels.close, egui::ViewportCommand::Close),
     };
-    let response = if cfg!(target_os = "linux") {
+    let response = if cfg!(any(target_os = "linux", target_os = "freebsd")) {
         let image = theme_icon(icon)
             .unwrap_or_else(|| icon.image(style.icon, 16.0))
             .fit_to_exact_size(egui::Vec2::splat(16.0))
@@ -463,14 +463,14 @@ fn caption_button(
 
 /// The icon theme's glyph for `icon`, on GNOME.
 fn theme_icon(icon: Icon) -> Option<egui::Image<'static>> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     return linux::icon(match icon {
         Icon::Minimize => linux::MINIMIZE,
         Icon::Maximize => linux::MAXIMIZE,
         Icon::Restore => linux::RESTORE,
         Icon::Close => linux::CLOSE,
     });
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
     {
         let _ = icon;
         None

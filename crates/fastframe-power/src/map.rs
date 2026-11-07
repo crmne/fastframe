@@ -3,7 +3,7 @@
 //! its own platform's part.
 
 /// Whether a power-profiles-daemon profile asks to save energy (Linux).
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "freebsd")), allow(dead_code))]
 pub(crate) fn saves(profile: &str) -> bool {
     profile == "power-saver"
 }

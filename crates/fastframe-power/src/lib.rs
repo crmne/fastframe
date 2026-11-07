@@ -35,11 +35,11 @@
 //! ```
 
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
-#[cfg(any(target_os = "windows", target_os = "linux", test))]
+#[cfg(any(target_os = "windows", any(target_os = "linux", target_os = "freebsd"), test))]
 use std::time::Duration;
 use std::time::SystemTime;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -49,7 +49,7 @@ mod tests;
 #[cfg(target_os = "windows")]
 mod windows;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use self::linux::Reader;
 #[cfg(target_os = "macos")]
 use self::macos::Reader;
@@ -151,7 +151,7 @@ impl Ack {
 
     /// Waits until [`done`](Self::done) or `timeout`, whichever is first.
     /// Returns whether the app answered in time.
-    #[cfg(any(target_os = "windows", target_os = "linux", test))]
+    #[cfg(any(target_os = "windows", any(target_os = "linux", target_os = "freebsd"), test))]
     fn wait(&self, timeout: Duration) -> bool {
         let (done, ring) = &*self.0;
         let done = done.lock().unwrap_or_else(PoisonError::into_inner);
@@ -164,7 +164,7 @@ impl Ack {
 
 /// How long a reader waits for the app to save before the system sleeps.
 /// Windows gives a suspend callback about two seconds.
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "windows", any(target_os = "linux", target_os = "freebsd")))]
 const SUSPEND_ACK: Duration = Duration::from_millis(1500);
 /// How long a reader holds back the end of the session for the app to save.
 /// Windows waits about five seconds before it lists the app as blocking.
@@ -249,7 +249,7 @@ impl Shared {
 
     /// Queues the event `make` builds and waits up to `timeout` for the app
     /// to answer it.
-    #[cfg(any(target_os = "windows", target_os = "linux", test))]
+    #[cfg(any(target_os = "windows", any(target_os = "linux", target_os = "freebsd"), test))]
     fn push_and_wait(&self, make: impl FnOnce(Ack) -> Event, timeout: Duration) {
         let ack = Ack::default();
         let event = make(ack.clone());
@@ -274,7 +274,7 @@ pub struct Power {
     shared: Arc<Shared>,
     /// Made by [`Power::fixed`]: nothing here reaches the system.
     fixed: bool,
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "windows", any(target_os = "linux", target_os = "freebsd"), target_os = "macos"))]
     _reader: Option<Reader>,
     #[cfg(target_os = "windows")]
     eco_qos: windows::EcoQos,
@@ -291,7 +291,7 @@ impl Power {
     pub fn spawn(wake: impl Fn() + Send + Sync + 'static) -> Self {
         let shared = Arc::new(Shared::new(wake));
         Self {
-            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+            #[cfg(any(target_os = "windows", any(target_os = "linux", target_os = "freebsd"), target_os = "macos"))]
             _reader: Reader::start(Arc::clone(&shared))
                 .inspect_err(|error| log::warn!("power and session state unavailable: {error}"))
                 .ok(),
@@ -315,7 +315,7 @@ impl Power {
         Self {
             shared,
             fixed: true,
-            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+            #[cfg(any(target_os = "windows", any(target_os = "linux", target_os = "freebsd"), target_os = "macos"))]
             _reader: None,
             #[cfg(target_os = "windows")]
             eco_qos: windows::EcoQos::default(),
@@ -529,7 +529,7 @@ struct Hold {
     _token: macos::Activity,
     #[cfg(target_os = "windows")]
     _request: Option<windows::KeepAwake>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     _inhibit: linux::KeepAwake,
 }
 
@@ -543,10 +543,10 @@ impl KeepAwake {
             _token: macos::Activity::keep_awake(reason),
             #[cfg(target_os = "windows")]
             _request: windows::KeepAwake::begin(reason),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             _inhibit: linux::KeepAwake::begin(reason),
         };
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows", any(target_os = "linux", target_os = "freebsd"))))]
         let _ = reason;
         Self { hold: Some(hold) }
     }

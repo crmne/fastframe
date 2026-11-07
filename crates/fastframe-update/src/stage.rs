@@ -446,7 +446,7 @@ impl Staged {
             ensure!(cfg!(target_os = "macos"), "This update is for macOS");
         }
         if self.installation.kind == Kind::AppImage {
-            ensure!(cfg!(target_os = "linux"), "This update is for Linux");
+            ensure!(cfg!(any(target_os = "linux", target_os = "freebsd")), "This update is for Linux");
         }
         Ok(())
     }

@@ -119,10 +119,10 @@ pub fn render_seed<P: crate::Palette>(template: &str, colors: &str) -> Result<St
     Ok(output)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub(crate) use setup::Setup;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod setup {
     use std::fs;
     use std::io::{self, Read, Write};
