@@ -70,11 +70,17 @@ panel, say). `controls` draws in egui's foreground layer, over every panel.
 
 ## The details
 
-- **macOS drag.** AppKit starts a window drag only during the mouse-down
-  that began it, so `drag` sends `StartDrag` on the press, not once the
-  pointer moves. The second press of a double-click is not a drag:
-  the crate performs the system's setting (zoom or minimize, after the
-  frame), and Fill comes from AppKit's own drag.
+- **macOS drag.** AppKit starts a window drag only from the mouse-down
+  that began it, so `drag` starts it on the press, not once the pointer
+  moves. egui handles the press after AppKit has moved on (with a Force Touch
+  trackpad, often to a pressure event), so a local event monitor keeps each
+  mouse-down, and the press uses it once: for its click count, and as the
+  event the drag starts from. `align_traffic_lights` names the root
+  viewport's window, so a press in one window never acts on another; a child
+  viewport's header reads the current event, as before.
+  The second press of a double-click is not a drag: the crate performs the
+  system's setting (zoom or minimize, after the frame), and Fill comes from
+  AppKit's own drag.
 - **Windows buttons** are 36 points square, centred in the header's height,
   5 points from the right edge, with Windows' caption feedback: a light wash
   over Minimize and Maximize, red (232, 17, 35) under Close, dimmer while
