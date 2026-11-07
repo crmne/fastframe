@@ -290,14 +290,14 @@ pub fn text_scale() -> f32 {
 
 /// The text size to follow: the portal's answer under Wayland, else 1. The
 /// portal is not asked under X11.
-#[cfg(any(any(target_os = "linux", target_os = "freebsd"), test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn text_scale_from(wayland: bool, read: &dyn Fn() -> Option<f32>) -> f32 {
     if wayland { read().unwrap_or(1.0) } else { 1.0 }
 }
 
 /// Whether winit opens windows through Wayland rather than X11: it does
 /// whenever the session offers Wayland, by either variable.
-#[cfg(any(any(target_os = "linux", target_os = "freebsd"), test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 pub(crate) fn wayland_session(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
     let set = |name| var(name).is_some_and(|value| !value.is_empty());
     set("WAYLAND_DISPLAY") || set("WAYLAND_SOCKET")

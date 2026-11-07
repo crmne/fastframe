@@ -24,7 +24,7 @@ png = "0.18"
 
 # The per-user cache folder the logo file is written to, as fastframe-dirs
 # computes the apps' folders.
-[target.'cfg(any(any(target_os = "linux", target_os = "freebsd"), target_os = "windows"))'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))'.dependencies]
 directories.workspace = true
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]

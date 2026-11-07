@@ -33,7 +33,7 @@ pub fn raise_on_compositor() -> bool {
 
 /// Whether `NIRI_SOCKET` names niri's socket. An empty value counts as
 /// unset.
-#[cfg(any(any(target_os = "linux", target_os = "freebsd"), test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn under_niri(socket: Option<std::ffi::OsString>) -> bool {
     socket.is_some_and(|socket| !socket.is_empty())
 }
@@ -68,7 +68,7 @@ mod linux {
 }
 
 /// The id of the window owned by process `pid` in `niri msg --json windows`.
-#[cfg(any(any(target_os = "linux", target_os = "freebsd"), test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn niri_window_id(json: &[u8], pid: u32) -> Option<u64> {
     let windows: serde_json::Value = serde_json::from_slice(json).ok()?;
     windows

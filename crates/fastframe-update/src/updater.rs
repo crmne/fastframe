@@ -398,7 +398,7 @@ mod tests {
     /// its releases don't sign: it hears "can't update here", as before
     /// AppImages updated themselves, never a failed download. One whose
     /// release signs it updates itself.
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     #[test]
     fn an_app_using_only_the_old_calls_is_refused_an_unsigned_appimage_not_failed() {
         use crate::testing::{FakeHost, FakeTransport, fixture_key, fixture_key_hex};
@@ -649,7 +649,7 @@ mod tests {
         std::fs::write(&executable, b"app").unwrap();
         let updater = Updater::new(ZAPFAST, FakeTransport::default())
             .with_host(FakeHost::default().with_current_exe(&executable));
-        if cfg!(any(any(target_os = "linux", target_os = "freebsd"), windows)) {
+        if cfg!(any(target_os = "linux", windows)) {
             assert_eq!(updater.installation(), Err(Unsupported::NotPortable));
             std::fs::write(
                 directory.path().join("zapfast-portable.txt"),

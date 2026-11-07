@@ -183,7 +183,7 @@ fn is_app_bundle(path: &std::path::Path) -> bool {
     path.extension().is_some_and(|extension| extension == "app")
 }
 
-#[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos", target_os = "windows")))]
 mod platform {
     #[derive(Default)]
     pub(super) struct Badge(Option<u32>);

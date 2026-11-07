@@ -207,7 +207,7 @@ pub enum IconColour {
 }
 
 #[cfg_attr(
-    not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")),
+    not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")),
     allow(dead_code)
 )]
 impl IconColour {
@@ -224,7 +224,7 @@ impl IconColour {
 /// The icons the app supplied and the rendition it asked for.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(
-    not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")),
+    not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")),
     allow(dead_code)
 )]
 struct Look {
@@ -234,7 +234,7 @@ struct Look {
 }
 
 #[cfg_attr(
-    not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")),
+    not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")),
     allow(dead_code)
 )]
 impl Look {
@@ -266,7 +266,7 @@ impl Look {
 /// Paints every pixel of `rgba` in `rgb`, keeping its transparency, so the
 /// shape stays and its colours go.
 #[cfg_attr(
-    not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")),
+    not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")),
     allow(dead_code)
 )]
 fn paint(mut rgba: Vec<u8>, rgb: [u8; 3]) -> Vec<u8> {
@@ -280,9 +280,9 @@ fn paint(mut rgba: Vec<u8>, rgb: [u8; 3]) -> Vec<u8> {
 /// macOS item lives until the process ends.
 pub struct Tray {
     events: Receiver<Event>,
-    #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
     host: Host,
-    #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
     look: Look,
 }
 
@@ -302,9 +302,9 @@ impl Tray {
     pub fn spawn(config: Config, wake: impl Fn() + Send + Sync + 'static) -> Option<Self> {
         let (sender, events) = std::sync::mpsc::channel();
         let router = Router::new(sender, Arc::new(wake), &config.menu);
-        #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
         let look = Look::new(&config);
-        #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
         match Host::start(config, router) {
             Ok(host) => Some(Self { events, host, look }),
             Err(error) => {
@@ -312,7 +312,7 @@ impl Tray {
                 None
             }
         }
-        #[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")))]
         {
             let _ = (config, router, events);
             log::info!("no system tray on this platform");
@@ -328,9 +328,9 @@ impl Tray {
     /// Changes what the entry `id` says (Play or Pause, say). Unknown ids
     /// are ignored.
     pub fn set_label(&mut self, id: &str, label: impl Into<String>) {
-        #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
         self.host.set_label(id, label.into());
-        #[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")))]
         let _ = (id, label);
     }
 
@@ -338,18 +338,18 @@ impl Tray {
     /// setting is on, say), keeping its place in the menu. Unknown ids are
     /// ignored.
     pub fn set_visible(&mut self, id: &str, visible: bool) {
-        #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
         self.host.set_visible(id, visible);
-        #[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")))]
         let _ = (id, visible);
     }
 
     /// Greys out the entry `id`, or lets it be chosen again. Unknown ids are
     /// ignored.
     pub fn set_enabled(&mut self, id: &str, enabled: bool) {
-        #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
         self.host.set_enabled(id, enabled);
-        #[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")))]
         let _ = (id, enabled);
     }
 
@@ -357,13 +357,13 @@ impl Tray {
     /// image as in [`Config`]. The rendition chosen with
     /// [`set_icon_colour`](Self::set_icon_colour) stays.
     pub fn set_icon(&mut self, icon: DrawIcon, template_icon: Option<DrawIcon>) {
-        #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
         {
             self.look.icon = icon;
             self.look.template = template_icon;
             self.host.set_look(self.look);
         }
-        #[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")))]
         let _ = (icon, template_icon);
     }
 
@@ -371,12 +371,12 @@ impl Tray {
     /// (see [`IconColour`]), in place: the item and its menu stay. The item
     /// starts with [`IconColour::Original`].
     pub fn set_icon_colour(&mut self, colour: IconColour) {
-        #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
         if self.look.colour != colour {
             self.look.colour = colour;
             self.host.set_look(self.look);
         }
-        #[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")))]
         let _ = colour;
     }
 
@@ -384,9 +384,9 @@ impl Tray {
     /// On Linux the first line is the tooltip's title and the rest its
     /// detail; elsewhere the text is shown as it is.
     pub fn set_tooltip(&mut self, text: impl Into<String>) {
-        #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
         self.host.set_tooltip(text.into());
-        #[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos")))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos")))]
         let _ = text;
     }
 
@@ -416,7 +416,7 @@ impl Tray {
     /// A window exists. On macOS the first call makes the item, and each
     /// call brings the application forward; elsewhere it does nothing.
     pub fn attach(&mut self) {
-        #[cfg(any(any(target_os = "linux", target_os = "freebsd"), windows, target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
         self.host.attach();
     }
 }
@@ -611,7 +611,7 @@ fn native_left_click(on_macos: bool) -> Option<Event> {
 }
 
 /// Changes the label of `id` in `menu`; whether it was there.
-#[cfg(any(any(target_os = "linux", target_os = "freebsd"), target_os = "macos", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos", test))]
 fn set_label(menu: &mut [MenuItem], id: &str, new: String) -> bool {
     for item in menu {
         if let MenuItem::Action {
@@ -627,7 +627,7 @@ fn set_label(menu: &mut [MenuItem], id: &str, new: String) -> bool {
 }
 
 /// Enables or greys out `id` in `menu`; whether it was there.
-#[cfg(any(any(target_os = "linux", target_os = "freebsd"), target_os = "macos", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos", test))]
 fn set_enabled(menu: &mut [MenuItem], id: &str, can_choose: bool) -> bool {
     for item in menu {
         if let MenuItem::Action {
@@ -643,7 +643,7 @@ fn set_enabled(menu: &mut [MenuItem], id: &str, can_choose: bool) -> bool {
 }
 
 /// Shows or hides `id` in `menu`; whether its visibility changed.
-#[cfg(any(any(target_os = "linux", target_os = "freebsd"), target_os = "macos", windows, test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos", windows, test))]
 fn set_visible(menu: &mut [MenuItem], id: &str, shown: bool) -> bool {
     for item in menu {
         if let MenuItem::Action {

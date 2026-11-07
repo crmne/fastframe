@@ -156,7 +156,7 @@ impl Autostart {
         {
             windows::state(self)
         }
-        #[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), target_os = "macos", windows)))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos", windows)))]
         {
             State::Unsupported
         }
@@ -189,7 +189,7 @@ impl Autostart {
         {
             windows::set(self, start)
         }
-        #[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), target_os = "macos", windows)))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos", windows)))]
         {
             let _ = start;
             Err(io::Error::from(io::ErrorKind::Unsupported))

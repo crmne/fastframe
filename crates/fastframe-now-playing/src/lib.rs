@@ -245,7 +245,7 @@ pub struct NowPlaying {
 type Platform = mpris::Service;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 type Platform = native::Service;
-#[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "windows", target_os = "macos")))]
 type Platform = Unsupported;
 
 impl std::fmt::Debug for NowPlaying {
@@ -316,10 +316,10 @@ trait Controller: Sized {
 type Wake = std::sync::Arc<dyn Fn() + Send + Sync>;
 
 /// Where there are no media controls to talk to.
-#[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "windows", target_os = "macos")))]
 struct Unsupported;
 
-#[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "windows", target_os = "macos")))]
 impl Controller for Unsupported {
     fn start(_app: App, _wake: Wake) -> Self {
         Self

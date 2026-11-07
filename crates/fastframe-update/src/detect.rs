@@ -170,7 +170,7 @@ pub(crate) enum Platform {
 
 impl Platform {
     pub(crate) fn current() -> Self {
-        if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+        if cfg!(target_os = "linux") {
             Self::Linux
         } else if cfg!(windows) {
             Self::Windows

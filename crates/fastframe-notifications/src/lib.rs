@@ -10,7 +10,7 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::{mpsc, oneshot, watch};
 
 mod logo;
-#[cfg(any(any(target_os = "linux", target_os = "freebsd"), target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows", test))]
 mod mapping;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 #[path = "linux.rs"]
@@ -21,7 +21,7 @@ mod platform;
 #[cfg(target_os = "windows")]
 #[path = "windows.rs"]
 mod platform;
-#[cfg(not(any(any(target_os = "linux", target_os = "freebsd"), target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos", target_os = "windows")))]
 #[path = "unsupported.rs"]
 mod platform;
 mod worker;

@@ -106,7 +106,7 @@ pub fn read_text_scale() -> Option<f32> {
 }
 
 /// Version-one portals lack ReadOne. Other failures must not double the wait.
-#[cfg(any(any(target_os = "linux", target_os = "freebsd"), test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn read_compatible<T, E>(
     mut call: impl FnMut(&str) -> Result<T, E>,
     unknown_method: impl FnOnce(&E) -> bool,

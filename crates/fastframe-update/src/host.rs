@@ -190,12 +190,12 @@ mod os {
 
         fn user_id(&self) -> Option<u32> {
             // procfs gives /proc/self the process's effective user.
-            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+            #[cfg(target_os = "linux")]
             {
                 use std::os::unix::fs::MetadataExt;
                 fs::metadata("/proc/self").ok().map(|proc| proc.uid())
             }
-            #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+            #[cfg(not(target_os = "linux"))]
             None
         }
 
@@ -326,7 +326,7 @@ mod os {
                 command.current_dir(folder);
                 let variable = if cfg!(windows) {
                     Some("PATH")
-                } else if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+                } else if cfg!(target_os = "linux") {
                     Some("LD_LIBRARY_PATH")
                 } else {
                     None
@@ -572,7 +572,7 @@ mod os {
         Ok(())
     }
 
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     fn wait_for_parent(parent: u32, ready: &Path, timing: super::Timing) -> Result<()> {
         let process = PathBuf::from(format!("/proc/{parent}/stat"));
         let original = fs::read_to_string(&process).context("Cannot watch the running app")?;
@@ -600,7 +600,7 @@ mod os {
         Ok(())
     }
 
-    #[cfg(not(any(windows, any(target_os = "linux", target_os = "freebsd"))))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     fn wait_for_parent(parent: u32, ready: &Path, timing: super::Timing) -> Result<()> {
         fs::write(ready, b"ready")?;
         let start = Instant::now();
@@ -632,7 +632,7 @@ pub(crate) fn runs_extracted(appdir: Option<&std::ffi::OsStr>) -> bool {
 /// later one that reused its id. The name field may hold spaces and
 /// parentheses, so fields are counted from the last `)`.
 #[cfg_attr(
-    not(any(target_os = "linux", target_os = "freebsd")),
+    not(target_os = "linux"),
     allow(dead_code, reason = "Linux reads /proc")
 )]
 pub(crate) fn process_identity(stat: &str) -> Option<&str> {
@@ -640,7 +640,7 @@ pub(crate) fn process_identity(stat: &str) -> Option<&str> {
 }
 
 #[cfg_attr(
-    not(any(target_os = "linux", target_os = "freebsd")),
+    not(target_os = "linux"),
     allow(dead_code, reason = "Linux reads /proc")
 )]
 pub(crate) fn is_zombie(stat: &str) -> bool {
@@ -675,7 +675,7 @@ mod tests {
         assert!(!runs_extracted(None));
     }
 
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     #[test]
     fn this_process_has_an_identity() {
         let current =

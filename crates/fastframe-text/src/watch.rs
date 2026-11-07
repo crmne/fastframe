@@ -59,7 +59,7 @@ pub fn is_font_setting(namespace: &str, key: &str) -> bool {
 /// it and `read` gives a usable one that differs from `last`. The value is
 /// read rather than taken from the signal, so a signal that waited while a
 /// newer value was read cannot bring an older size back.
-#[cfg(any(any(target_os = "linux", target_os = "freebsd"), test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn text_scale_change(
     last: f32,
     namespace: &str,
