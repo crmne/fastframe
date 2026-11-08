@@ -328,7 +328,8 @@ fn footprint_for(linux: bool, layout: &Layout, header_height: f32) -> Footprint 
 /// double click does what System Settings says (zoom, fill, minimize or
 /// nothing). On Windows and Linux a double click maximizes or restores the
 /// window, and the drag works only while the drawn title bar is [`visible`].
-/// Nothing happens in full screen.
+/// Nothing happens in full screen. Only the pointer can use the area: it is
+/// no stop for the Tab key.
 pub fn drag(ui: &mut egui::Ui, rect: Rect) {
     let fullscreen = ui
         .ctx()
@@ -337,11 +338,7 @@ pub fn drag(ui: &mut egui::Ui, rect: Rect) {
     if fullscreen || !(macos || visible(ui.ctx())) {
         return;
     }
-    let response = ui.interact(
-        rect,
-        ui.id().with("fastframe-titlebar-drag"),
-        egui::Sense::click_and_drag(),
-    );
+    let response = area(ui, rect);
     if macos {
         if response.is_pointer_button_down_on()
             && ui.input(|input| input.pointer.primary_pressed())
@@ -358,6 +355,16 @@ pub fn drag(ui: &mut egui::Ui, rect: Rect) {
     } else if response.drag_started() {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
+}
+
+/// The area [`drag`] senses: clicks and drags, but no stop for the Tab key,
+/// as a native title bar is none.
+fn area(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
+    ui.interact(
+        rect,
+        ui.id().with("fastframe-titlebar-drag"),
+        egui::Sense::CLICK | egui::Sense::DRAG,
+    )
 }
 
 /// Draws the caption buttons over the window's top corners, above every

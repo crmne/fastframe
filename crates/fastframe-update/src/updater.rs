@@ -125,6 +125,17 @@ impl Updater {
         Ok(release)
     }
 
+    /// Every published release this build's channel accepts, newest version
+    /// first, older than the running app or not, each with
+    /// [`Release::published_at`] when the listing says it. For an app that
+    /// decides for itself which release a person may have; [`Updater::check`]
+    /// stays the plain "newest and newer". Reads the release list, also on a
+    /// stable build, which `check` doesn't.
+    pub fn releases(&self) -> Result<Vec<Release>> {
+        self.require_publisher_key()?;
+        release::published(&self.config, self.transport.as_ref(), &self.source)
+    }
+
     /// Records whether `release` signs this copy's AppImage, when this copy
     /// is one. A failure to find out records nothing: the download then
     /// says what went wrong, as before.
@@ -308,6 +319,26 @@ impl Updater {
         })
     }
 
+    /// The address of `release`'s download for this copy, for a person to
+    /// open by hand: the same package an update would use. Fails for a copy
+    /// that can't update itself and for a release without that download: show
+    /// [`Release::url`] instead. Never verifies or installs anything.
+    pub fn download_link(&self, release: &Release) -> Result<String> {
+        let installation = self.installation()?;
+        download::link(
+            &Inputs {
+                config: &self.config,
+                transport: self.transport.as_ref(),
+                source: &self.source,
+                host: self.host.as_ref(),
+                platform: Platform::current(),
+                arch: std::env::consts::ARCH,
+            },
+            installation.kind,
+            &release.version,
+        )
+    }
+
     /// The update an earlier run of this app downloaded and did not install,
     /// checked again and ready for [`Updater::handoff`]. Lets an app download
     /// in the background and install at its next start, before it opens
@@ -469,6 +500,7 @@ mod tests {
         let release = Release {
             version: "0.17.0".into(),
             url: String::new(),
+            published_at: None,
         };
         let appimage = Installation {
             executable: "/home/me/ZapFast.AppImage".into(),
@@ -570,7 +602,8 @@ mod tests {
             updater.check().unwrap(),
             Some(Release {
                 version: "0.17.0".into(),
-                url: "http://127.0.0.1:9/notes".into()
+                url: "http://127.0.0.1:9/notes".into(),
+                published_at: None,
             })
         );
     }
@@ -592,6 +625,7 @@ mod tests {
         let release = Release {
             version: "0.17.0".into(),
             url: "https://updates.example.com/app".into(),
+            published_at: None,
         };
         let error = updater
             .download(&release, |_, _| {})
@@ -672,6 +706,7 @@ mod tests {
         let release = Release {
             version: "0.17.0".into(),
             url: String::new(),
+            published_at: None,
         };
         assert!(updater.download(&release, |_, _| {}).is_err());
     }

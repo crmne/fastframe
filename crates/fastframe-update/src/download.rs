@@ -283,6 +283,38 @@ pub(crate) fn appimage_listed(
 /// Downloads `release` for `installation` and verifies it. Nothing is
 /// written before the checksum file's publisher signature checks out, and
 /// a failure removes the staging folder again.
+/// The address of `version`'s download for this kind of installation, for a
+/// person to open: the package [`download`] would pick from the release's
+/// assets. Not verified: the person's system and the release's signature
+/// check it when it is installed.
+pub(crate) fn link(inputs: &Inputs<'_>, kind: Kind, version: &str) -> Result<String> {
+    let Inputs {
+        config,
+        transport,
+        source,
+        platform,
+        arch,
+        ..
+    } = *inputs;
+    let target = release::target(platform, arch, config.mac_target)?;
+    let metadata = release::metadata(config, transport, source, version)?;
+    let wanted = release::asset_name(config, version, target, kind, platform);
+    let msi = release::msi_name(&release::stem(config, version, target));
+    let package = metadata.asset(&wanted).or_else(|error| {
+        if kind == Kind::WindowsInstaller {
+            metadata.asset(&msi)
+        } else {
+            Err(error)
+        }
+    })?;
+    let url = Url::parse(&package.browser_download_url)?;
+    ensure!(
+        source.owns_asset(config, &url, version, &package.name),
+        "Update asset does not belong to this release"
+    );
+    Ok(package.browser_download_url.clone())
+}
+
 pub(crate) fn download(
     inputs: &Inputs<'_>,
     installation: Installation,
@@ -450,6 +482,7 @@ pub(crate) fn download(
             directory: directory.clone(),
             payload,
             version: release.version.clone(),
+            published_at: release.published_at.clone(),
         };
         // Kept for a later run that installs it (`Updater::kept`): the
         // signed manifest, so that run can check the package again.
@@ -782,6 +815,7 @@ mod tests {
             &Release {
                 version: fixture.version.into(),
                 url: String::new(),
+                published_at: None,
             },
         )
     }
@@ -820,6 +854,7 @@ mod tests {
             &Release {
                 version: VERSION.into(),
                 url: String::new(),
+                published_at: None,
             },
         )
         .unwrap();
@@ -866,6 +901,7 @@ mod tests {
             &Release {
                 version: VERSION.into(),
                 url: String::new(),
+                published_at: None,
             },
         )
         .unwrap_err();
@@ -892,6 +928,7 @@ mod tests {
             &Release {
                 version: fixture.version.into(),
                 url: String::new(),
+                published_at: Some("2027-03-05T12:00:00Z".into()),
             },
             |_, _| {},
         )
@@ -925,6 +962,65 @@ mod tests {
             .with_version_output("zapfast 0.17.0")
     }
 
+    /// A record an older version wrote has no date; the update stays usable,
+    /// and the app decides what an unknown date means.
+    #[test]
+    fn a_kept_download_from_before_dates_has_none() {
+        let directory = tempfile::tempdir().unwrap();
+        let installation = portable(directory.path());
+        let host = portable_host();
+        let downloaded = run(&Fixture::default(), &config(), &host, installation.clone()).unwrap();
+        let folder = downloaded.staged.directory.clone();
+        let record = folder.join(stage::KEPT);
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&record).unwrap()).unwrap();
+        value.as_object_mut().unwrap().remove("published_at");
+        fs::write(&record, value.to_string()).unwrap();
+        let host = portable_host();
+        let kept = find_kept(&config(), &host, &installation, Platform::Linux)
+            .unwrap()
+            .expect("the download is kept");
+        assert_eq!(kept.published_at(), None);
+    }
+
+    #[test]
+    fn a_person_is_given_the_download_for_their_copy() {
+        let fixture = Fixture::default();
+        let transport = fixture.transport();
+        let inputs = Inputs {
+            config: &config(),
+            transport: &transport,
+            source: &Source::github(),
+            host: &FakeHost::default(),
+            platform: Platform::Linux,
+            arch: "x86_64",
+        };
+        assert_eq!(
+            link(&inputs, Kind::Portable, VERSION).unwrap(),
+            asset_url(VERSION, &fixture.name())
+        );
+        // No download for this kind of copy: the app shows the release page.
+        assert!(link(&inputs, Kind::AppImage, VERSION).is_err());
+        // A Windows installer copy takes the package its release has.
+        let fixture = Fixture {
+            kind: Kind::WindowsInstaller,
+            platform: Platform::Windows,
+            msi: true,
+            ..Fixture::default()
+        };
+        let transport = fixture.transport();
+        let inputs = Inputs {
+            platform: Platform::Windows,
+            transport: &transport,
+            ..inputs
+        };
+        assert!(
+            link(&inputs, Kind::WindowsInstaller, VERSION)
+                .unwrap()
+                .ends_with("-setup.exe")
+        );
+    }
+
     #[test]
     fn a_download_is_kept_and_checked_again_by_a_later_run() {
         let directory = tempfile::tempdir().unwrap();
@@ -942,6 +1038,7 @@ mod tests {
             .unwrap()
             .expect("the download is kept");
         assert_eq!(kept.version(), "0.17.0");
+        assert_eq!(kept.published_at(), Some("2027-03-05T12:00:00Z"));
         assert_eq!(kept.staged.directory, folder);
         assert_eq!(kept.staged.payload, folder.join("zapfast"));
         assert_eq!(host.version_probes(), [folder.join("zapfast")]);
@@ -1480,6 +1577,7 @@ mod tests {
             &Release {
                 version: VERSION.into(),
                 url: String::new(),
+                published_at: None,
             },
             |_, _| {},
         )
@@ -1513,6 +1611,7 @@ mod tests {
                 &Release {
                     version: VERSION.into(),
                     url: String::new(),
+                    published_at: None,
                 },
                 |_, _| {},
             )
@@ -1540,6 +1639,7 @@ mod tests {
                     &Release {
                         version: version.into(),
                         url: String::new(),
+                        published_at: None,
                     },
                     |_, _| {},
                 )
@@ -1596,6 +1696,7 @@ mod tests {
             &Release {
                 version: VERSION.into(),
                 url: String::new(),
+                published_at: None,
             },
             |_, _| {},
         )
@@ -1627,6 +1728,7 @@ mod tests {
             &Release {
                 version: VERSION.into(),
                 url: String::new(),
+                published_at: None,
             },
             |_, _| {},
         )
@@ -1736,6 +1838,7 @@ mod tests {
                 &Release {
                     version: fixture.version.into(),
                     url: String::new(),
+                    published_at: None,
                 },
                 |_, _| {},
             )
@@ -1775,6 +1878,7 @@ mod tests {
                     &Release {
                         version: version.into(),
                         url: String::new(),
+                        published_at: None,
                     },
                     |_, _| {},
                 )
@@ -1840,6 +1944,7 @@ mod tests {
             &Release {
                 version: VERSION.into(),
                 url: String::new(),
+                published_at: None,
             },
             |received, total| reports.push((received, total)),
         )
@@ -1892,6 +1997,7 @@ mod tests {
                 &Release {
                     version: VERSION.into(),
                     url: String::new(),
+                    published_at: None,
                 },
                 |_, _| {},
             )

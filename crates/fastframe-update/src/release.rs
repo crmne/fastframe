@@ -17,6 +17,10 @@ pub struct Release {
     pub version: String,
     /// The release page, with every download and the release notes.
     pub url: String,
+    /// When the release was published, as the listing says it (RFC 3339 in
+    /// UTC on GitHub). `None` when the listing doesn't say, as an app's own
+    /// older feed may not.
+    pub published_at: Option<String>,
 }
 
 const JSON: &str = "application/vnd.github+json";
@@ -31,6 +35,8 @@ struct Latest {
     prerelease: bool,
     tag_name: String,
     html_url: String,
+    #[serde(default)]
+    published_at: Option<String>,
 }
 
 /// Releases per page of the release list, GitHub's maximum.
@@ -51,6 +57,10 @@ struct Listed {
     html_url: String,
     #[serde(default)]
     draft: bool,
+    #[serde(default)]
+    prerelease: bool,
+    #[serde(default)]
+    published_at: Option<String>,
 }
 
 /// The newest release, when it is newer than the running app.
@@ -80,6 +90,7 @@ pub(crate) fn newer(
         version::is_newer(&version, config.current_version).then_some(Release {
             version,
             url: latest.html_url,
+            published_at: latest.published_at,
         }),
     )
 }
@@ -94,7 +105,7 @@ fn newest_listed(
 ) -> Result<Option<Release>> {
     let current = version::Semver::parse(config.current_version)
         .context("The current version is not a semantic version")?;
-    let mut best: Option<(String, String)> = None;
+    let mut best: Option<Release> = None;
     for page in 1..=MAX_PAGES {
         let Some(url) = source.releases(config, page, PER_PAGE) else {
             break;
@@ -119,19 +130,68 @@ fn newest_listed(
             };
             let best_so_far = best
                 .as_ref()
-                .and_then(|(version, _)| version::Semver::parse(version));
+                .and_then(|best| version::Semver::parse(&best.version));
             if !release.draft
                 && candidate > current
                 && best_so_far.is_none_or(|best| candidate > best)
             {
-                best = Some((tag.to_owned(), release.html_url.clone()));
+                best = Some(Release {
+                    version: tag.to_owned(),
+                    url: release.html_url.clone(),
+                    published_at: release.published_at.clone(),
+                });
             }
         }
         if listed.len() < PER_PAGE as usize {
             break;
         }
     }
-    Ok(best.map(|(version, url)| Release { version, url }))
+    Ok(best)
+}
+
+/// Every published release this build's channel accepts, older ones too,
+/// newest version first: the pre-release channel takes stable and pre-release
+/// versions, a stable build stable ones. Drafts and tags that are not `v` and
+/// a safe semantic version are skipped.
+pub(crate) fn published(
+    config: &UpdateConfig,
+    transport: &dyn Transport,
+    source: &Source,
+) -> Result<Vec<Release>> {
+    let mut found: Vec<Release> = Vec::new();
+    for page in 1..=MAX_PAGES {
+        let Some(url) = source.releases(config, page, PER_PAGE) else {
+            break;
+        };
+        let body = read_metadata(transport, source, config, &url, LIST_LIMIT)?;
+        let listed: Vec<Listed> =
+            serde_json::from_slice(&body).context("Unexpected release list")?;
+        for release in &listed {
+            let Some(tag) = release.tag_name.strip_prefix('v') else {
+                continue;
+            };
+            if release.draft
+                || version::Semver::parse(tag).is_none()
+                || !config.accepts_version(tag)
+                || (release.prerelease && !config.prerelease_channel())
+                || found.iter().any(|known| known.version == tag)
+            {
+                continue;
+            }
+            found.push(Release {
+                version: tag.to_owned(),
+                url: release.html_url.clone(),
+                published_at: release.published_at.clone(),
+            });
+        }
+        if listed.len() < PER_PAGE as usize {
+            break;
+        }
+    }
+    found.sort_by(|a, b| {
+        version::Semver::parse(&b.version).cmp(&version::Semver::parse(&a.version))
+    });
+    Ok(found)
 }
 
 #[derive(Deserialize)]
@@ -346,6 +406,113 @@ mod tests {
 
     const LATEST: &str = "https://api.github.com/repos/crmne/zapfast/releases/latest";
 
+    fn dated(tag: &str, published: &str, prerelease: bool, draft: bool) -> serde_json::Value {
+        serde_json::json!({
+            "tag_name": tag,
+            "html_url": format!("https://github.com/crmne/zapfast/releases/tag/{tag}"),
+            "published_at": published,
+            "prerelease": prerelease,
+            "draft": draft,
+            "body": "fields the updater doesn't read are ignored",
+        })
+    }
+
+    #[test]
+    fn a_release_carries_its_publication_date_when_the_listing_says_it() {
+        let transport = FakeTransport::default().serve(
+            LATEST,
+            dated("v0.17.0", "2027-03-05T12:00:00Z", false, false)
+                .to_string()
+                .as_bytes(),
+        );
+        let release = newer(&ZAPFAST, &transport, &Source::github())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            release.published_at.as_deref(),
+            Some("2027-03-05T12:00:00Z")
+        );
+        // Null, as GitHub says for a draft, or absent: not known.
+        let transport = FakeTransport::default().serve(
+            LATEST,
+            br#"{"tag_name":"v0.17.0","html_url":"u","published_at":null}"#,
+        );
+        let release = newer(&ZAPFAST, &transport, &Source::github())
+            .unwrap()
+            .unwrap();
+        assert_eq!(release.published_at, None);
+        // The pre-release channel's list carries it too.
+        let channel = UpdateConfig {
+            prereleases: crate::Prereleases::WhenRunningPrerelease,
+            current_version: "0.17.0-beta.1",
+            ..ZAPFAST
+        };
+        let list =
+            serde_json::json!([dated("v0.17.0-beta.2", "2027-01-02T03:04:05Z", true, false)]);
+        let transport =
+            FakeTransport::default().serve(&format!("{LIST}1"), list.to_string().as_bytes());
+        let release = newer(&channel, &transport, &Source::github())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            release.published_at.as_deref(),
+            Some("2027-01-02T03:04:05Z")
+        );
+    }
+
+    #[test]
+    fn every_release_on_the_channel_is_listed_newest_first_older_ones_too() {
+        let list = serde_json::json!([
+            dated("v0.9.0", "2026-01-01T00:00:00Z", false, false),
+            dated("v0.18.0", "2027-03-01T00:00:00Z", false, false),
+            dated("v0.18.1-beta.1", "2027-03-02T00:00:00Z", true, false),
+            dated("v0.19.0", "2027-03-03T00:00:00Z", false, true),
+            dated("nightly", "2027-03-04T00:00:00Z", false, false),
+            dated("v0.16.0", "2026-06-01T00:00:00Z", false, false),
+        ]);
+        let transport =
+            FakeTransport::default().serve(&format!("{LIST}1"), list.to_string().as_bytes());
+        let versions = |config: &UpdateConfig, transport: &FakeTransport| {
+            published(config, transport, &Source::github())
+                .unwrap()
+                .into_iter()
+                .map(|release| release.version)
+                .collect::<Vec<_>>()
+        };
+        // A stable build: stable versions, drafts and other tags left out.
+        assert_eq!(
+            versions(&ZAPFAST, &transport),
+            ["0.18.0", "0.16.0", "0.9.0"]
+        );
+        let channel = UpdateConfig {
+            prereleases: crate::Prereleases::WhenRunningPrerelease,
+            current_version: "0.17.0-beta.1",
+            ..ZAPFAST
+        };
+        let transport =
+            FakeTransport::default().serve(&format!("{LIST}1"), list.to_string().as_bytes());
+        assert_eq!(
+            versions(&channel, &transport),
+            ["0.18.1-beta.1", "0.18.0", "0.16.0", "0.9.0"]
+        );
+    }
+
+    #[test]
+    fn a_new_field_in_a_listing_never_stops_an_app_reading_it() {
+        // What apps already out do with `published_at` from an app's own
+        // feed: `Listed` and `Latest` keep what they know and skip the rest.
+        let parsed: Listed = serde_json::from_str(
+            r#"{"tag_name":"v1.0.0","html_url":"u","draft":false,"prerelease":false,"published_at":"2027-01-01T00:00:00Z","something_new":{"nested":[1]}}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.tag_name, "v1.0.0");
+        let metadata: Metadata = serde_json::from_str(
+            r#"{"tag_name":"v1.0.0","draft":false,"prerelease":false,"published_at":"2027-01-01T00:00:00Z","assets":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(metadata.tag_name, "v1.0.0");
+    }
+
     #[test]
     fn a_newer_release_is_announced_against_the_apps_version() {
         let transport = FakeTransport::default().serve(LATEST, listing("v0.17.0").as_bytes());
@@ -354,6 +521,7 @@ mod tests {
             Some(Release {
                 version: "0.17.0".into(),
                 url: "https://github.com/crmne/zapfast/releases/tag/v0.17.0".into(),
+                published_at: None,
             })
         );
         assert_eq!(transport.accepts(), ["application/vnd.github+json"]);
@@ -507,6 +675,7 @@ mod tests {
             Some(Release {
                 version: "0.3.0-alpha.10".into(),
                 url: "https://github.com/crmne/zapfast/releases/tag/v0.3.0-alpha.10".into(),
+                published_at: None,
             }),
             "alpha.10 beats alpha.9; the draft alpha.11 and garbage tags are skipped"
         );

@@ -45,8 +45,8 @@ pin every fastframe crate to the same release tag:
 ```toml
 [dependencies]
 egui = "0.36.2"
-fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.16.1" }
-fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.16.1" }
+fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.17.0" }
+fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.17.0" }
 ```
 
 At startup, before the first frame:

@@ -78,6 +78,10 @@ pub(crate) struct Staged {
     pub(crate) payload: PathBuf,
     pub(crate) sha256: String,
     pub(crate) version: String,
+    /// When the release was published, when the listing said. Absent from
+    /// files older versions wrote; older versions ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) published_at: Option<String>,
 }
 
 /// `handoff.json`. The field names and order are the file format.
@@ -108,6 +112,14 @@ impl Prepared {
         &self.staged.version
     }
 
+    /// When the release was published, as the listing said it
+    /// ([`Release::published_at`](crate::Release::published_at)), kept with a
+    /// download for [`Updater::kept`](crate::Updater::kept). `None` when the
+    /// listing didn't say, or a version without this field downloaded it.
+    pub fn published_at(&self) -> Option<&str> {
+        self.staged.published_at.as_deref()
+    }
+
     /// The installation it replaces.
     pub fn installation(&self) -> &Installation {
         &self.staged.installation
@@ -125,6 +137,7 @@ impl Prepared {
                 installation,
                 sha256: String::new(),
                 version: version.to_owned(),
+                published_at: None,
             },
             sample: true,
         }
@@ -682,6 +695,7 @@ mod tests {
             payload: stage.join("zapfast"),
             sha256: "0".repeat(64),
             version: "0.17.0".into(),
+            published_at: None,
         };
         let job = stage.join(JOB);
         good.check_layout(&ZAPFAST, &job).unwrap();
