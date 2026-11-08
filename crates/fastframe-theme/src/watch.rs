@@ -44,7 +44,9 @@ impl ThemeWatch {
         #[cfg(target_os = "freebsd")]
         let mut watcher = notify::PollWatcher::new(
             handler,
-            Config::default().with_poll_interval(Duration::from_millis(750)),
+            Config::default()
+                .with_poll_interval(Duration::from_millis(750))
+                .with_compare_contents(true),
         )?;
         watcher.watch(local, RecursiveMode::NonRecursive)?;
         if let Some(system) = system {

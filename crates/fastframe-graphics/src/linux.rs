@@ -51,13 +51,7 @@ pub(crate) fn show(message: &Dialog) -> bool {
 pub(crate) fn open_url(url: &str) {
     let browser = std::env::var("BROWSER").ok();
     let candidates = url_openers(browser.as_deref(), cfg!(target_os = "freebsd"));
-    let opened = try_open_url(url, &candidates, |program, args| {
-        Command::new(program)
-            .args(args)
-            .stdin(Stdio::null())
-            .spawn()
-            .map(|_| ())
-    });
+    let opened = try_open_url(url, &candidates, launch_opener);
     if let Err(error) = opened {
         log::warn!("could not open the help page ({url}): {error}");
         #[cfg(target_os = "freebsd")]
@@ -65,6 +59,35 @@ pub(crate) fn open_url(url: &str) {
             let _ = show(&fallback_url_dialog(url));
         }
     }
+}
+
+/// Starts `program` and waits briefly so a launcher (`xdg-open`, `gio open`)
+/// that exits right away with a non-zero code is treated as a failure. A
+/// browser process that stays running is reaped on a background thread.
+fn launch_opener(program: &str, args: &[&str]) -> std::io::Result<()> {
+    use std::time::Duration;
+
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .spawn()?;
+    for _ in 0..10 {
+        if let Some(status) = child.try_wait()? {
+            if status.success() {
+                return Ok(());
+            }
+            return Err(std::io::Error::other(format!(
+                "{program} exited with {status}"
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let _ = std::thread::Builder::new()
+        .name("fastframe-url-reap".to_owned())
+        .spawn(move || {
+            let _ = child.wait();
+        });
+    Ok(())
 }
 
 /// Candidate commands for opening `url`. Linux keeps `xdg-open`; FreeBSD

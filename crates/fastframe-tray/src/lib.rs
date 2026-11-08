@@ -295,9 +295,9 @@ impl std::fmt::Debug for Tray {
 
 impl Tray {
     /// Registers the item, or returns `None` when it cannot be made (no
-    /// session bus, or an OS error). On Linux the item registers even while
-    /// no panel shows it yet; ask [`is_shown`](Self::is_shown) before letting
-    /// a closed window keep the app running.
+    /// session bus, or an OS error). On Linux and FreeBSD the item registers
+    /// even while no panel shows it yet; ask [`is_shown`](Self::is_shown)
+    /// before letting a closed window keep the app running.
     ///
     /// `wake` is called after each event is queued, from the tray's thread.
     pub fn spawn(config: Config, wake: impl Fn() + Send + Sync + 'static) -> Option<Self> {
@@ -382,8 +382,8 @@ impl Tray {
     }
 
     /// Changes the tooltip, which is the app's title until this is called.
-    /// On Linux the first line is the tooltip's title and the rest its
-    /// detail; elsewhere the text is shown as it is.
+    /// On Linux and FreeBSD the first line is the tooltip's title and the
+    /// rest its detail; elsewhere the text is shown as it is.
     pub fn set_tooltip(&mut self, text: impl Into<String>) {
         #[cfg(any(target_os = "linux", target_os = "freebsd", windows, target_os = "macos"))]
         self.host.set_tooltip(text.into());

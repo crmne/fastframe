@@ -15,7 +15,9 @@ pub(crate) struct Host {
     /// Whether a StatusNotifier watcher has the item now.
     shown: Arc<AtomicBool>,
     /// Whether a StatusNotifier host is registered to display the item.
-    panel_available: fn() -> bool,
+    panel_available: Arc<AtomicBool>,
+    #[cfg(target_os = "freebsd")]
+    _panel_stop: std::sync::mpsc::Sender<()>,
 }
 
 impl Host {
@@ -30,6 +32,7 @@ impl Host {
             String::new()
         };
         let shown = Arc::new(AtomicBool::new(initial_shown()));
+        let panel_available = Arc::new(AtomicBool::new(initial_shown()));
         let look = Look::new(&config);
         let item = Item {
             id: config.id,
@@ -51,15 +54,19 @@ impl Host {
             .disable_dbus_name(sandbox)
             .assume_sni_available(true)
             .spawn()?;
+        #[cfg(target_os = "freebsd")]
+        let _panel_stop = spawn_panel_watcher(Arc::clone(&panel_available));
         Ok(Self {
             handle,
             shown,
-            panel_available: default_panel_available,
+            panel_available,
+            #[cfg(target_os = "freebsd")]
+            _panel_stop,
         })
     }
 
     pub(crate) fn is_shown(&self) -> bool {
-        is_shown_with(&self.shown, self.panel_available)
+        is_shown_with(&self.shown, &self.panel_available)
     }
 
     pub(crate) fn set_enabled(&mut self, id: &str, enabled: bool) {
@@ -101,15 +108,28 @@ const fn initial_shown() -> bool {
     !cfg!(target_os = "freebsd")
 }
 
-fn is_shown_with(watcher_online: &AtomicBool, panel_available: fn() -> bool) -> bool {
-    watcher_online.load(Ordering::Acquire) && panel_available()
+fn is_shown_with(watcher_online: &AtomicBool, panel_available: &AtomicBool) -> bool {
+    watcher_online.load(Ordering::Acquire) && panel_available.load(Ordering::Acquire)
 }
 
-fn default_panel_available() -> bool {
-    #[cfg(target_os = "freebsd")]
-    return status_notifier_host_registered();
-    #[cfg(not(target_os = "freebsd"))]
-    true
+#[cfg(target_os = "freebsd")]
+fn spawn_panel_watcher(panel_available: Arc<AtomicBool>) -> std::sync::mpsc::Sender<()> {
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::Duration;
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let _ = std::thread::Builder::new()
+        .name("fastframe-tray-host".to_owned())
+        .spawn(move || {
+            loop {
+                panel_available.store(status_notifier_host_registered(), Ordering::Release);
+                match receiver.recv_timeout(Duration::from_secs(2)) {
+                    Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                    Err(RecvTimeoutError::Timeout) => {}
+                }
+            }
+        });
+    sender
 }
 
 /// Queries `org.kde.StatusNotifierWatcher` for `IsStatusNotifierHostRegistered`
@@ -539,13 +559,16 @@ mod tests {
     #[test]
     fn freebsd_requires_both_watcher_and_registered_panel_host() {
         let watcher = AtomicBool::new(false);
-        assert!(!is_shown_with(&watcher, || true));
+        let panel = AtomicBool::new(true);
+        assert!(!is_shown_with(&watcher, &panel));
         watcher.store(true, Ordering::Release);
+        panel.store(false, Ordering::Release);
         assert!(
-            !is_shown_with(&watcher, || false),
+            !is_shown_with(&watcher, &panel),
             "watcher acceptance alone does not count without a panel host"
         );
-        assert!(is_shown_with(&watcher, || true));
+        panel.store(true, Ordering::Release);
+        assert!(is_shown_with(&watcher, &panel));
         assert!(parse_host_registered("   variant       boolean true\n"));
         assert!(parse_host_registered("(<true>,)\n"));
         assert!(!parse_host_registered("   variant       boolean false\n"));
