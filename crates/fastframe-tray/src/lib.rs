@@ -107,16 +107,17 @@ pub struct Config {
     pub id: &'static str,
     /// The app's name (`ZapFast`): the item's title and tooltip.
     pub title: String,
-    /// The full-colour icon (Linux, Windows, and macOS without a template).
+    /// The full-colour icon (Linux, FreeBSD, Windows, and macOS without a
+    /// template).
     pub icon: DrawIcon,
     /// A macOS template image: black on transparent, which macOS recolours
     /// to match the menu bar. `None` uses [`Config::icon`] as it is. It is
     /// also the shape [`IconColour::White`] and [`IconColour::Black`] paint.
     pub template_icon: Option<DrawIcon>,
-    /// On Linux, also name the app's installed icon to the panel, for the
-    /// hosts that draw only icons they look up by name. Turn it off for an
-    /// app whose tray icon differs from its app icon (a glyph, or one that
-    /// changes with [`Tray::set_icon`]), since a host that has the name
+    /// On Linux and FreeBSD, also name the app's installed icon to the panel,
+    /// for the hosts that draw only icons they look up by name. Turn it off
+    /// for an app whose tray icon differs from its app icon (a glyph, or one
+    /// that changes with [`Tray::set_icon`]), since a host that has the name
     /// draws that instead of the pixels. A white or black icon
     /// ([`Tray::set_icon_colour`]) is never named.
     pub themed_icon: bool,
@@ -177,8 +178,8 @@ impl MenuItem {
 /// What the person did with the tray item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
-    /// A left click on Linux: show the window if it is hidden, hide it
-    /// otherwise.
+    /// A left click on Linux or FreeBSD: show the window if it is hidden,
+    /// hide it otherwise.
     Toggle,
     /// Bring the window up: a left click on Windows, or a Dock click on
     /// macOS (even for a minimized window, which AppKit reports as visible).
@@ -391,9 +392,9 @@ impl Tray {
     }
 
     /// Whether a panel shows the item now, so closing the window can keep
-    /// the app running. On Linux a panel may come and go (it starts after an
-    /// app launched at login, or a desktop has none); on Windows and macOS
-    /// the item is always shown.
+    /// the app running. On Linux and FreeBSD a panel may come and go (it
+    /// starts after an app launched at login, or a desktop has none); on
+    /// Windows and macOS the item is always shown.
     #[must_use]
     pub fn is_shown(&self) -> bool {
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]

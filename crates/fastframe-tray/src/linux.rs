@@ -14,6 +14,8 @@ pub(crate) struct Host {
     handle: ksni::blocking::Handle<Item>,
     /// Whether a StatusNotifier watcher has the item now.
     shown: Arc<AtomicBool>,
+    /// Whether a StatusNotifier host is registered to display the item.
+    panel_available: fn() -> bool,
 }
 
 impl Host {
@@ -27,7 +29,7 @@ impl Host {
         } else {
             String::new()
         };
-        let shown = Arc::new(AtomicBool::new(true));
+        let shown = Arc::new(AtomicBool::new(initial_shown()));
         let look = Look::new(&config);
         let item = Item {
             id: config.id,
@@ -49,11 +51,15 @@ impl Host {
             .disable_dbus_name(sandbox)
             .assume_sni_available(true)
             .spawn()?;
-        Ok(Self { handle, shown })
+        Ok(Self {
+            handle,
+            shown,
+            panel_available: default_panel_available,
+        })
     }
 
     pub(crate) fn is_shown(&self) -> bool {
-        self.shown.load(Ordering::Acquire)
+        is_shown_with(&self.shown, self.panel_available)
     }
 
     pub(crate) fn set_enabled(&mut self, id: &str, enabled: bool) {
@@ -86,6 +92,76 @@ impl Host {
 
     /// The item runs on its own thread from the start.
     pub(crate) fn attach(&mut self) {}
+}
+
+/// On FreeBSD `shown` starts `false` until the watcher accepts the item and
+/// a `StatusNotifierHost` is registered; on Linux it preserves the existing
+/// initial state.
+const fn initial_shown() -> bool {
+    !cfg!(target_os = "freebsd")
+}
+
+fn is_shown_with(watcher_online: &AtomicBool, panel_available: fn() -> bool) -> bool {
+    watcher_online.load(Ordering::Acquire) && panel_available()
+}
+
+fn default_panel_available() -> bool {
+    #[cfg(target_os = "freebsd")]
+    return status_notifier_host_registered();
+    #[cfg(not(target_os = "freebsd"))]
+    true
+}
+
+/// Queries `org.kde.StatusNotifierWatcher` for `IsStatusNotifierHostRegistered`
+/// so FreeBSD desktops without an SNI panel do not report the tray as shown
+/// merely because a watcher accepted registration.
+#[cfg(target_os = "freebsd")]
+fn status_notifier_host_registered() -> bool {
+    use std::process::{Command, Stdio};
+
+    let dbus_send = Command::new("dbus-send")
+        .args([
+            "--session",
+            "--print-reply=literal",
+            "--dest=org.kde.StatusNotifierWatcher",
+            "/StatusNotifierWatcher",
+            "org.freedesktop.DBus.Properties.Get",
+            "string:org.kde.StatusNotifierWatcher",
+            "string:IsStatusNotifierHostRegistered",
+        ])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    if let Ok(output) = dbus_send {
+        return output.status.success()
+            && parse_host_registered(&String::from_utf8_lossy(&output.stdout));
+    }
+    Command::new("gdbus")
+        .args([
+            "call",
+            "--session",
+            "--dest",
+            "org.kde.StatusNotifierWatcher",
+            "--object-path",
+            "/StatusNotifierWatcher",
+            "--method",
+            "org.freedesktop.DBus.Properties.Get",
+            "org.kde.StatusNotifierWatcher",
+            "IsStatusNotifierHostRegistered",
+        ])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .is_some_and(|output| parse_host_registered(&String::from_utf8_lossy(&output.stdout)))
+}
+
+#[cfg(any(target_os = "freebsd", test))]
+fn parse_host_registered(reply: &str) -> bool {
+    reply
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .any(|word| word == "true")
 }
 
 /// Whether the app runs inside Flatpak's sandbox.
@@ -458,5 +534,22 @@ mod tests {
 
         item.look.colour = crate::IconColour::Original;
         assert_eq!(item.icon_name(), "spotifast");
+    }
+
+    #[test]
+    fn freebsd_requires_both_watcher_and_registered_panel_host() {
+        let watcher = AtomicBool::new(false);
+        assert!(!is_shown_with(&watcher, || true));
+        watcher.store(true, Ordering::Release);
+        assert!(
+            !is_shown_with(&watcher, || false),
+            "watcher acceptance alone does not count without a panel host"
+        );
+        assert!(is_shown_with(&watcher, || true));
+        assert!(parse_host_registered("   variant       boolean true\n"));
+        assert!(parse_host_registered("(<true>,)\n"));
+        assert!(!parse_host_registered("   variant       boolean false\n"));
+        assert!(!parse_host_registered("(<false>,)\n"));
+        assert!(!parse_host_registered(""));
     }
 }

@@ -127,7 +127,11 @@ pub(crate) fn linux_icon_folders(
                 .chain(data_dirs.into_iter().filter(|dir| dir.is_absolute()))
                 .map(|dir| dir.join("icons")),
         )
-        .chain(Some("/usr/share/pixmaps".into()))
+        .chain([
+            #[cfg(target_os = "freebsd")]
+            PathBuf::from("/usr/local/share/pixmaps"),
+            PathBuf::from("/usr/share/pixmaps"),
+        ])
         .collect()
 }
 
@@ -221,6 +225,8 @@ mod tests {
                 "/home/a/.local/share/icons",
                 "/usr/local/share/icons",
                 "/usr/share/icons",
+                #[cfg(target_os = "freebsd")]
+                "/usr/local/share/pixmaps",
                 "/usr/share/pixmaps",
             ]
             .map(PathBuf::from)
@@ -235,6 +241,8 @@ mod tests {
                 "/data/icons",
                 "/flatpak/share/icons",
                 "/usr/share/icons",
+                #[cfg(target_os = "freebsd")]
+                "/usr/local/share/pixmaps",
                 "/usr/share/pixmaps"
             ]
             .map(PathBuf::from)

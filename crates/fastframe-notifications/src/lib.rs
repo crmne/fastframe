@@ -225,17 +225,20 @@ impl Notification {
         self.category = Some(category.into());
         self
     }
-    /// Percentage for a Linux progress notification, clamped to 100.
+    /// Percentage for a Linux or FreeBSD progress notification, clamped to 100.
     pub fn progress(mut self, percent: u8) -> Self {
         self.progress = Some(percent.min(100));
         self
     }
-    /// Ask Linux to retain the banner until dismissed. Other platforms use their normal lifetime.
+    /// On Linux and FreeBSD, request a never-expiring notification that a
+    /// compliant server may keep visible until dismissed. Other platforms use
+    /// their normal lifetime.
     pub fn persistent(mut self, persistent: bool) -> Self {
         self.persistent = persistent;
         self
     }
-    /// Add a button. `default` labels the ordinary click on Linux; it is not a separate button elsewhere.
+    /// Add a button. `default` labels the ordinary click on Linux and FreeBSD;
+    /// it is not a separate button elsewhere.
     pub fn action(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
         self.actions.push((id.into(), label.into()));
         self

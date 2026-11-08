@@ -4,14 +4,23 @@
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "freebsd")]
+use std::time::Duration;
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+#[cfg(target_os = "freebsd")]
+use notify::Config;
+use notify::{RecursiveMode, Watcher};
 
 use crate::Waker;
 
+#[cfg(not(target_os = "freebsd"))]
+type PlatformWatcher = notify::RecommendedWatcher;
+#[cfg(target_os = "freebsd")]
+type PlatformWatcher = notify::PollWatcher;
+
 /// Watches the themes directory, and Omarchy's current theme if followed.
 pub(crate) struct ThemeWatch {
-    _watcher: RecommendedWatcher,
+    _watcher: PlatformWatcher,
     changed: Arc<AtomicBool>,
 }
 
@@ -22,15 +31,21 @@ impl ThemeWatch {
         let changed = Arc::new(AtomicBool::new(false));
         let signal = changed.clone();
         let wake = waker.clone();
-        let mut watcher =
-            notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                let changed = event.is_ok_and(|event| {
-                    event.kind.is_create() || event.kind.is_modify() || event.kind.is_remove()
-                });
-                if changed && !signal.swap(true, Ordering::AcqRel) {
-                    wake.wake();
-                }
-            })?;
+        let handler = move |event: notify::Result<notify::Event>| {
+            let changed = event.is_ok_and(|event| {
+                event.kind.is_create() || event.kind.is_modify() || event.kind.is_remove()
+            });
+            if changed && !signal.swap(true, Ordering::AcqRel) {
+                wake.wake();
+            }
+        };
+        #[cfg(not(target_os = "freebsd"))]
+        let mut watcher = notify::recommended_watcher(handler)?;
+        #[cfg(target_os = "freebsd")]
+        let mut watcher = notify::PollWatcher::new(
+            handler,
+            Config::default().with_poll_interval(Duration::from_millis(750)),
+        )?;
         watcher.watch(local, RecursiveMode::NonRecursive)?;
         if let Some(system) = system {
             // Omarchy replaces the whole `theme` directory on a switch.

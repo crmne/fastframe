@@ -472,7 +472,7 @@ fn show(message: &Dialog) -> bool {
     return macos::show(message);
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     return linux::show(message);
-    #[cfg(not(any(windows, target_os = "macos", any(target_os = "linux", target_os = "freebsd"))))]
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux", target_os = "freebsd")))]
     {
         let _ = message;
         false
@@ -486,7 +486,7 @@ fn open_url(url: &str) {
     macos::open_url(url);
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     linux::open_url(url);
-    #[cfg(not(any(windows, target_os = "macos", any(target_os = "linux", target_os = "freebsd"))))]
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux", target_os = "freebsd")))]
     let _ = url;
 }
 

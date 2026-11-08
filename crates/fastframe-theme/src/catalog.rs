@@ -222,7 +222,8 @@ impl<P: Palette> Catalog<P> {
     }
 
     /// Whether a watched file changed since the last call, so the app
-    /// should [`Self::start`] a scan. Always `false` outside Linux.
+    /// should [`Self::start`] a scan. Always `false` outside Linux and
+    /// FreeBSD.
     pub fn needs_reload(&self) -> bool {
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         if let Some(watch) = &self.watch {

@@ -1,6 +1,6 @@
 //! Live changes to the desktop's font settings (feature `watch`).
 //!
-//! On Linux a background thread listens for the desktop portal's
+//! On Linux and FreeBSD a background thread listens for the desktop portal's
 //! `SettingChanged` signal on the font keys, reads the settings again with
 //! [`crate::detect`], and hands the new [`TextRendering`] to a callback when
 //! it differs from the last one. The app then applies it on its interface
@@ -106,8 +106,9 @@ impl Changes {
 ///
 /// # Errors
 ///
-/// [`WatchError::Unsupported`] off Linux, [`WatchError::Bus`] without a
-/// session bus or portal, [`WatchError::Thread`] if the thread cannot start.
+/// [`WatchError::Unsupported`] off Linux and FreeBSD, [`WatchError::Bus`]
+/// without a session bus or portal, [`WatchError::Thread`] if the thread
+/// cannot start.
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub fn watch<F>(current: TextRendering, on_change: F) -> Result<(), WatchError>
 where
@@ -171,7 +172,7 @@ where
 ///
 /// # Errors
 ///
-/// [`WatchError::Unsupported`] off Linux and under X11 (see
+/// [`WatchError::Unsupported`] off Linux and FreeBSD and under X11 (see
 /// [`crate::text_scale`]), [`WatchError::Bus`] without a session bus or
 /// portal, [`WatchError::Thread`] if the thread cannot start.
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]

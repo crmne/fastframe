@@ -49,12 +49,73 @@ pub(crate) fn show(message: &Dialog) -> bool {
 }
 
 pub(crate) fn open_url(url: &str) {
-    if let Err(error) = Command::new("xdg-open")
-        .arg(url)
-        .stdin(Stdio::null())
-        .spawn()
-    {
-        log::warn!("could not open the help page: {error}");
+    let browser = std::env::var("BROWSER").ok();
+    let candidates = url_openers(browser.as_deref(), cfg!(target_os = "freebsd"));
+    let opened = try_open_url(url, &candidates, |program, args| {
+        Command::new(program)
+            .args(args)
+            .stdin(Stdio::null())
+            .spawn()
+            .map(|_| ())
+    });
+    if let Err(error) = opened {
+        log::warn!("could not open the help page ({url}): {error}");
+        #[cfg(target_os = "freebsd")]
+        {
+            let _ = show(&fallback_url_dialog(url));
+        }
+    }
+}
+
+/// Candidate commands for opening `url`. Linux keeps `xdg-open`; FreeBSD
+/// falls back through `gio open`, `$BROWSER` and common desktop browsers when
+/// `xdg-utils` is not installed.
+fn url_openers(browser_env: Option<&str>, fallbacks: bool) -> Vec<(String, Vec<&'static str>)> {
+    let mut commands = vec![("xdg-open".to_owned(), Vec::new())];
+    if !fallbacks {
+        return commands;
+    }
+    commands.push(("gio".to_owned(), vec!["open"]));
+    if let Some(browser) = browser_env.map(str::trim).filter(|b| !b.is_empty()) {
+        commands.push((browser.to_owned(), Vec::new()));
+    }
+    for program in ["kde-open", "firefox", "chromium", "chrome", "falkon", "epiphany"] {
+        commands.push((program.to_owned(), Vec::new()));
+    }
+    commands
+}
+
+fn try_open_url<E>(
+    url: &str,
+    candidates: &[(String, Vec<&'static str>)],
+    mut spawn: impl FnMut(&str, &[&str]) -> Result<(), E>,
+) -> Result<(), E> {
+    let mut last_error = None;
+    for (program, prefix_args) in candidates {
+        let mut args: Vec<&str> = prefix_args.clone();
+        args.push(url);
+        match spawn(program, &args) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if last_error.is_none() {
+                    last_error = Some(error);
+                }
+            }
+        }
+    }
+    Err(last_error.expect("at least one URL opener candidate"))
+}
+
+#[cfg(any(target_os = "freebsd", test))]
+fn fallback_url_dialog(url: &str) -> Dialog {
+    Dialog {
+        title: "Help page".to_owned(),
+        body: format!(
+            "Could not open a web browser automatically.\n\nOpen this address in your browser:\n\n{url}"
+        ),
+        link: None,
+        open_label: String::new(),
+        close_label: "Close".to_owned(),
     }
 }
 
@@ -67,8 +128,47 @@ fn escape_markup(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn markup_characters_in_the_details_stay_text() {
-        assert_eq!(super::escape_markup("a < b & c"), "a &lt; b &amp; c");
+        assert_eq!(escape_markup("a < b & c"), "a &lt; b &amp; c");
+    }
+
+    #[test]
+    fn freebsd_url_openers_fall_back_and_surface_the_recovery_url() {
+        let candidates = url_openers(Some("custom-browser"), true);
+        let mut tried = Vec::new();
+        let opened = try_open_url("https://example.com/help", &candidates, |program, args| {
+            tried.push((
+                program.to_owned(),
+                args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>(),
+            ));
+            if program == "custom-browser" {
+                Ok(())
+            } else {
+                Err("missing")
+            }
+        });
+        assert!(opened.is_ok());
+        assert_eq!(tried[0].0, "xdg-open");
+        assert_eq!(
+            tried[1],
+            (
+                "gio".to_owned(),
+                vec!["open".to_owned(), "https://example.com/help".to_owned()],
+            )
+        );
+        assert_eq!(
+            tried[2],
+            (
+                "custom-browser".to_owned(),
+                vec!["https://example.com/help".to_owned()],
+            )
+        );
+
+        let dialog = fallback_url_dialog("https://example.com/help");
+        assert!(dialog.body.contains("https://example.com/help"));
+        assert_eq!(dialog.link, None);
     }
 }
