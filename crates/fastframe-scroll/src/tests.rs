@@ -48,7 +48,10 @@ fn swipe(ctx: &Context, scrolling: &mut Scrolling, phase: TouchPhase) {
 }
 
 fn linux() -> Scrolling {
-    Scrolling::with_touchpad_help(true)
+    // The default scale, whatever the environment of the test run asks for.
+    let mut scrolling = Scrolling::with_touchpad_help(true);
+    scrolling.set_touchpad_scale(TOUCHPAD_SCALE);
+    scrolling
 }
 
 #[test]
@@ -307,4 +310,50 @@ fn a_window_made_again_gets_the_wheel_step_too() {
         again.options(|o| o.input_options.line_scroll_speed),
         WHEEL_STEP
     );
+}
+
+#[test]
+fn a_set_touchpad_scale_replaces_the_default() {
+    let ctx = Context::default();
+    let mut scrolling = linux();
+    scrolling.set_touchpad_scale(3.0);
+    frame(
+        &ctx,
+        &mut scrolling,
+        0.0,
+        vec![touch(TouchPhase::Start, 10.0)],
+    );
+    let scrolled = frame(
+        &ctx,
+        &mut scrolling,
+        0.016,
+        vec![touch(TouchPhase::Move, 10.0)],
+    );
+    assert_eq!(scrolled.y, 30.0);
+}
+
+#[test]
+fn a_touchpad_scale_that_is_not_a_positive_number_is_ignored() {
+    let mut scrolling = linux();
+    for scale in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        scrolling.set_touchpad_scale(scale);
+        assert_eq!(scrolling.touchpad_scale(), TOUCHPAD_SCALE);
+    }
+}
+
+#[test]
+fn the_environment_picks_the_touchpad_scale() {
+    assert_eq!(touchpad_scale_from(Some("3")), 3.0);
+    assert_eq!(touchpad_scale_from(Some(" 2.5 ")), 2.5);
+    for value in [
+        None,
+        Some(""),
+        Some("fast"),
+        Some("0"),
+        Some("-2"),
+        Some("inf"),
+        Some("NaN"),
+    ] {
+        assert_eq!(touchpad_scale_from(value), TOUCHPAD_SCALE, "{value:?}");
+    }
 }
