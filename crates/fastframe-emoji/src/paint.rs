@@ -20,13 +20,23 @@ use crate::{Picture, available, get};
 /// transparent.
 pub const PLACEHOLDER: char = '\u{2B1B}';
 
-/// How tall each emoji's texture is, in pixels. Pictures are scaled to the
-/// text on the GPU.
-const TEXTURE_HEIGHT: u32 = 72;
+/// How tall prewarmed pictures are drawn, in pixels. A prewarmed picture
+/// serves the first frame at any size as a fallback, until the size actually
+/// painted is ready.
+const PREWARM_HEIGHT: u32 = 72;
 
 /// The painted emoji's side, relative to the row height of the text beside
 /// it.
 const EMOJI_SIDE: f32 = 1.08;
+
+/// How tall a picture painted into `rect` should be drawn, in physical
+/// pixels: the size the GPU will show it at, so it neither upscales a
+/// smaller texture nor shrinks a larger one.
+pub(crate) fn texture_height(rect: Rect, pixels_per_point: f32) -> u32 {
+    (rect.height() * EMOJI_SIDE * pixels_per_point)
+        .round()
+        .max(1.0) as u32
+}
 
 /// Pictures uploaded to one egui context, and those on their way.
 #[derive(Clone, Default)]
@@ -34,12 +44,13 @@ struct Cache(Arc<Mutex<Textures>>);
 
 #[derive(Default)]
 struct Textures {
-    /// A texture per cluster, or `None` when no font draws it.
-    ready: HashMap<String, Option<TextureHandle>>,
-    /// Clusters queued to the worker.
-    pending: HashSet<String>,
+    /// A texture per cluster and physical height, or `None` when no font
+    /// draws it.
+    ready: HashMap<String, HashMap<u32, Option<TextureHandle>>>,
+    /// Cluster heights queued to the worker.
+    pending: HashMap<String, HashSet<u32>>,
     /// Pictures the worker finished, to upload in the next frame.
-    arrived: Vec<(String, Option<Picture>)>,
+    arrived: Vec<(String, u32, Option<Picture>)>,
 }
 
 impl Cache {
@@ -60,6 +71,7 @@ impl Cache {
 /// A picture on its way from the worker.
 struct Job {
     cluster: String,
+    height: u32,
     ctx: egui::Context,
     cache: Cache,
 }
@@ -76,8 +88,11 @@ fn worker() -> Option<&'static Mutex<mpsc::Sender<Job>>> {
                 .name("emoji-pictures".into())
                 .spawn(move || {
                     while let Ok(job) = receiver.recv() {
-                        let picture = get().render(&job.cluster, TEXTURE_HEIGHT);
-                        job.cache.lock().arrived.push((job.cluster, picture));
+                        let picture = get().render(&job.cluster, job.height);
+                        job.cache
+                            .lock()
+                            .arrived
+                            .push((job.cluster, job.height, picture));
                         job.ctx.request_repaint();
                     }
                 })
@@ -88,45 +103,99 @@ fn worker() -> Option<&'static Mutex<mpsc::Sender<Job>>> {
         .as_ref()
 }
 
-fn upload(ctx: &egui::Context, cluster: &str, picture: Option<Picture>) -> Option<TextureHandle> {
+fn upload(
+    ctx: &egui::Context,
+    cluster: &str,
+    height: u32,
+    picture: Option<Picture>,
+) -> Option<TextureHandle> {
     let picture = picture?;
     let image = ColorImage::from_rgba_premultiplied(picture.size, &picture.rgba);
-    Some(ctx.load_texture(format!("emoji-{cluster}"), image, TextureOptions::LINEAR))
+    Some(ctx.load_texture(
+        format!("emoji-{cluster}-{height}"),
+        image,
+        TextureOptions::LINEAR,
+    ))
 }
 
-/// The cluster's texture: `Some(Some)` ready, `Some(None)` no font draws
-/// it, `None` on its way.
-pub(crate) fn texture(ctx: &egui::Context, cluster: &str) -> Option<Option<TextureHandle>> {
+/// The cluster's texture at `height`: `Some(Some)` ready, `Some(None)` no
+/// font draws it, `None` on its way.
+///
+/// A picture of another size is returned while the exact one is drawn, so a
+/// prewarmed picker shows its emoji at once and sharpens a frame later.
+pub(crate) fn texture(
+    ctx: &egui::Context,
+    cluster: &str,
+    height: u32,
+) -> Option<Option<TextureHandle>> {
     let cache = Cache::of(ctx);
     let mut textures = cache.lock();
-    for (arrived, picture) in std::mem::take(&mut textures.arrived) {
-        textures.pending.remove(&arrived);
-        let handle = upload(ctx, &arrived, picture);
-        textures.ready.insert(arrived, handle);
-    }
-    if let Some(known) = textures.ready.get(cluster) {
-        return Some(known.clone());
+    for (arrived, height, picture) in std::mem::take(&mut textures.arrived) {
+        if let Some(sizes) = textures.pending.get_mut(&arrived) {
+            sizes.remove(&height);
+            if sizes.is_empty() {
+                textures.pending.remove(&arrived);
+            }
+        }
+        let handle = upload(ctx, &arrived, height, picture);
+        textures
+            .ready
+            .entry(arrived)
+            .or_default()
+            .insert(height, handle);
     }
     let emoji = get();
+    let fallback = match textures.ready.get(cluster) {
+        Some(sizes) => match sizes.get(&height) {
+            Some(known) => return Some(known.clone()),
+            None if emoji.synchronous => None,
+            None => sizes
+                .iter()
+                .min_by_key(|(drawn, _)| drawn.abs_diff(height))
+                .map(|(_, known)| known.clone()),
+        },
+        None => None,
+    };
     if emoji.synchronous {
-        let handle = upload(ctx, cluster, emoji.render(cluster, TEXTURE_HEIGHT));
-        textures.ready.insert(cluster.to_owned(), handle.clone());
+        let handle = upload(ctx, cluster, height, emoji.render(cluster, height));
+        textures
+            .ready
+            .entry(cluster.to_owned())
+            .or_default()
+            .insert(height, handle.clone());
         return Some(handle);
     }
-    queue(ctx, &cache, &mut textures, cluster);
+    if let Some(known) = fallback {
+        queue(ctx, &cache, &mut textures, cluster, height);
+        return Some(known);
+    }
+    queue(ctx, &cache, &mut textures, cluster, height);
     None
 }
 
-fn queue(ctx: &egui::Context, cache: &Cache, textures: &mut Textures, cluster: &str) {
-    if textures.ready.contains_key(cluster) || textures.pending.contains(cluster) {
+fn queue(ctx: &egui::Context, cache: &Cache, textures: &mut Textures, cluster: &str, height: u32) {
+    if textures
+        .ready
+        .get(cluster)
+        .is_some_and(|sizes| sizes.contains_key(&height))
+        || textures
+            .pending
+            .get(cluster)
+            .is_some_and(|sizes| sizes.contains(&height))
+    {
         return;
     }
     let Some(worker) = worker() else {
-        textures.ready.insert(cluster.to_owned(), None);
+        textures
+            .ready
+            .entry(cluster.to_owned())
+            .or_default()
+            .insert(height, None);
         return;
     };
     let job = Job {
         cluster: cluster.to_owned(),
+        height,
         ctx: ctx.clone(),
         cache: cache.clone(),
     };
@@ -136,15 +205,26 @@ fn queue(ctx: &egui::Context, cache: &Cache, textures: &mut Textures, cluster: &
         .send(job)
         .is_ok();
     if sent {
-        textures.pending.insert(cluster.to_owned());
+        textures
+            .pending
+            .entry(cluster.to_owned())
+            .or_default()
+            .insert(height);
     } else {
-        textures.ready.insert(cluster.to_owned(), None);
+        textures
+            .ready
+            .entry(cluster.to_owned())
+            .or_default()
+            .insert(height, None);
     }
 }
 
 /// Queues pictures of these clusters to be drawn off the interface thread,
 /// ahead of the frame that shows them: the first page of an emoji picker,
 /// say. Clusters already drawn or queued are skipped.
+///
+/// The pictures are drawn at a default size, and serve a first frame at any
+/// size until that frame's own picture is ready.
 pub fn prewarm<'a>(ctx: &egui::Context, clusters: impl IntoIterator<Item = &'a str>) {
     if !available() || get().synchronous {
         return;
@@ -152,7 +232,7 @@ pub fn prewarm<'a>(ctx: &egui::Context, clusters: impl IntoIterator<Item = &'a s
     let cache = Cache::of(ctx);
     let mut textures = cache.lock();
     for cluster in clusters {
-        queue(ctx, &cache, &mut textures, cluster);
+        queue(ctx, &cache, &mut textures, cluster, PREWARM_HEIGHT);
     }
 }
 
@@ -222,7 +302,8 @@ pub fn append(
 /// is ready. A cluster no font draws is painted as text.
 pub fn paint_cluster(ui: &egui::Ui, cluster: &str, rect: Rect) {
     let painter = ui.painter();
-    match texture(ui.ctx(), cluster) {
+    let height = texture_height(rect, ui.ctx().pixels_per_point());
+    match texture(ui.ctx(), cluster, height) {
         Some(Some(texture)) => {
             let image_rect = fit(rect, texture.size_vec2());
             painter.image(
@@ -379,6 +460,7 @@ mod tests {
     fn pictures_are_painted_over_the_placeholders() {
         install();
         let ctx = egui::Context::default();
+        let mut height = 0;
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             let mut job = LayoutJob::default();
             let mut placements = Vec::new();
@@ -390,6 +472,7 @@ mod tests {
             assert!((rects[0].height() - row_height).abs() < 0.01);
             // As wide as the picture painted over it.
             assert!((rects[0].width() - row_height * EMOJI_SIDE).abs() < 1.0);
+            height = texture_height(rects[0], ui.ctx().pixels_per_point());
             paint(ui, &galley, Pos2::ZERO, &placements);
         });
         let uploaded = output
@@ -397,8 +480,32 @@ mod tests {
             .set
             .values()
             .flatten()
-            .any(|delta| delta.image.height() == TEXTURE_HEIGHT as usize);
-        assert!(uploaded, "the picture was uploaded in the first frame");
+            .any(|delta| delta.image.height() == height as usize);
+        assert!(
+            uploaded,
+            "the picture was uploaded at the size it shows in the first frame"
+        );
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn pictures_are_drawn_at_the_size_they_are_painted() {
+        install();
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let small = texture(ui.ctx(), "😀", 14)
+                .flatten()
+                .expect("the small picture");
+            let large = texture(ui.ctx(), "😀", 48)
+                .flatten()
+                .expect("the large picture");
+            assert_eq!(small.size()[1], 14);
+            assert_eq!(large.size()[1], 48);
+            assert_ne!(small.id(), large.id(), "one texture per size");
+            let row = Rect::from_min_size(Pos2::ZERO, egui::vec2(13.0, 13.0));
+            assert_eq!(texture_height(row, 1.0), 14);
+            assert_eq!(texture_height(row, 2.0), 28);
+        });
         output.textures_delta.clear();
     }
 
@@ -430,7 +537,7 @@ mod tests {
         install();
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            assert!(matches!(texture(ui.ctx(), "🦖"), Some(None)));
+            assert!(matches!(texture(ui.ctx(), "🦖", 20), Some(None)));
             paint_cluster(
                 ui,
                 "🦖",

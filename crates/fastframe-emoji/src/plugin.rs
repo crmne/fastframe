@@ -10,7 +10,7 @@ use std::sync::Arc;
 use egui::epaint::{ClippedShape, Galley, Shape, TextShape};
 use egui::{Color32, FullOutput, Pos2, Rect, TextureId, Vec2};
 
-use crate::paint::{fit, texture};
+use crate::paint::{fit, texture, texture_height};
 use crate::segment::{Piece, pieces};
 
 /// Draws every emoji in every egui text in colour: labels, buttons, menus,
@@ -51,9 +51,10 @@ struct Coloured {
     baked: bool,
 }
 
-/// A cluster's picture: ready (its texture and size), `Some(None)` when no
-/// font draws it, `None` while it is being drawn.
-type Lookup<'a> = dyn FnMut(&str) -> Option<Option<(TextureId, Vec2)>> + 'a;
+/// A cluster's picture: ready (its texture and size, and whether it is at
+/// the size painted), `Some(None)` when no font draws it, `None` while it is
+/// being drawn.
+type Lookup<'a> = dyn FnMut(&str, Rect) -> Option<Option<(TextureId, Vec2, bool)>> + 'a;
 
 impl egui::Plugin for EmojiPlugin {
     fn debug_name(&self) -> &'static str {
@@ -64,8 +65,15 @@ impl egui::Plugin for EmojiPlugin {
         if !crate::available() {
             return;
         }
-        let mut lookup = |cluster: &str| {
-            texture(ctx, cluster).map(|ready| ready.map(|handle| (handle.id(), handle.size_vec2())))
+        let pixels_per_point = ctx.pixels_per_point();
+        let mut lookup = |cluster: &str, rect: Rect| {
+            let height = texture_height(rect, pixels_per_point);
+            texture(ctx, cluster, height).map(|ready| {
+                ready.map(|handle| {
+                    let exact = handle.size()[1] == height as usize;
+                    (handle.id(), handle.size_vec2(), exact)
+                })
+            })
         };
         self.colour(&mut output.shapes, &mut lookup);
         // egui took this frame's texture uploads before the hook ran;
@@ -246,13 +254,14 @@ fn colour_galley(
         let Some(rect) = cluster_rect(galley, &mine) else {
             continue;
         };
-        match lookup(cluster) {
-            Some(Some((id, size))) => {
+        match lookup(cluster, rect) {
+            Some(Some((id, size, exact))) => {
                 pictures.push((id, fit(rect, size)));
                 for &(row, glyph) in &visible {
                     let first_vertex = galley.rows[row].row.glyphs[glyph].first_vertex as usize;
                     hide.push((row, first_vertex));
                 }
+                settled &= exact;
             }
             Some(None) => {}
             None => settled = false,
@@ -486,14 +495,18 @@ mod tests {
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             ui.label("x 👍🏽");
         });
-        let uploaded = output
+        let heights: Vec<usize> = output
             .textures_delta
             .set
             .values()
             .flatten()
-            .any(|delta| delta.image.height() == 72);
+            .map(|delta| delta.image.height())
+            .collect();
         output.textures_delta.clear();
-        assert!(uploaded);
+        assert!(
+            heights.iter().any(|height| *height < 72),
+            "a 14 point emoji was drawn at the size it shows, not 72: {heights:?}"
+        );
     }
 
     #[test]
@@ -519,8 +532,9 @@ mod tests {
                 shape: Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
             })
             .collect();
-        let mut lookup =
-            |_: &str| -> Option<Option<(TextureId, Vec2)>> { panic!("no emoji to look up") };
+        let mut lookup = |_: &str, _: Rect| -> Option<Option<(TextureId, Vec2, bool)>> {
+            panic!("no emoji to look up")
+        };
         plugin.colour(&mut shapes, &mut lookup);
         assert_eq!(shapes.len(), 2, "nothing painted");
         for (shape, galley) in shapes.iter().zip(&galleys) {
@@ -569,7 +583,7 @@ mod tests {
             clip_rect: Rect::EVERYTHING,
             shape: Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
         }];
-        let mut lookup = |_: &str| None;
+        let mut lookup = |_: &str, _: Rect| None;
         plugin.colour(&mut shapes, &mut lookup);
         assert_eq!(shapes.len(), 1, "no picture yet");
         let Shape::Text(text) = &shapes[0].shape else {
@@ -579,7 +593,8 @@ mod tests {
         assert!(plugin.seen.is_empty(), "asked again next frame");
 
         // Next frame the picture is there.
-        let mut ready = |_: &str| Some(Some((TextureId::User(7), egui::vec2(77.0, 72.0))));
+        let mut ready =
+            |_: &str, _: Rect| Some(Some((TextureId::User(7), egui::vec2(77.0, 72.0), true)));
         plugin.colour(&mut shapes, &mut ready);
         assert_eq!(shapes.len(), 2);
     }
@@ -611,9 +626,9 @@ mod tests {
             })
             .collect();
         let mut asked = Vec::new();
-        let mut lookup = |cluster: &str| {
+        let mut lookup = |cluster: &str, _: Rect| {
             asked.push(cluster.to_owned());
-            Some(Some((TextureId::User(1), egui::vec2(72.0, 72.0))))
+            Some(Some((TextureId::User(1), egui::vec2(72.0, 72.0), true)))
         };
         plugin.colour(&mut shapes, &mut lookup);
         assert_eq!(asked, vec!["\u{2B1B}\u{FE0F}".to_owned()]);
@@ -724,7 +739,8 @@ mod tests {
             clip_rect: Rect::EVERYTHING,
             shape: Shape::Text(text),
         }];
-        let mut lookup = |_: &str| Some(Some((TextureId::User(1), egui::vec2(72.0, 72.0))));
+        let mut lookup =
+            |_: &str, _: Rect| Some(Some((TextureId::User(1), egui::vec2(72.0, 72.0), true)));
         plugin.colour(&mut shapes, &mut lookup);
         let Shape::Text(text) = &shapes[0].shape else {
             panic!("still text");

@@ -104,8 +104,9 @@ platform draws them. See [DESIGN.md](DESIGN.md) for the reasoning.
 
 ## What stays in the app
 
-The bundled font and its licence, the size emoji are drawn at, and how the
-app turns placeholders back into text when copying (ZapFast's transcript).
+The bundled font and its licence, the text sizes that set the size emoji are
+drawn at, and how the app turns placeholders back into text when copying
+(ZapFast's transcript).
 
 ## Credits
 

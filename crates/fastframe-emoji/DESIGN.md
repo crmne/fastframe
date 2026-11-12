@@ -107,14 +107,19 @@ flags, so they come from the bundled font.
 - Finding and mapping the fonts happens once per process, in `warm_up`,
   which the app runs on a thread of its own at startup (ZapFast already
   does). The 190 MB Apple font and the 10 MB Noto are mapped, never read.
-- A cluster's picture is made once per egui context and kept as a texture.
-  `paint_cluster` never draws a new picture on the interface thread: a
-  missing picture is queued to one worker thread, the placeholder stays
-  transparent for that frame, and the worker asks for a repaint when the
-  picture is ready. Opening the picker with a thousand unseen emoji costs the
-  interface thread nothing but texture uploads.
+- A cluster's picture is made once per egui context and physical size it is
+  painted at, and kept as a texture. Drawing at the size the GPU shows keeps
+  small emoji sharp: a fixed large texture shrunk to a 12-pixel row loses
+  their edges, and a font whose nearest strike is larger is upscaled and then
+  shrunk again. `paint_cluster` never draws a new picture on the interface
+  thread: a missing picture is queued to one worker thread, the placeholder
+  stays transparent for that frame, and the worker asks for a repaint when
+  the picture is ready. Opening the picker with a thousand unseen emoji costs
+  the interface thread nothing but texture uploads.
 - `prewarm(ctx, clusters)` queues a set ahead of time (the picker's first
-  page). `EmojiSetup::synchronous(true)` draws inline, for tests and demo
+  page). Its pictures are drawn at a default size and serve a first frame at
+  any size until that frame's own picture is ready.
+  `EmojiSetup::synchronous(true)` draws inline, for tests and demo
   screenshots that must show every emoji in their first frame.
 - The harfrust shaper data and the fonts are shared by every thread;
   DirectWrite factories live in a thread-local on the worker, never freed.
@@ -264,5 +269,6 @@ until it arrives.
 Copying and selection work on the galley's real text, which the plugin
 never changes. An app that keeps `append` (ZapFast's transcript, whose
 selection maps placeholders back through `placements`) keeps working
-beside the plugin. Scale factor: rectangles are in points and pictures are
-72-pixel textures scaled on the GPU, as with `paint_cluster`.
+beside the plugin. Scale factor: rectangles are in points, and each picture
+is drawn at its physical size, the rectangle's height times the context's
+pixels per point, as with `paint_cluster`.
