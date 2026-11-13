@@ -1,6 +1,8 @@
 ---
 title: Getting Started
-description: Add fastframe crates to an egui app, and keep the egui and winit forks working.
+seo:
+  title: "Getting started: add fastframe crates to an egui app"
+description: Add fastframe crates to an egui and eframe app, and keep the egui and winit forks working.
 nav_order: 2
 ---
 

@@ -1,6 +1,8 @@
 ---
 layout: home
 title: fastframe
+seo:
+  title: "egui on rails: crates for native Rust desktop apps"
 description: egui on rails. The shared foundation of a family of native Rust desktop apps for Linux, macOS and Windows.
 permalink: /
 hero:

@@ -95,7 +95,18 @@ module FastframeDocs
 
     def first_paragraph(markdown)
       paragraph = markdown.split(/\n\s*\n/).find { |block| block.match?(/\A[[:alpha:]`*\[]/) }
-      paragraph && plain(paragraph.tr("\n", ' '))
+      paragraph && fit(plain(paragraph.tr("\n", ' ')))
+    end
+
+    # Search results cut a description at about 160 characters, so a long
+    # first paragraph keeps only its whole sentences that fit (at least one).
+    def fit(text, limit = 160)
+      text.split(/(?<=[.!?])\s+/).reduce('') do |kept, sentence|
+        joined = kept.empty? ? sentence : "#{kept} #{sentence}"
+        break kept if !kept.empty? && joined.length > limit
+
+        joined
+      end
     end
 
     def plain(text)
