@@ -73,6 +73,10 @@ fonts.
 
 ## System fallbacks
 
+Variable fallback faces are drawn at regular weight (`wght=400`, clamped to
+the face's range), even when their default instance is Thin. Static faces
+keep their original weight. Fallbacks remain regular in every UI family.
+
 `fastframe_fonts::system::fallbacks()` finds the faces once per process and
 reuses them for every window.
 

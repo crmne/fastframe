@@ -32,6 +32,7 @@ use std::sync::Arc;
 
 use egui::epaint::text::VariationCoords;
 use egui::{FontData, FontDefinitions, FontFamily, FontId};
+use skrifa::MetadataProvider as _;
 
 mod local;
 pub use local::{FontError, LocalFont, MAX_FONT_BYTES};
@@ -323,6 +324,21 @@ impl FontSetup {
             data.index = fallback.index;
             data.tweak.scale = fallback.scale;
             data.tweak.y_offset_factor = fallback.y_offset_factor + realign;
+            // A variable CJK face can default to Thin (100). Installed
+            // fallbacks are selected as regular faces, so draw them at 400.
+            if let Ok(font) = skrifa::FontRef::from_index(fallback.bytes, fallback.index)
+                && let Some(axis) = font
+                    .axes()
+                    .iter()
+                    .find(|axis| axis.tag().to_be_bytes() == *b"wght")
+            {
+                data.tweak.coords = VariationCoords::new([(
+                    b"wght",
+                    Weight::Regular
+                        .value()
+                        .clamp(axis.min_value(), axis.max_value()),
+                )]);
+            }
             fonts
                 .font_data
                 .insert(fallback.name.clone(), Arc::new(data));
@@ -541,6 +557,86 @@ mod tests {
             ["plex-mono", "emoji"]
         );
         assert!(fonts.font_data.contains_key("plex-mono"));
+    }
+
+    #[test]
+    fn variable_fallbacks_use_regular_instead_of_the_fonts_thin_default() {
+        let bytes = include_bytes!("../tests/fixtures/cjk/CjkVariableTest.otf");
+        let font = skrifa::FontRef::new(bytes).expect("CJK fixture");
+        let axis = font
+            .axes()
+            .iter()
+            .find(|axis| axis.tag().to_be_bytes() == *b"wght")
+            .expect("weight axis");
+        assert_eq!(axis.default_value(), 100.0);
+        let fallbacks = Box::leak(Box::new([system::Fallback {
+            name: "fallback-han".into(),
+            bytes,
+            index: 0,
+            scale: 1.0,
+            y_offset_factor: 0.05,
+        }]));
+        let fonts = FontSetup::default().definitions_with(fallbacks, None);
+        assert_eq!(
+            fonts.font_data["fallback-han"].tweak.coords,
+            VariationCoords::new([(b"wght", 400.0)])
+        );
+        for family in fonts.families.values() {
+            assert_eq!(family.last().map(String::as_str), Some("fallback-han"));
+        }
+    }
+
+    #[test]
+    fn variable_fallbacks_clamp_regular_to_the_supported_weight_range() {
+        let fallbacks = Box::leak(Box::new([system::Fallback {
+            name: "fallback-han".into(),
+            bytes: include_bytes!("../tests/fixtures/cjk/CjkMediumToBlackTest.otf"),
+            index: 0,
+            scale: 1.0,
+            y_offset_factor: 0.05,
+        }]));
+        let fonts = FontSetup::default().definitions_with(fallbacks, None);
+        assert_eq!(
+            fonts.font_data["fallback-han"].tweak.coords,
+            VariationCoords::new([(b"wght", 500.0)])
+        );
+    }
+
+    #[test]
+    fn variable_fallbacks_read_the_selected_collection_face() {
+        let bytes = include_bytes!("../tests/fixtures/cjk/CjkCollectionTest.ttc");
+        for (index, expected) in [
+            (0, VariationCoords::default()),
+            (1, VariationCoords::new([(b"wght", 400.0)])),
+        ] {
+            let fallbacks = Box::leak(Box::new([system::Fallback {
+                name: "fallback-han".into(),
+                bytes,
+                index,
+                scale: 1.0,
+                y_offset_factor: 0.05,
+            }]));
+            let fonts = FontSetup::default().definitions_with(fallbacks, None);
+            let data = &fonts.font_data["fallback-han"];
+            assert_eq!(data.index, index);
+            assert_eq!(data.tweak.coords, expected, "face {index}");
+        }
+    }
+
+    #[test]
+    fn static_fallbacks_keep_their_original_coordinates() {
+        let fallbacks = Box::leak(Box::new([system::Fallback {
+            name: "fallback-yi".into(),
+            bytes: include_bytes!("../tests/fixtures/yi/YiTest.ttf"),
+            index: 0,
+            scale: 1.0,
+            y_offset_factor: 0.05,
+        }]));
+        let fonts = FontSetup::default().definitions_with(fallbacks, None);
+        assert_eq!(
+            fonts.font_data["fallback-yi"].tweak.coords,
+            VariationCoords::default()
+        );
     }
 
     #[test]
