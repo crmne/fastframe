@@ -28,10 +28,12 @@ mod han;
 mod interface;
 #[cfg(target_os = "macos")]
 mod macos;
+mod monospace;
 
 #[cfg(test)]
 pub(crate) use interface::{Choice, assemble as assemble_interface};
 pub(crate) use interface::{Interface, interface};
+pub(crate) use monospace::monospace;
 
 /// A choice of the first face of `path` for an interface weight, for tests.
 #[cfg(test)]
