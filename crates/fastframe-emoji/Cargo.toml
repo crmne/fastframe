@@ -16,10 +16,10 @@ categories = ["gui"]
 egui.workspace = true
 # Reads the emoji fonts' bitmap strikes and metrics. The parser epaint 0.36
 # already uses, at its version.
-skrifa = "0.44"
+skrifa = "0.49"
 # Joins emoji sequences: GSUB ligatures (Noto) and AAT `morx` (Apple). The
 # shaper epaint 0.36 already uses, at its version.
-harfrust = "0.12"
+harfrust = "0.15"
 # Decodes the PNGs inside CBDT and sbix strikes. Already in the apps' trees
 # (egui_extras, resvg) at this version.
 png = "0.18"
@@ -37,8 +37,8 @@ log.workspace = true
 windows = { version = "0.62", features = ["Win32_Graphics_Direct2D", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_DirectWrite", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Imaging", "Win32_System_Com"] }
 # COM implementation support and the vector type Direct2D takes. Already in
 # the tree through `windows`.
-windows-core = "0.62"
-windows-numerics = "0.3"
+windows-core = "0.100"
+windows-numerics = "0.100"
 
 [dev-dependencies]
 egui = { workspace = true, features = ["default_fonts"] }
