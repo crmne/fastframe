@@ -70,7 +70,7 @@ apps replaced.
 | --- | --- |
 | [`fastframe-text`](crates/fastframe-text) | Desktop font rendering settings, text scaling, and pixel snapping. |
 | [`fastframe-fonts`](crates/fastframe-fonts) | Inter, system or validated local interface fonts, with script and regional Han fallbacks. |
-| [`fastframe-emoji`](crates/fastframe-emoji) | Platform colour emoji, drawn off the UI thread, with a bundled fallback. |
+| [`fastframe-emoji`](crates/fastframe-emoji) | Platform colour emoji, drawn off the UI thread, with a bundled fallback and spelled-out flags. |
 | [`fastframe-icons`](crates/fastframe-icons) | Embedded SVG icon sets, persistent image loading, and shared Lucide icons. |
 | [`fastframe-theme`](crates/fastframe-theme) | Editable JSON palettes, system appearance, live Omarchy themes, and colour transitions. |
 | [`fastframe-i18n`](crates/fastframe-i18n) | Bundled gettext catalogs, plural forms, language detection, and translation tooling. |

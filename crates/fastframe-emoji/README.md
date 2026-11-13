@@ -96,7 +96,9 @@ The bundled font is shaped and drawn like the Linux one. Each cluster is
 tried whole, then without U+FE0F, then with trailing parts dropped, and
 every font is asked for each form before a part is dropped. Segoe UI Emoji
 has no country or subdivision flags, so on Windows those come from the
-bundled font.
+bundled font. Without one, the plugin spells a country flag out as its two
+letters (🇳🇱 as NL) in the text's own font and colour, as browsers on
+Windows show it.
 
 Pictures are framed in the emoji font's own cell (one advance wide, ascent
 plus descent tall), so each platform's emoji sit on the text as that
