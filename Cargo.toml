@@ -20,7 +20,7 @@ homepage = "https://github.com/crmne/fastframe"
 egui = { version = "0.36.2", default-features = false }
 # D-Bus for the desktop portal. Already in every app that talks to the
 # session bus; the tokio backend matches theirs, so no second executor.
-zbus = { version = "5.19", default-features = false, features = ["blocking-api", "tokio"] }
+zbus = { version = "6.0", default-features = false, features = ["blocking-api", "tokio"] }
 
 # Logging (fastframe-log): the versions ZapFast and Spotifast build with.
 log = { version = "0.4", features = ["std"] }
