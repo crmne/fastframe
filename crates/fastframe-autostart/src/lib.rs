@@ -56,7 +56,7 @@ use std::io;
 
 mod command;
 mod desktop;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -144,7 +144,7 @@ impl Autostart {
     /// the interface thread.
     #[must_use]
     pub fn state(&self) -> State {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
             linux::state(self)
         }
@@ -156,7 +156,7 @@ impl Autostart {
         {
             windows::state(self)
         }
-        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos", windows)))]
         {
             State::Unsupported
         }
@@ -177,7 +177,7 @@ impl Autostart {
     /// the person or the portal refused, and the platform's own error when
     /// writing the entry fails.
     pub fn set(&self, start: Option<Start>) -> io::Result<State> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
             linux::set(self, start)
         }
@@ -189,7 +189,7 @@ impl Autostart {
         {
             windows::set(self, start)
         }
-        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos", windows)))]
         {
             let _ = start;
             Err(io::Error::from(io::ErrorKind::Unsupported))

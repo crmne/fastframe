@@ -90,7 +90,7 @@ fn an_artwork_url_escapes_what_a_url_would_read() {
     );
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod mpris {
     use super::*;
     use crate::mpris::{metadata, track_id_from_path, track_path, track_path_prefix};

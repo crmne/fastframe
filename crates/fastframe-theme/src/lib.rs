@@ -59,7 +59,7 @@ pub mod omarchy;
 mod pair;
 pub mod presets;
 mod transition;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod watch;
 
 pub use catalog::{

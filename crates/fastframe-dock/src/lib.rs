@@ -4,7 +4,7 @@
 //! Extracted from ZapFast's Dock and taskbar badge implementations. See the
 //! crate README for platform support and the Windows per-window overlay.
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod linux;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)] // AppKit icon setters, with safety notes at each call.
@@ -15,7 +15,7 @@ mod overlay;
 #[allow(unsafe_code)] // COM and the window subclass require native calls.
 mod windows;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use linux as platform;
 #[cfg(target_os = "macos")]
 use macos as platform;
@@ -183,7 +183,7 @@ fn is_app_bundle(path: &std::path::Path) -> bool {
     path.extension().is_some_and(|extension| extension == "app")
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos", target_os = "windows")))]
 mod platform {
     #[derive(Default)]
     pub(super) struct Badge(Option<u32>);

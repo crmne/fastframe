@@ -93,18 +93,18 @@ fn names_gnome(desktops: Option<&str>) -> bool {
 /// what they choose.
 #[must_use]
 pub fn setting(namespace: &str, key: &str) -> Option<String> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     {
         portal::read_string(namespace, key)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
     {
         let _ = (namespace, key);
         None
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod portal {
     use std::time::Duration;
 
@@ -166,7 +166,7 @@ mod tests {
         assert!(!names_gnome(None));
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     #[test]
     fn a_setting_is_read_through_either_variant_wrapping() {
         use zbus::zvariant::Value;

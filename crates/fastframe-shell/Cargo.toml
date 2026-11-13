@@ -23,7 +23,7 @@ log.workspace = true
 # caught. Every app on the shell saves through it already.
 fastframe-file = { path = "../fastframe-file" }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 # Reads `niri msg --json windows` to find this process's window. Already in
 # every app's tree.
 serde_json.workspace = true

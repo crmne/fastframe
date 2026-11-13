@@ -20,7 +20,7 @@ serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 # Filesystem notifications for the themes folder and Omarchy's current
 # theme. ZapFast already uses this version.
 notify = "8.2"

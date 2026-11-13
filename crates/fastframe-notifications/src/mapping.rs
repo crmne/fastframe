@@ -1,10 +1,10 @@
-#[cfg(any(target_os = "linux", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows", test))]
 use crate::App;
 #[cfg(any(target_os = "windows", test))]
 use crate::{Error, Notification, Permission, Sound};
 #[cfg(any(target_os = "windows", test))]
 use sha2::{Digest as _, Sha256};
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "windows", test))]
 pub(crate) fn windows_tags(key: &str) -> (String, String) {
@@ -90,7 +90,7 @@ pub(crate) fn windows_permission(setting: Result<bool, i32>) -> Result<Permissio
 
 /// The Freedesktop `app_icon`: the theme name while an installed icon carries
 /// it, so packaged apps follow the theme, and the app's logo file otherwise.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 pub(crate) fn linux_app_icon(app: &App, installed: impl FnOnce(&str) -> bool) -> String {
     match &app.icon_file {
         Some(file)
@@ -106,7 +106,7 @@ pub(crate) fn linux_app_icon(app: &App, installed: impl FnOnce(&str) -> bool) ->
 
 /// Where an installed app puts its icon, in the icon theme specification's
 /// order: `~/.icons`, then `icons` in each XDG data folder, then `pixmaps`.
-#[cfg(any(target_os = "linux", all(unix, test)))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", all(unix, test)))]
 pub(crate) fn linux_icon_folders(
     home: Option<PathBuf>,
     data_home: Option<PathBuf>,
@@ -127,14 +127,18 @@ pub(crate) fn linux_icon_folders(
                 .chain(data_dirs.into_iter().filter(|dir| dir.is_absolute()))
                 .map(|dir| dir.join("icons")),
         )
-        .chain(Some("/usr/share/pixmaps".into()))
+        .chain([
+            #[cfg(target_os = "freebsd")]
+            PathBuf::from("/usr/local/share/pixmaps"),
+            PathBuf::from("/usr/share/pixmaps"),
+        ])
         .collect()
 }
 
 /// Whether `name` is installed in the `hicolor` theme, which every icon theme
 /// falls back to and where applications install their icons, or as a pixmap.
 /// `subfolders` lists a folder's subfolders; `is_file` checks one path.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 pub(crate) fn linux_icon_installed(
     name: &str,
     folders: &[PathBuf],
@@ -221,6 +225,8 @@ mod tests {
                 "/home/a/.local/share/icons",
                 "/usr/local/share/icons",
                 "/usr/share/icons",
+                #[cfg(target_os = "freebsd")]
+                "/usr/local/share/pixmaps",
                 "/usr/share/pixmaps",
             ]
             .map(PathBuf::from)
@@ -235,6 +241,8 @@ mod tests {
                 "/data/icons",
                 "/flatpak/share/icons",
                 "/usr/share/icons",
+                #[cfg(target_os = "freebsd")]
+                "/usr/local/share/pixmaps",
                 "/usr/share/pixmaps"
             ]
             .map(PathBuf::from)
@@ -305,10 +313,10 @@ mod tests {
 
 /// Bounded native ID history. The Linux session owns one instance, so a new
 /// notification server starts with an empty history even if it reuses IDs.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 #[derive(Default)]
 pub(crate) struct History(std::collections::VecDeque<(String, String, u32)>);
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 impl History {
     pub(crate) fn get(&self, app: &str, key: &str) -> Option<u32> {
         self.0

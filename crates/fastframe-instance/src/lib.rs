@@ -208,7 +208,7 @@ fn default_dir(app_id: &str) -> PathBuf {
     let project = directories::ProjectDirs::from("", "", app_id);
     // Flatpak gives each sandbox a private runtime directory and shares only
     // this one between instances of the app.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     if let (Some(runtime), Some(id)) = (
         project
             .as_ref()

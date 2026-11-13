@@ -10,9 +10,9 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::{mpsc, oneshot, watch};
 
 mod logo;
-#[cfg(any(target_os = "linux", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows", test))]
 mod mapping;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 #[path = "linux.rs"]
 mod platform;
 #[cfg(target_os = "macos")]
@@ -21,7 +21,7 @@ mod platform;
 #[cfg(target_os = "windows")]
 #[path = "windows.rs"]
 mod platform;
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos", target_os = "windows")))]
 #[path = "unsupported.rs"]
 mod platform;
 mod worker;
@@ -225,17 +225,20 @@ impl Notification {
         self.category = Some(category.into());
         self
     }
-    /// Percentage for a Linux progress notification, clamped to 100.
+    /// Percentage for a Linux or FreeBSD progress notification, clamped to 100.
     pub fn progress(mut self, percent: u8) -> Self {
         self.progress = Some(percent.min(100));
         self
     }
-    /// Ask Linux to retain the banner until dismissed. Other platforms use their normal lifetime.
+    /// On Linux and FreeBSD, request a never-expiring notification that a
+    /// compliant server may keep visible until dismissed. Other platforms use
+    /// their normal lifetime.
     pub fn persistent(mut self, persistent: bool) -> Self {
         self.persistent = persistent;
         self
     }
-    /// Add a button. `default` labels the ordinary click on Linux; it is not a separate button elsewhere.
+    /// Add a button. `default` labels the ordinary click on Linux and FreeBSD;
+    /// it is not a separate button elsewhere.
     pub fn action(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
         self.actions.push((id.into(), label.into()));
         self
@@ -320,7 +323,7 @@ impl Client {
     /// Supported presentation features. Linux desktops may ignore optional hints.
     pub fn capabilities(&self) -> Capabilities {
         Capabilities {
-            progress: cfg!(target_os = "linux"),
+            progress: cfg!(any(target_os = "linux", target_os = "freebsd")),
             persistent_keys: cfg!(any(target_os = "macos", target_os = "windows")),
         }
     }

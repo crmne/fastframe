@@ -19,7 +19,7 @@ fastframe-desktop = { path = "../fastframe-desktop" }
 # A warning when the controls cannot be set up.
 log.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 # MPRIS, as Spotifast and Solco already serve it.
 mpris-server = { version = "0.10", features = ["tokio"] }
 # mpris-server speaks zbus with the tokio executor, which fastframe's other
