@@ -101,10 +101,15 @@ if app.custom_themes.poll() { /* re-resolve the selected palette */ }
 
 ## Shared palettes
 
-`presets` embeds eight palettes in the sixteen base colours: Catppuccin,
-Catppuccin Latte, Nord, Ristretto, Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn
+`presets` embeds nine palettes in the sixteen base colours: Catppuccin,
+Catppuccin Latte, Nord, Pure Black, Ristretto, Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn
 and Tokyo Night. With `presets: true` they are listed alongside the user's
 files; a user file with the same name overrides one.
+
+Pure Black uses `#000000` window and panel backgrounds, charcoal surfaces,
+light neutral accents, and separate warning and error colours. It sets only
+the shared base colours; each app derives its additional colours as usual.
+Wallpaper patterns and other app-specific appearance settings are unchanged.
 
 With presets on, the catalogue also installs them into the app's themes
 directory (for example `~/.config/<app>/themes`) the first time it scans,
