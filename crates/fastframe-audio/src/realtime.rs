@@ -193,13 +193,16 @@ fn raised() -> bool {
 /// Puts the calling thread back to ordinary scheduling at nice 0. Lowering
 /// one's own priority needs no privilege.
 fn lower() {
-    let param = libc::sched_param { sched_priority: 0 };
-    // SAFETY: changes only the calling thread's own policy and nice value.
+    // SAFETY: zero-initialising `sched_param` is valid for all C primitives, as well as setting fields present on musl.
+    // Change only the calling thread's own policy and nice value.
     unsafe {
+        let mut param: libc::sched_param = std::mem::zeroed();
+        param.sched_priority = 0;
         libc::sched_setscheduler(0, libc::SCHED_OTHER, &param);
         libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, 0);
     }
 }
+
 /// The `RLIMIT_RTTIME` RTKit requires before it grants real-time: the
 /// process's limit, lowered to at most `max` microseconds. `None` when the
 /// current one already fits. A nonpositive RTKit budget or an existing
