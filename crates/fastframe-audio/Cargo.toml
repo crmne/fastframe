@@ -64,7 +64,7 @@ libc = "0.2"
 # clang (`libpipewire-0.3-dev clang libclang-dev` on Debian and Ubuntu).
 # The same fork rev as above.
 cpal = { git = "https://github.com/crmne/cpal", rev = "fcd8b6ebee9d822426fa8d6839cdd89af6e0d491", features = ["pipewire", "pulseaudio"] }
-zbus = { version = "5.19", default-features = false, features = ["blocking-api", "async-io"] }
+zbus = { version = "6.0", default-features = false, features = ["blocking-api", "async-io"] }
 
 [[example]]
 name = "mixer"
