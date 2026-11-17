@@ -4,7 +4,9 @@
 //!
 //! The Dock tile belongs to the running process, so the label is set through
 //! `NSApp.dockTile` on the main thread, where the interface runs, and an empty
-//! label clears it. No notification permission is needed for it.
+//! label clears it. Setting it needs no notification permission, but macOS
+//! shows it for an app registered with Notification Center only while badges
+//! are allowed, which fastframe-notifications asks for.
 
 use objc2::MainThreadMarker;
 use objc2_app_kit::NSApplication;

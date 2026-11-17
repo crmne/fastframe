@@ -34,7 +34,10 @@ use objc2_user_notifications::*;
 use std::{
     collections::{HashMap, HashSet},
     ptr::NonNull,
-    sync::{Mutex, MutexGuard, OnceLock},
+    sync::{
+        Mutex, MutexGuard, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::oneshot;
@@ -204,6 +207,19 @@ impl Drop for Registration {
 fn request_id(app: &App, key: &str) -> String {
     // Length-prefixing prevents ambiguous identities; stable across restarts.
     format!("fastframe:{}:{}:{}", app.id.len(), app.id, key)
+}
+/// What the app asks to be allowed. The badge is asked for with alerts and
+/// sounds: macOS hides the Dock tile's badge from an app registered with
+/// Notification Center unless badges are allowed, and offers the "Badge
+/// application icon" switch only to an app that asked for it.
+fn authorization_options() -> UNAuthorizationOptions {
+    UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound | UNAuthorizationOptions::Badge
+}
+/// Whether a permission request should ask macOS again. An unanswered request
+/// prompts. An answered one asks once per process without prompting, so an app
+/// answered before it asked for badges gains the badge switch.
+fn asks_again(request: bool, permission: Permission, asked: &AtomicBool) -> bool {
+    request && (permission == Permission::NotDetermined || !asked.swap(true, Ordering::Relaxed))
 }
 fn permission_status(status: UNAuthorizationStatus) -> Permission {
     match status {
@@ -497,15 +513,25 @@ impl worker::Backend for Native {
         Ok(delivery)
     }
     async fn permission(&self, app: &App, request: bool) -> Result<Permission, Error> {
+        static ASKED: AtomicBool = AtomicBool::new(false);
         let center = center(app)?;
         let permission = settings(&center).await?;
-        if !request || permission != Permission::NotDetermined {
+        if !asks_again(request, permission, &ASKED) {
+            return Ok(permission);
+        }
+        if permission != Permission::NotDetermined {
+            // macOS does not prompt for an answered request, but registers the
+            // options it lacked; the answer itself stays the user's.
+            center.requestAuthorizationWithOptions_completionHandler(
+                authorization_options(),
+                &RcBlock::new(|_granted: Bool, _error: *mut NSError| {}),
+            );
             return Ok(permission);
         }
         let (sender, receiver) = oneshot::channel();
         let sender = Mutex::new(Some(sender));
         center.requestAuthorizationWithOptions_completionHandler(
-            UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound,
+            authorization_options(),
             &RcBlock::new(move |_granted: Bool, error: *mut NSError| {
                 if let Some(sender) = sender.lock().unwrap_or_else(|e| e.into_inner()).take() {
                     let _ = sender.send(if error.is_null() {
@@ -646,6 +672,23 @@ mod tests {
         );
         state.respond("key", "new", "fastframe.action.open");
         assert_eq!(receiver.try_recv(), Ok(Event::Action("open".into())));
+    }
+    #[test]
+    fn authorization_asks_for_the_badge_with_alerts_and_sounds() {
+        let options = authorization_options();
+        assert!(options.contains(UNAuthorizationOptions::Badge));
+        assert!(options.contains(UNAuthorizationOptions::Alert));
+        assert!(options.contains(UNAuthorizationOptions::Sound));
+    }
+    #[test]
+    fn an_answered_permission_is_asked_again_once_per_process() {
+        let asked = AtomicBool::new(false);
+        assert!(!asks_again(false, Permission::Granted, &asked));
+        assert!(asks_again(true, Permission::Granted, &asked));
+        assert!(!asks_again(true, Permission::Granted, &asked));
+        assert!(!asks_again(true, Permission::Denied, &asked));
+        assert!(asks_again(true, Permission::NotDetermined, &asked));
+        assert!(!asks_again(false, Permission::NotDetermined, &asked));
     }
     #[test]
     fn mappings_and_content() {

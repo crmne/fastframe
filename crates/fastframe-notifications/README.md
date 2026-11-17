@@ -63,6 +63,13 @@ background thread can use `request_permission_blocking()`. Delivery never
 requests permission itself. Permission denial is rechecked on later calls so
 changes in system settings take effect without a restart.
 
+On macOS the request asks for alerts, sounds and the app icon's badge. macOS
+hides the Dock tile's badge from an app registered with Notification Center
+unless badges are allowed, and offers the "Badge application icon" switch only
+to an app that asked for it. An app answered before it asked for badges asks
+again once per process; macOS does not prompt for that, and the answer stays
+the user's.
+
 Use the installed application's identity, not another program's identity.
 On Windows, `App::new`'s ID must match the shortcut's AppUserModelID. Fastframe
 registers its display name for portable builds. Such an ID has no

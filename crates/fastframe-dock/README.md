@@ -70,4 +70,6 @@ keep the application count and apply it when a window returns.
 
 The `Taskbar` interface is a no-op on other platforms. Linux counts cap at
 9999; macOS displays the full number. This crate never requests notification
-permission or chooses what an app should count.
+permission or chooses what an app should count. macOS shows the Dock badge of
+an app registered with Notification Center only while badges are allowed:
+fastframe-notifications asks for them with alerts and sounds.
