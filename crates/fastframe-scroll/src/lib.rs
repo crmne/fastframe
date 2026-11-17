@@ -9,7 +9,10 @@
 //! - a wheel notch scrolls [`WHEEL_STEP`] points, unless the app set its own
 //!   step;
 //! - on Linux, touchpad gestures go [`TOUCHPAD_SCALE`] times further and
-//!   glide on after the fingers lift, slowing down, as on macOS;
+//!   glide on after the fingers lift, slowing down, as on macOS. The
+//!   [`TOUCHPAD_SCALE_ENV`] variable or [`Scrolling::set_touchpad_scale`]
+//!   picks another factor, for a touchpad or a system scroll speed the
+//!   default does not suit;
 //! - a touchpad gesture holds the axis it started on, so a vertical swipe
 //!   does not drift sideways, and a modifier that turns the wheel sideways
 //!   (Shift by default) turns the gesture and its glide with it.
@@ -36,6 +39,12 @@ pub const WHEEL_STEP: f32 = 120.0;
 /// How much further a Linux touchpad gesture scrolls than its deltas say, to
 /// match a macOS touchpad.
 pub const TOUCHPAD_SCALE: f32 = 1.8;
+
+/// Environment variable that replaces [`TOUCHPAD_SCALE`] when it holds a
+/// positive number, such as `FASTFRAME_TOUCHPAD_SCALE=3`. Linux has no
+/// system-wide touchpad scroll speed that apps can read, so this is where a
+/// person matches an app's touchpad scrolling to their other apps.
+pub const TOUCHPAD_SCALE_ENV: &str = "FASTFRAME_TOUCHPAD_SCALE";
 
 /// A gesture that pauses this long, in seconds, has ended where the platform
 /// never says when the fingers lift (X11). Measured on the frame's input
@@ -67,6 +76,8 @@ enum Axis {
 /// `ScrollArea` picks the change up without knowing about it.
 #[derive(Debug)]
 pub struct Scrolling {
+    /// How much further a touchpad gesture goes than its deltas say.
+    touchpad_scale: f32,
     /// Whether Linux touchpad gestures get the scale and the glide.
     touchpad_help: bool,
     /// Whether the latest scroll input came in points, from a touchpad.
@@ -95,6 +106,7 @@ impl Default for Scrolling {
 impl Scrolling {
     fn with_touchpad_help(touchpad_help: bool) -> Self {
         Self {
+            touchpad_scale: touchpad_scale_from(std::env::var(TOUCHPAD_SCALE_ENV).ok().as_deref()),
             touchpad_help,
             from_trackpad: false,
             history: egui::util::History::new(2..16, 0.1),
@@ -104,6 +116,20 @@ impl Scrolling {
             lift_announced: false,
             lock: None,
         }
+    }
+
+    /// Sets how much further a Linux touchpad gesture goes than its deltas
+    /// say, in place of [`TOUCHPAD_SCALE`] or [`TOUCHPAD_SCALE_ENV`]. A value
+    /// that is not a positive number is ignored.
+    pub fn set_touchpad_scale(&mut self, scale: f32) {
+        if scale.is_finite() && scale > 0.0 {
+            self.touchpad_scale = scale;
+        }
+    }
+
+    /// The factor Linux touchpad gestures are scaled by.
+    pub fn touchpad_scale(&self) -> f32 {
+        self.touchpad_scale
     }
 
     /// Whether the latest scroll input came from a touchpad (deltas in
@@ -154,11 +180,11 @@ impl Scrolling {
 
         let helped = self.touchpad_help && self.from_trackpad;
         if helped {
-            ctx.input_mut(|input| input.smooth_scroll_delta *= TOUCHPAD_SCALE);
+            ctx.input_mut(|input| input.smooth_scroll_delta *= self.touchpad_scale);
         }
         if helped && moved {
             self.glide = None;
-            self.travelled += wheel.delta * TOUCHPAD_SCALE;
+            self.travelled += wheel.delta * self.touchpad_scale;
             self.history.add(now, self.travelled);
             self.last_movement = Some(now);
             // Where nothing says when the fingers lift, the quiet-gap check
@@ -263,6 +289,15 @@ struct Wheel {
     announced: bool,
     /// The axis a modifier forces, as egui applies it to the smooth delta.
     forced: Option<Axis>,
+}
+
+/// The touchpad scale an environment value asks for, or [`TOUCHPAD_SCALE`]
+/// when it is missing or not a positive number.
+fn touchpad_scale_from(value: Option<&str>) -> f32 {
+    value
+        .and_then(|value| value.trim().parse::<f32>().ok())
+        .filter(|scale| scale.is_finite() && *scale > 0.0)
+        .unwrap_or(TOUCHPAD_SCALE)
 }
 
 fn read_wheel(events: &[Event], options: &egui::InputOptions) -> Wheel {
