@@ -15,8 +15,9 @@ use crate::{
 /// A normal launch, with the update flags taken out.
 #[derive(Debug)]
 pub struct Launch {
-    /// The command line without `--update-receipt` and `--update-error`,
-    /// starting with the program name, for the app's own parser.
+    /// The command line without `--update-receipt`, `--update-error` and
+    /// `--update-failure`, starting with the program name, for the app's own
+    /// parser.
     pub arguments: Vec<OsString>,
     /// Set when the helper relaunched this app after installing it.
     /// Acknowledge it once the window is up; until then, the helper stands
