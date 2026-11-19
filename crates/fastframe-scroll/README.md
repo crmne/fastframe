@@ -2,14 +2,20 @@
 
 Scrolling for egui apps that feels like the platform's.
 
-egui scrolls 40 points per wheel notch, about a third of what other apps
-scroll. On Linux, a touchpad's deltas reach egui one to one and stop dead
+egui scrolls 40 points per wheel notch, a third of what Chrome scrolls on
+Linux and less than on Windows. On Linux, a touchpad's deltas reach egui one to one and stop dead
 when the fingers lift, so scrolling there feels slow next to macOS, where
 the system adds acceleration and momentum first. `Scrolling` makes up for
 both:
 
-- **A wheel notch scrolls 120 points** (`WHEEL_STEP`) on every platform,
-  unless the app set its own `line_scroll_speed` first.
+- **A wheel notch scrolls as far as in Chrome**, unless the app set its own
+  `line_scroll_speed` first: 120 points on Linux, 100 on Windows for its
+  default of three lines a notch (following the mouse setting, read once
+  when `Scrolling` is made, at Chrome's 100/3 points a line), and 40 a line
+  on macOS, which accelerates the lines itself (egui's own default already).
+  `WHEEL_STEP` is the platform's default and `windows_step` the Windows
+  mapping. A setting of a screen at a time scrolls the default instead,
+  since egui cannot scroll a page per notch.
 - **Linux touchpad gestures go 1.8 times further** (`TOUCHPAD_SCALE`) and
   **glide on after the fingers lift**, slowing down until they stop. A
   press or a wheel notch stops a glide. Fingers that rest on the pad before

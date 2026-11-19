@@ -52,22 +52,48 @@ fn swipe(ctx: &Context, scrolling: &mut Scrolling, phase: TouchPhase) {
 }
 
 fn linux() -> Scrolling {
-    Scrolling::with_touchpad_help(true)
+    Scrolling::with(WHEEL_STEP, true)
 }
 
 #[test]
 fn a_wheel_notch_scrolls_the_wheel_step_unless_the_app_chose_one() {
     let ctx = Context::default();
-    frame(&ctx, &mut Scrolling::default(), 0.0, Vec::new());
-    assert_eq!(
-        ctx.options(|o| o.input_options.line_scroll_speed),
-        WHEEL_STEP
-    );
+    frame(&ctx, &mut Scrolling::with(100.0, false), 0.0, Vec::new());
+    assert_eq!(ctx.options(|o| o.input_options.line_scroll_speed), 100.0);
 
     let ctx = Context::default();
     ctx.options_mut(|o| o.input_options.line_scroll_speed = 60.0);
-    frame(&ctx, &mut Scrolling::default(), 0.0, Vec::new());
+    frame(&ctx, &mut Scrolling::with(100.0, false), 0.0, Vec::new());
     assert_eq!(ctx.options(|o| o.input_options.line_scroll_speed), 60.0);
+}
+
+/// Chrome's CSS pixels per notch: 120 on Linux, 40 a line on macOS (egui's
+/// own default), 100 on Windows at its default of three lines.
+#[test]
+fn the_wheel_step_is_chromes() {
+    let expected = if cfg!(target_os = "macos") {
+        40.0
+    } else if cfg!(windows) {
+        100.0
+    } else {
+        120.0
+    };
+    assert_eq!(WHEEL_STEP, expected);
+}
+
+/// Windows' "lines to scroll at a time", at Chrome's 100/3 points a line.
+#[test]
+fn a_windows_notch_follows_the_lines_setting() {
+    assert_eq!(windows_step(Some(3)), 100.0);
+    assert_eq!(windows_step(Some(6)), 200.0);
+    assert_eq!(windows_step(Some(1)), 100.0 / 3.0);
+    assert_eq!(windows_step(Some(0)), 0.0, "scrolls nothing, as elsewhere");
+    assert_eq!(
+        windows_step(Some(u32::MAX)),
+        WHEEL_STEP,
+        "a screen at a time"
+    );
+    assert_eq!(windows_step(None), WHEEL_STEP);
 }
 
 #[test]
@@ -115,7 +141,7 @@ fn a_linux_touchpad_scrolls_further_than_its_deltas() {
         assert!(scrolling.from_trackpad());
         scrolled.y
     };
-    assert_eq!(second_frame(Scrolling::with_touchpad_help(false)), 10.0);
+    assert_eq!(second_frame(Scrolling::with(WHEEL_STEP, false)), 10.0);
     assert_eq!(second_frame(linux()), 10.0 * TOUCHPAD_SCALE);
 }
 
@@ -266,7 +292,7 @@ fn a_press_stops_a_glide() {
 fn elsewhere_the_system_scales_and_glides_touchpads_itself() {
     // macOS adds its own acceleration and momentum before egui sees a delta.
     let ctx = Context::default();
-    let mut scrolling = Scrolling::with_touchpad_help(false);
+    let mut scrolling = Scrolling::with(WHEEL_STEP, false);
     swipe(&ctx, &mut scrolling, TouchPhase::Start);
     frame(&ctx, &mut scrolling, 0.1, vec![touch(TouchPhase::End, 0.0)]);
     assert!(scrolling.from_trackpad());
@@ -303,12 +329,9 @@ fn stop_ends_a_glide_and_frees_the_axis() {
 
 #[test]
 fn a_window_made_again_gets_the_wheel_step_too() {
-    let mut scrolling = Scrolling::default();
+    let mut scrolling = Scrolling::with(100.0, false);
     frame(&Context::default(), &mut scrolling, 0.0, Vec::new());
     let again = Context::default();
     frame(&again, &mut scrolling, 0.016, Vec::new());
-    assert_eq!(
-        again.options(|o| o.input_options.line_scroll_speed),
-        WHEEL_STEP
-    );
+    assert_eq!(again.options(|o| o.input_options.line_scroll_speed), 100.0);
 }

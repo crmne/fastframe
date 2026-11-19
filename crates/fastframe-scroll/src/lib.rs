@@ -1,13 +1,14 @@
 //! Scrolling for egui apps that feels like the platform's.
 //!
-//! egui scrolls 40 points per wheel notch, about a third of what other apps
-//! scroll, and on Linux a touchpad's deltas reach it one to one, with no
+//! egui scrolls 40 points per wheel notch, a third of what Chrome scrolls
+//! on Linux, and on Linux a touchpad's deltas reach it one to one, with no
 //! momentum: scrolling there feels slow next to macOS, where the system adds
 //! acceleration and momentum before egui sees a delta. [`Scrolling`] makes up
 //! for both, once per frame, before the app lays anything out:
 //!
-//! - a wheel notch scrolls [`WHEEL_STEP`] points, unless the app set its own
-//!   step;
+//! - a wheel notch scrolls as far as it does in Chrome: [`WHEEL_STEP`]
+//!   points, and on Windows the lines a notch scrolls in the system's mouse
+//!   settings, unless the app set its own step;
 //! - on Linux, touchpad gestures go [`TOUCHPAD_SCALE`] times further and
 //!   glide on after the fingers lift, slowing down, as on macOS;
 //! - a touchpad gesture holds the axis it started on, so a vertical swipe
@@ -29,9 +30,47 @@
 
 use egui::{Context, Event, MouseWheelUnit, TouchPhase, Vec2};
 
-/// Points a wheel notch scrolls, about what browsers and native lists scroll
-/// per notch. egui's own default is 40.
-pub const WHEEL_STEP: f32 = 120.0;
+/// Points a wheel notch scrolls, as far as Chrome scrolls CSS pixels per
+/// notch: 120 on Linux (X11 and Wayland), 40 per line macOS reports (the
+/// system accelerates the lines, and egui's own default is the same 40), and
+/// 100 on Windows, for the system's default of three lines a notch
+/// ([`windows_step`] follows the setting).
+pub const WHEEL_STEP: f32 = if cfg!(target_os = "macos") {
+    40.0
+} else if cfg!(windows) {
+    100.0
+} else {
+    120.0
+};
+
+/// Points a wheel notch scrolls on Windows when a notch scrolls `lines`
+/// lines in the system's mouse settings: Chrome's 100/3 points a line.
+/// `None` (the setting could not be read) and "one screen at a time"
+/// (`u32::MAX`) give [`WHEEL_STEP`], as egui has no way to scroll a page per
+/// notch; zero lines, which scrolls nothing in other apps, gives zero.
+#[must_use]
+pub fn windows_step(lines: Option<u32>) -> f32 {
+    match lines {
+        Some(u32::MAX) | None => WHEEL_STEP,
+        Some(lines) => lines as f32 * 100.0 / 3.0,
+    }
+}
+
+/// The points a wheel notch scrolls on this platform, with the system's
+/// setting read once.
+fn platform_step() -> f32 {
+    #[cfg(windows)]
+    {
+        windows_step(windows::wheel_lines())
+    }
+    #[cfg(not(windows))]
+    {
+        WHEEL_STEP
+    }
+}
+
+#[cfg(windows)]
+mod windows;
 
 /// How much further a Linux touchpad gesture scrolls than its deltas say, to
 /// match a macOS touchpad.
@@ -67,6 +106,8 @@ enum Axis {
 /// `ScrollArea` picks the change up without knowing about it.
 #[derive(Debug)]
 pub struct Scrolling {
+    /// Points a wheel notch scrolls, unless the app set its own.
+    wheel_step: f32,
     /// Whether Linux touchpad gestures get the scale and the glide.
     touchpad_help: bool,
     /// Whether the latest scroll input came in points, from a touchpad.
@@ -88,13 +129,14 @@ pub struct Scrolling {
 
 impl Default for Scrolling {
     fn default() -> Self {
-        Self::with_touchpad_help(cfg!(target_os = "linux"))
+        Self::with(platform_step(), cfg!(target_os = "linux"))
     }
 }
 
 impl Scrolling {
-    fn with_touchpad_help(touchpad_help: bool) -> Self {
+    fn with(wheel_step: f32, touchpad_help: bool) -> Self {
         Self {
+            wheel_step,
             touchpad_help,
             from_trackpad: false,
             history: egui::util::History::new(2..16, 0.1),
@@ -140,7 +182,7 @@ impl Scrolling {
         // replaced.
         let default = egui::InputOptions::default().line_scroll_speed;
         if ctx.options(|options| options.input_options.line_scroll_speed) == default {
-            ctx.options_mut(|options| options.input_options.line_scroll_speed = WHEEL_STEP);
+            ctx.options_mut(|options| options.input_options.line_scroll_speed = self.wheel_step);
         }
 
         let options = ctx.options(|options| options.input_options);
