@@ -37,6 +37,20 @@ name and version are passed in; this crate's version is not the app's.
 
 Lines look like `[2026-09-25T10:00:00Z WARN zapfast::backend] message`.
 
+## Several copies at once
+
+An app that lets several copies run at once keeps every copy's log. Each
+start moves the earlier run's file to `zapfast.previous.log`, unless a copy
+that is still running writes that one: then it goes to
+`zapfast.previous.2.log`, or the next number no running copy writes. A file
+a running copy writes is never replaced, so a copy never writes on into a
+log nobody can open. Logs no running copy writes are replaced as before, so
+the numbered files stop at the most copies that ever ran together.
+
+A running copy marks its log with an advisory lock on Unix, which readers
+never notice; on Windows its open file is the mark. A copy built with an
+older fastframe sets no lock on Unix, so it is not seen.
+
 ## Panics
 
 `log_panics` (called by `init` when `.panic_log` is set) replaces the default
