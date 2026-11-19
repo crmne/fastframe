@@ -18,7 +18,7 @@ categories = ["gui", "os"]
 mac-usernotifications = "0.3.1"
 log.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 # One blocking portal call needs no tokio: zbus's own small executor does,
 # as in fastframe-text. Apps that enable zbus's tokio feature keep it.
 zbus = { version = "5.19", default-features = false, features = ["blocking-api", "async-io"] }

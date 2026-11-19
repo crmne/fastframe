@@ -129,7 +129,10 @@ pub struct Scrolling {
 
 impl Default for Scrolling {
     fn default() -> Self {
-        Self::with(platform_step(), cfg!(target_os = "linux"))
+        Self::with(
+            platform_step(),
+            cfg!(any(target_os = "linux", target_os = "freebsd")),
+        )
     }
 }
 

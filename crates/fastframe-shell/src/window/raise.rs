@@ -25,7 +25,7 @@
 /// the app falls back to what it did before: on Wayland, closing the window
 /// and opening a new one.
 pub fn raise_on_compositor() -> bool {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     {
         let pid = std::process::id();
         if is_set(std::env::var_os("NIRI_SOCKET")) {
@@ -36,7 +36,7 @@ pub fn raise_on_compositor() -> bool {
             false
         }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
     {
         false
     }
@@ -44,12 +44,12 @@ pub fn raise_on_compositor() -> bool {
 
 /// Whether a compositor's environment variable (`NIRI_SOCKET`,
 /// `HYPRLAND_INSTANCE_SIGNATURE`) is set. An empty value counts as unset.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn is_set(value: Option<std::ffi::OsString>) -> bool {
     value.is_some_and(|value| !value.is_empty())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod linux {
     use std::process::{Command, Stdio};
 
@@ -106,7 +106,7 @@ mod linux {
 }
 
 /// The id of the window owned by process `pid` in `niri msg --json windows`.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn niri_window_id(json: &[u8], pid: u32) -> Option<u64> {
     let windows: serde_json::Value = serde_json::from_slice(json).ok()?;
     windows
@@ -119,7 +119,7 @@ fn niri_window_id(json: &[u8], pid: u32) -> Option<u64> {
 /// The address of the window owned by process `pid` in `hyprctl clients -j`,
 /// only when it is the hex number Hyprland prints, since it goes into a Lua
 /// string.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn hyprland_window_address(json: &[u8], pid: u32) -> Option<String> {
     let clients: serde_json::Value = serde_json::from_slice(json).ok()?;
     let address = clients
@@ -134,7 +134,7 @@ fn hyprland_window_address(json: &[u8], pid: u32) -> Option<String> {
 
 /// The `hyprctl dispatch` requests that focus the window at `address`: the
 /// Lua syntax of Hyprland 0.56 and later, then the older one.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn hyprland_focus_requests(address: &str) -> [String; 2] {
     [
         format!("hl.dsp.focus({{ window = \"address:{address}\" }})"),
@@ -143,7 +143,7 @@ fn hyprland_focus_requests(address: &str) -> [String; 2] {
 }
 
 /// Whether Hyprland carried out a dispatch, which it answers with `ok`.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", test))]
 fn hyprland_dispatched(reply: &[u8]) -> bool {
     reply.trim_ascii() == b"ok"
 }

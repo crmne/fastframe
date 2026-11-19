@@ -16,7 +16,7 @@ categories = ["gui", "os"]
 # Every change and event is logged, and why a reader could not start.
 log.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 # The desktop portal, power-profiles-daemon and logind, over D-Bus on
 # threads of their own. Already in every app that talks to the session bus.
 zbus.workspace = true
