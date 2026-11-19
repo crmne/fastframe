@@ -72,7 +72,7 @@ apps replaced.
 | [`fastframe-fonts`](crates/fastframe-fonts) | Inter, system or validated local interface fonts, with script and regional Han fallbacks; variable fallbacks use regular weight. |
 | [`fastframe-emoji`](crates/fastframe-emoji) | Platform colour emoji, drawn off the UI thread, with a bundled fallback and spelled-out flags. |
 | [`fastframe-icons`](crates/fastframe-icons) | Embedded SVG icon sets, persistent image loading, and shared Lucide icons. |
-| [`fastframe-theme`](crates/fastframe-theme) | Editable JSON palettes, system appearance, live Omarchy themes, and colour transitions. |
+| [`fastframe-theme`](crates/fastframe-theme) | Editable JSON palettes including Pure Black, system appearance, live Omarchy themes, and colour transitions. |
 | [`fastframe-i18n`](crates/fastframe-i18n) | Bundled gettext catalogs, plural forms, language detection, and translation tooling. |
 | [`fastframe-log`](crates/fastframe-log) | Per-run logs for bug reports, private-target rewriting, and safe panic logging. |
 | [`fastframe-tray`](crates/fastframe-tray) | Native tray icons and menus on Linux, macOS, and Windows, and Dock clicks on macOS without one. |
