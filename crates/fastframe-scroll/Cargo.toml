@@ -1,6 +1,6 @@
 [package]
 name = "fastframe-scroll"
-description = "Scrolling for egui apps that feels like the platform's: a wheel step like other apps', and touchpad gestures on Linux that keep their speed, glide after the lift, and hold one axis"
+description = "Scrolling for egui apps that feels like the platform's: a wheel step like other apps', touchpad gestures on Linux that keep their speed, glide after the lift, and hold one axis, and Chromium's middle-click autoscroll"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
