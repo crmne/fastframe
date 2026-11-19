@@ -1,7 +1,8 @@
 //! The palettes the apps share, embedded so every installation has them.
 //!
-//! Eight palettes in the sixteen base colours (Catppuccin, Catppuccin Latte,
-//! Nord, Ristretto, Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn, Tokyo Night).
+//! Ten palettes in the sixteen base colours (Catppuccin, Catppuccin Frappe,
+//! Catppuccin Latte, Catppuccin Macchiato, Nord, Ristretto,
+//! Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn, Tokyo Night).
 //! They set only [`crate::BASE_COLORS`] names, so any app's palette reads
 //! them; an app with more colours derives the rest ([`crate::Palette::derive`]).
 //!
@@ -41,8 +42,16 @@ Each file names a base (dark or light) and any colours to change, as
 /// Every shared palette: its filename and its JSON.
 pub const FILES: &[(&str, &str)] = &[
     (
+        "Catppuccin Frappe.json",
+        include_str!("../themes/Catppuccin Frappe.json"),
+    ),
+    (
         "Catppuccin Latte.json",
         include_str!("../themes/Catppuccin Latte.json"),
+    ),
+    (
+        "Catppuccin Macchiato.json",
+        include_str!("../themes/Catppuccin Macchiato.json"),
     ),
     ("Catppuccin.json", include_str!("../themes/Catppuccin.json")),
     ("Nord.json", include_str!("../themes/Nord.json")),
@@ -170,7 +179,7 @@ mod tests {
     #[test]
     fn every_shared_palette_uses_only_base_colours() {
         let themes: Vec<CustomTheme<Colors>> = themes().collect();
-        assert_eq!(themes.len(), 8);
+        assert_eq!(themes.len(), 10);
         for theme in &themes {
             assert!(contains(&theme.filename));
             assert_eq!(
@@ -260,6 +269,34 @@ mod tests {
         assert_eq!(installed.len(), FILES.len());
         let record = std::fs::read_to_string(root.path().join(INSTALLED)).unwrap();
         assert_eq!(record.lines().count(), FILES.len());
+    }
+
+    #[test]
+    fn upgrading_installs_catppuccin_variants_without_restoring_deleted_palettes() {
+        let root = tempfile::tempdir().unwrap();
+        let additions = ["Catppuccin Frappe.json", "Catppuccin Macchiato.json"];
+        let previous: String = FILES
+            .iter()
+            .filter(|(name, _)| !additions.contains(name))
+            .map(|(name, _)| format!("{name}\n"))
+            .collect();
+        std::fs::write(root.path().join(INSTALLED), previous).unwrap();
+        let edited = root.path().join("Catppuccin Macchiato.json");
+        std::fs::write(&edited, "user palette").unwrap();
+
+        let installed = install(root.path()).unwrap();
+        assert!(installed.contains("Catppuccin Frappe.json"));
+        assert!(installed.contains("Catppuccin Macchiato.json"));
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("Catppuccin Frappe.json")).unwrap(),
+            include_str!("../themes/Catppuccin Frappe.json")
+        );
+        assert_eq!(std::fs::read_to_string(edited).unwrap(), "user palette");
+        assert!(!root.path().join("Catppuccin.json").exists());
+        assert!(!root.path().join("Catppuccin Latte.json").exists());
+        std::fs::remove_file(root.path().join(additions[0])).unwrap();
+        install(root.path()).unwrap();
+        assert!(!root.path().join(additions[0]).exists());
     }
 
     #[test]
