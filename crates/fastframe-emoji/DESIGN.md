@@ -245,7 +245,17 @@ pictures therefore match side by side.
 
 A picture that is not drawn yet keeps the monochrome glyph for that frame
 and is queued to the worker, which asks for a repaint; a cluster no font
-draws keeps it for good. Textures uploaded inside the hook would reach the
+draws keeps it for good.
+
+A country flag no font draws (on Windows without a bundled font, since
+Segoe UI Emoji has none) is the exception: its glyphs are hidden and its two
+letters (🇳🇱 as NL) are laid out in the text's own section format, without
+its background and lines, and appended as a text shape centred on the
+emoji's room and on the text's baseline, shrunk when they are wider than
+the room. That is how browsers on Windows show a flag, where the monochrome
+glyph would show its first letter alone in the emoji face. The letters are
+laid out inside the hook, so a glyph new to the font atlas reaches the
+backend with the next frame's upload; the hook asks for that frame. Textures uploaded inside the hook would reach the
 backend a frame late (egui has already taken the frame's texture delta), so
 the hook moves the new delta into `FullOutput::textures_delta` itself.
 

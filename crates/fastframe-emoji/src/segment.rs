@@ -97,10 +97,14 @@ pub fn only_emoji(text: &str) -> Option<usize> {
 
 /// The forms of a cluster to look for, best first: the whole sequence, the
 /// sequence without U+FE0F, then its leading parts, so an unsupported joined
-/// sequence still shows its first emoji.
+/// sequence still shows its first emoji. A flag is only itself: its first
+/// part is a letter, and a flag no font has is spelled out instead.
 pub(crate) fn candidates(cluster: &str) -> Vec<String> {
     let chars: Vec<char> = cluster.chars().collect();
     let mut forms = vec![cluster.to_owned()];
+    if flag_letters(cluster).is_some() {
+        return forms;
+    }
     let mut stripped: Vec<char> = chars
         .iter()
         .copied()
@@ -121,9 +125,40 @@ pub(crate) fn candidates(cluster: &str) -> Vec<String> {
     forms
 }
 
+/// The two letters a country flag spells (🇳🇱 is "NL"), or `None` for
+/// anything but a pair of regional indicators.
+pub(crate) fn flag_letters(cluster: &str) -> Option<String> {
+    let letters = cluster
+        .chars()
+        .map(|c| {
+            let offset = u32::from(c).checked_sub(0x1F1E6)?;
+            char::from_u32(u32::from('A') + offset).filter(char::is_ascii_uppercase)
+        })
+        .collect::<Option<String>>()?;
+    (letters.len() == 2).then_some(letters)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_flag_spells_its_two_letters() {
+        assert_eq!(flag_letters("🇳🇱").as_deref(), Some("NL"));
+        assert_eq!(flag_letters("🇦🇿").as_deref(), Some("AZ"));
+        assert_eq!(flag_letters("🇳"), None, "one letter is no flag");
+        assert_eq!(flag_letters("😀"), None);
+        assert_eq!(flag_letters("NL"), None);
+        assert_eq!(
+            flag_letters("\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_flag_is_looked_for_whole_only() {
+        assert_eq!(candidates("🇳🇱"), vec!["🇳🇱".to_owned()]);
+    }
 
     #[test]
     fn pieces_split_emoji_out_of_text() {
