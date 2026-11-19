@@ -21,7 +21,7 @@ inter = []
 [dependencies]
 egui.workspace = true
 # Reads installed fonts' names, character maps and metrics. The parser
-# epaint 0.36 already rasterizes with, at its version, so no second copy.
+# epaint 0.37 already rasterizes with, at its version, so no second copy.
 skrifa = "0.44"
 # Maps font files while probing, so only their headers are read.
 memmap2 = "0.9"

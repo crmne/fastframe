@@ -14,10 +14,10 @@ repository = "https://github.com/crmne/fastframe"
 homepage = "https://github.com/crmne/fastframe"
 
 [workspace.dependencies]
-# Stock egui 0.36.2 already has per-font hinting targets and sub-pixel
-# binning (emilk/egui#8262). Apps patch egui to their fork at the app root;
-# the fork is based on 0.36.2 and keeps the same API.
-egui = { version = "0.36.2", default-features = false }
+# Stock egui has had per-font hinting targets and sub-pixel binning
+# (emilk/egui#8262) since 0.36.2. Apps patch egui to their fork at the app
+# root; the fork must be based on 0.37 and keep the same API.
+egui = { version = "0.37.0", default-features = false }
 # D-Bus for the desktop portal. Already in every app that talks to the
 # session bus; the tokio backend matches theirs, so no second executor.
 zbus = { version = "5.19", default-features = false, features = ["blocking-api", "tokio"] }
@@ -31,7 +31,7 @@ jiff = "0.2"
 # window and monitor positions off-screen recovery reads. eframe does not
 # compile on macOS without a renderer, so this names glow, which every app
 # uses.
-eframe = { version = "0.36.2", default-features = false, features = ["glow", "wayland", "x11"] }
+eframe = { version = "0.37.0", default-features = false, features = ["glow", "wayland", "x11"] }
 
 # The tray (fastframe-tray): the versions ZapFast and Spotifast build with.
 ksni = { version = "0.3", features = ["blocking"] }
@@ -41,10 +41,10 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDate", "NSGeometry", "NSObjCRuntime", "NSRunLoop", "NSString"] }
 # macOS window chrome (fastframe-titlebar): the version eframe itself uses.
 raw-window-handle = "0.6"
-# Win32 calls (fastframe-fonts, fastframe-tray, fastframe-update). arboard,
-# under egui-winit, already brings this version; each crate names the
+# Win32 calls (fastframe-fonts, fastframe-tray, fastframe-update). eframe
+# and egui-winit 0.37 already bring this version; each crate names the
 # features it calls.
-windows-sys = "0.60"
+windows-sys = "0.61"
 
 # Shared by several crates, at the versions every app already builds.
 directories = "6"

@@ -30,7 +30,7 @@ specific instruction in this repository says otherwise.
   each app does it today and keep what works in all of them.
 - Keep the public API small and named for what it does. Document every public
   item (`missing_docs` is on); the crate README carries a usage snippet.
-- Depend on published crates.io versions (`egui`/`epaint` "0.36", not a git
+- Depend on published crates.io versions (`egui`/`epaint` "0.37", not a git
   fork). The crate must compile against both the release and the fork the apps
   patch in. Cargo only honours `[patch]` at an app's root, so fork pins cannot
   live here; a future `forks.toml` with a generator and CI check will manage

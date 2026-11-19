@@ -43,12 +43,13 @@ egui's text shapes (an app's own renderer) is out of its reach; see
 `Emoji::render`.
 
 The picture fills the space egui laid the emoji out in. The apps' egui
-fork (crmne/egui `apps-0.36`) lays every emoji cluster out one emoji wide,
+fork (crmne/egui `apps-0.36.2`) lays every emoji cluster out one emoji wide,
 however the monochrome font draws it, so a family, a keycap and a 😀 are the
 same size and cursors, selection and widget sizes agree with the pictures.
-Stock egui 0.36 lays a sequence the monochrome font does not join out as
-its parts (a family as three people, a keycap as its digit), and the
-picture fills that wider or narrower space. Lay out text where that matters
+Stock egui 0.37 lays a sequence the monochrome font joins (a family) out one
+emoji wide too, but one it does not join out as its parts (a keycap as its
+digit, a skin tone as the hand and the swatch), and the picture fills that
+wider or narrower space. Lay out text where that matters
 with `append`, which gives every emoji one placeholder's width.
 
 ### Selectable placeholders

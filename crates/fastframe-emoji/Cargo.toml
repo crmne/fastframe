@@ -14,11 +14,11 @@ categories = ["gui"]
 
 [dependencies]
 egui.workspace = true
-# Reads the emoji fonts' bitmap strikes and metrics. The parser epaint 0.36
+# Reads the emoji fonts' bitmap strikes and metrics. The parser epaint 0.37
 # already uses, at its version.
 skrifa = "0.44"
 # Joins emoji sequences: GSUB ligatures (Noto) and AAT `morx` (Apple). The
-# shaper epaint 0.36 already uses, at its version.
+# shaper epaint 0.37 already uses, at its version.
 harfrust = "0.12"
 # Decodes the PNGs inside CBDT and sbix strikes. Already in the apps' trees
 # (egui_extras, resvg) at this version.

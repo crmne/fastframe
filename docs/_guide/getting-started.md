@@ -10,7 +10,7 @@ nav_order: 2
 
 - Rust 1.98 or later (the `rust-version` of every crate). An app pinned to an
   older toolchain in `rust-toolchain.toml` fails to resolve; bump it first.
-- egui and eframe 0.36.2.
+- egui and eframe 0.37.
 
 ## Add a crate
 
@@ -67,9 +67,12 @@ the root workspace of the app being built, so each app keeps its own
 `[patch.crates-io]` section. fastframe crates depend on the published egui
 versions, and they must compile against both the release and the apps' fork.
 
-The maintained `apps-0.36.2` branch carries the app patches on egui 0.36.2.
-Use the revisions below together to get those fixes. Existing apps can keep
-their old pins until they upgrade fastframe. Copy this into the app's root `Cargo.toml`:
+fastframe moved to egui 0.37 after 0.17.1. The maintained `apps-0.36.2`
+branch carries the app patches on egui 0.36.2, so the revisions below pair
+with fastframe 0.17 and earlier; an app on a newer fastframe builds against
+stock egui 0.37 until the patch stack moves to 0.37. Use the revisions below
+together to get those fixes. Existing apps can keep their old pins until they
+upgrade fastframe. Copy this into the app's root `Cargo.toml`:
 
 ```toml
 [patch.crates-io]
@@ -105,15 +108,15 @@ release includes it; then the fork drops it.
 | --- | --- | --- |
 | Right-to-left text shaped in its direction | egui `6147de7b`, `8e592348` | [emilk/egui#8577](https://github.com/emilk/egui/pull/8577), open |
 | No busy loop while waiting for a redraw | included in 0.36.2, removed from the patch stack | [emilk/egui#8398](https://github.com/emilk/egui/pull/8398), merged |
-| No freeze when a Wayland window is hidden: frames paced by the compositor's callbacks | egui `41ff9ddf` | [emilk/egui#8631](https://github.com/emilk/egui/pull/8631), open |
-| The same, eframe's side of winit's `Occluded` | egui `0b431145` | [emilk/egui#8660](https://github.com/emilk/egui/pull/8660), a draft that waits for winit#4710 |
+| No freeze when a Wayland window is hidden: frames paced by the compositor's callbacks | egui `41ff9ddf` | [emilk/egui#8631](https://github.com/emilk/egui/pull/8631), in 0.37.0 |
+| The same, eframe's side of winit's `Occluded` | egui `0b431145` | [emilk/egui#8660](https://github.com/emilk/egui/pull/8660), closed |
 | The xdg-shell `suspended` state reported as `Occluded` | winit `a51e41b2` | [rust-windowing/winit#4709](https://github.com/rust-windowing/winit/pull/4709) and [#4710](https://github.com/rust-windowing/winit/pull/4710) (0.30), open |
 | Paste and file drops together on Wayland: one data device for both (crmne/spotifast#614) | winit `1a8306ad`, `fb8b24c3`; egui `2ab31332` | [rust-windowing/winit#4729](https://github.com/rust-windowing/winit/pull/4729) (0.30), open; on winit's main branch, the clipboard pull request [#4658](https://github.com/rust-windowing/winit/pull/4658) uses the same data device. [emilk/egui#8657](https://github.com/emilk/egui/pull/8657), a draft that waits for winit#4729 |
 | Each emoji one emoji wide (families, skin tones, keycaps, flags) | egui `73e8b6c3` | not proposed: egui's main branch already draws each of these one emoji wide through the system's colour emoji fonts, and the patch only changes the monochrome fonts an app opts into |
 | No runaway resizing on Windows when a window moves between monitors of different scale | winit `f4fed12c` | on winit's main branch (`39c4009c`); the fork carries it for 0.30 |
 | macOS Quit through close requests, behind a feature | winit `a7b78b27` | [rust-windowing/winit#4692](https://github.com/rust-windowing/winit/pull/4692), open |
-| A focus request for a widget not drawn yet no longer crashes accessibility on Windows and macOS | egui `4c143c1d` | [emilk/egui#8621](https://github.com/emilk/egui/pull/8621), merged, not yet released |
-| Windows starts on OpenGL drivers older than 3.3: a compatibility-profile fallback | egui `57eb5714` | [emilk/egui#8655](https://github.com/emilk/egui/pull/8655), open |
+| A focus request for a widget not drawn yet no longer crashes accessibility on Windows and macOS | egui `4c143c1d` | [emilk/egui#8621](https://github.com/emilk/egui/pull/8621), in 0.37.0 |
+| Windows starts on OpenGL drivers older than 3.3: a compatibility-profile fallback | egui `57eb5714` | [emilk/egui#8655](https://github.com/emilk/egui/pull/8655), in 0.37.0 |
 | A window keeps its size across restarts at any interface zoom | egui `56e7ac3c` | [emilk/egui#8656](https://github.com/emilk/egui/pull/8656), open |
 | A closed window leaves the screen on Touch Bar Macs | winit `ed7caa90` | [rust-windowing/winit#4728](https://github.com/rust-windowing/winit/pull/4728), a draft until confirmed on a Touch Bar Mac |
 

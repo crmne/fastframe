@@ -1,4 +1,6 @@
-use egui::{Context, Event, Modifiers, MouseWheelUnit, RawInput, TouchPhase, Vec2, vec2};
+use egui::{
+    Context, Event, Modifiers, MouseWheelSource, MouseWheelUnit, RawInput, TouchPhase, Vec2, vec2,
+};
 
 use super::*;
 
@@ -8,6 +10,8 @@ fn wheel(unit: MouseWheelUnit, delta: Vec2, phase: TouchPhase, modifiers: Modifi
         unit,
         delta,
         phase,
+        // What winit reports on Linux, where these gestures apply.
+        source: MouseWheelSource::Unknown,
         modifiers,
     }
 }

@@ -85,9 +85,12 @@ impl EmojiPlugin {
             for picture in self.visit(&mut clipped.shape, &mut previous, lookup) {
                 inserts.push((
                     index,
+                    // The picture moves with its text, so it takes the
+                    // text's transform too (a popup scaling into place).
                     ClippedShape {
                         clip_rect: clipped.clip_rect,
                         shape: picture,
+                        transform_after_tessellation: clipped.transform_after_tessellation,
                     },
                 ));
             }
@@ -341,13 +344,17 @@ fn hidden(galley: &Galley, row: usize, glyph: usize) -> bool {
 }
 
 /// The rectangle a cluster's glyphs take on its first row, a row tall,
-/// relative to the galley.
+/// relative to the galley. Glyphs that take no room (the rest of a joined
+/// sequence, which egui may place at the next pixel) do not widen it.
 fn cluster_rect(galley: &Galley, glyphs: &[&(usize, usize, usize)]) -> Option<Rect> {
     let row = glyphs.first()?.0;
     let placed = &galley.rows[row];
-    glyphs
-        .iter()
-        .filter(|(at, _, _)| *at == row)
+    let on_row = || glyphs.iter().filter(move |(at, _, _)| *at == row);
+    let wide = on_row()
+        .filter(|&&&(_, glyph, _)| placed.row.glyphs[glyph].advance_width > 0.0)
+        .count();
+    on_row()
+        .filter(|&&&(_, glyph, _)| wide == 0 || placed.row.glyphs[glyph].advance_width > 0.0)
         .map(|&&(_, glyph, _)| {
             let glyph = &placed.row.glyphs[glyph];
             Rect::from_min_max(
@@ -514,9 +521,11 @@ mod tests {
         output.textures_delta.clear();
         let mut shapes: Vec<ClippedShape> = galleys
             .iter()
-            .map(|galley| ClippedShape {
-                clip_rect: Rect::EVERYTHING,
-                shape: Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
+            .map(|galley| {
+                ClippedShape::new(
+                    Rect::EVERYTHING,
+                    Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
+                )
             })
             .collect();
         let mut lookup =
@@ -565,10 +574,10 @@ mod tests {
         output.textures_delta.clear();
         let galley = galley.expect("laid out");
         let mut plugin = EmojiPlugin::default();
-        let mut shapes = vec![ClippedShape {
-            clip_rect: Rect::EVERYTHING,
-            shape: Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
-        }];
+        let mut shapes = vec![ClippedShape::new(
+            Rect::EVERYTHING,
+            Shape::galley(Pos2::ZERO, galley.clone(), Color32::WHITE),
+        )];
         let mut lookup = |_: &str| None;
         plugin.colour(&mut shapes, &mut lookup);
         assert_eq!(shapes.len(), 1, "no picture yet");
@@ -605,9 +614,11 @@ mod tests {
         let mut plugin = EmojiPlugin::default();
         let mut shapes: Vec<ClippedShape> = [placeholder, typed]
             .into_iter()
-            .map(|galley| ClippedShape {
-                clip_rect: Rect::EVERYTHING,
-                shape: Shape::galley(Pos2::ZERO, galley.expect("laid out"), Color32::WHITE),
+            .map(|galley| {
+                ClippedShape::new(
+                    Rect::EVERYTHING,
+                    Shape::galley(Pos2::ZERO, galley.expect("laid out"), Color32::WHITE),
+                )
             })
             .collect();
         let mut asked = Vec::new();
@@ -720,10 +731,7 @@ mod tests {
         let mut plugin = EmojiPlugin::default();
         let mut text = TextShape::new(Pos2::ZERO, galley.expect("laid out"), Color32::WHITE);
         text.override_text_color = Some(Color32::RED);
-        let mut shapes = vec![ClippedShape {
-            clip_rect: Rect::EVERYTHING,
-            shape: Shape::Text(text),
-        }];
+        let mut shapes = vec![ClippedShape::new(Rect::EVERYTHING, Shape::Text(text))];
         let mut lookup = |_: &str| Some(Some((TextureId::User(1), egui::vec2(72.0, 72.0))));
         plugin.colour(&mut shapes, &mut lookup);
         let Shape::Text(text) = &shapes[0].shape else {
@@ -744,7 +752,7 @@ mod tests {
         let ctx = context();
         let draw = |ui: &mut egui::Ui| {
             ui.label("under 👍🏽");
-            egui::Area::new(egui::Id::new("tip"))
+            egui::Area::new(egui::Id::unique("tip"))
                 .order(egui::Order::Tooltip)
                 .fixed_pos(Pos2::new(0.0, 0.0))
                 .show(ui.ctx(), |ui| {
@@ -808,23 +816,21 @@ mod tests {
     fn a_family_and_a_keycap_are_laid_out_and_painted_as_one_emoji() {
         let ctx = context();
         let (single, single_picture) = label_and_picture(&ctx, "a 😀 z");
-        let (family, _) = label_and_picture(&ctx, "a 👨‍👩‍👧 z");
-        if (family.size().x - single.size().x).abs() > 0.01 {
-            // Stock egui lays a sequence out as the glyphs its font draws;
-            // giving each one emoji's width takes the apps' egui fork
-            // (crmne/egui, "Lay out each emoji cluster as one emoji's
-            // width"). Nothing more to check here.
-            return;
-        }
         let cursor =
             |galley: &Galley, at: usize| galley.pos_from_cursor(egui::text::CCursor::new(at)).min.x;
+        let mut checked = 0;
         for (text, length) in [("a 👨‍👩‍👧 z", 5), ("a #️⃣ z", 3), ("a 👍🏽 z", 2)]
         {
             let (galley, picture) = label_and_picture(&ctx, text);
-            assert!(
-                (galley.size().x - single.size().x).abs() < 0.01,
-                "{text}: the label is as wide as with a single emoji"
-            );
+            if (galley.size().x - single.size().x).abs() > 0.01 {
+                // Stock egui 0.37 lays a ligated sequence (the family) out
+                // as one emoji's width, but a keycap or a skin tone as the
+                // glyphs its font draws; one emoji's width for those takes
+                // the apps' egui fork (crmne/egui, "Lay out each emoji
+                // cluster as one emoji's width").
+                continue;
+            }
+            checked += 1;
             // Before the emoji, after it, and after the space that follows.
             for (here, there) in [(2, 2), (2 + length, 3), (3 + length, 4)] {
                 assert!(
@@ -841,5 +847,9 @@ mod tests {
                 "{text}: painted where a single emoji is"
             );
         }
+        assert!(
+            checked > 0,
+            "egui lays out at least the family as one emoji"
+        );
     }
 }

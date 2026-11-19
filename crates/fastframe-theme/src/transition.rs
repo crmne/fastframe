@@ -24,9 +24,11 @@
 //! transition.paint(&ctx);
 //! ```
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
-use egui::{Color32, Context, Id, LayerId, Mesh, Order, Pos2, Rect, TextureHandle, Vec2};
+use egui::{
+    Color32, ColorImage, Context, Id, LayerId, Mesh, Order, Pos2, Rect, TextureHandle, Vec2,
+};
 
 /// How long the old colours are held for a screenshot that may never come
 /// (a hidden window, or a renderer without screenshots), in seconds.
@@ -86,16 +88,16 @@ impl Reveal {
     }
 }
 
-/// Marks the screenshots this transition asked for.
-#[derive(Debug)]
-struct Marker;
+/// Where the screenshot this transition asked for lands once the window
+/// has read its pixels.
+type Slot = Arc<Mutex<Option<Arc<ColorImage>>>>;
 
 #[derive(Default)]
 enum State {
     #[default]
     Idle,
-    /// A screenshot was asked for at this time.
-    Capturing { since: f64 },
+    /// A screenshot was asked for at this time, to land in `slot`.
+    Capturing { since: f64, slot: Slot },
     /// The old colours are being revealed away since `start`.
     Revealing { picture: TextureHandle, start: f64 },
 }
@@ -140,11 +142,16 @@ impl Transition {
         if matches!(self.state, State::Capturing { .. }) {
             return;
         }
-        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(
-            Marker,
-        )));
+        let slot = Slot::default();
+        let landing = Arc::clone(&slot);
+        let repaint = ctx.clone();
+        ctx.request_screenshot(move |image| {
+            *landing.lock().unwrap_or_else(PoisonError::into_inner) = Some(image);
+            repaint.request_repaint();
+        });
         self.state = State::Capturing {
             since: ctx.input(|input| input.time),
+            slot,
         };
         ctx.request_repaint();
     }
@@ -154,23 +161,11 @@ impl Transition {
     /// after a short wait without it, this returns `false` and the app
     /// applies its new colours.
     pub fn holding(&mut self, ctx: &Context) -> bool {
-        let State::Capturing { since } = self.state else {
+        let State::Capturing { since, slot } = &self.state else {
             return false;
         };
-        let picture = ctx.input(|input| {
-            input.raw.events.iter().find_map(|event| match event {
-                egui::Event::Screenshot {
-                    user_data, image, ..
-                } if user_data
-                    .data
-                    .as_ref()
-                    .is_some_and(|data| data.downcast_ref::<Marker>().is_some()) =>
-                {
-                    Some(Arc::clone(image))
-                }
-                _ => None,
-            })
-        });
+        let since = *since;
+        let picture = slot.lock().unwrap_or_else(PoisonError::into_inner).take();
         let now = ctx.input(|input| input.time);
         if let Some(image) = picture {
             let picture = ctx.load_texture(
@@ -216,7 +211,7 @@ impl Transition {
         let progress = self.reveal.progress((elapsed / duration) as f32);
         let painter = ctx.layer_painter(LayerId::new(
             Order::Debug,
-            Id::new("fastframe-theme-transition"),
+            Id::unique("fastframe-theme-transition"),
         ));
         painter.add(self.reveal.mesh(screen, picture.id(), progress));
         ctx.request_repaint();
@@ -473,23 +468,20 @@ mod tests {
             transition.begin(ui.ctx());
             assert!(transition.holding(ui.ctx()), "hold the old colours");
         });
-        let user_data = output.viewport_output[&egui::ViewportId::ROOT]
+        let screenshot = output.viewport_output[&egui::ViewportId::ROOT]
             .commands
             .iter()
             .find_map(|command| match command {
-                egui::ViewportCommand::Screenshot(user_data) => Some(user_data.clone()),
+                egui::ViewportCommand::Screenshot(callback) => Some(callback.clone()),
                 _ => None,
             })
             .expect("a screenshot is asked for");
         assert!(transition.active());
 
-        let screenshot = egui::Event::Screenshot {
-            viewport_id: egui::ViewportId::ROOT,
-            user_data,
-            image: Arc::new(egui::ColorImage::filled([4, 4], Color32::RED)),
-        };
+        // The window reads its pixels between frames.
+        screenshot.complete(Arc::new(egui::ColorImage::filled([4, 4], Color32::RED)));
         let mut held = None;
-        let output = frame(&ctx, 0.05, vec![screenshot], |ui| {
+        let output = frame(&ctx, 0.05, vec![], |ui| {
             held = Some(transition.holding(ui.ctx()));
             transition.paint(ui.ctx());
         });

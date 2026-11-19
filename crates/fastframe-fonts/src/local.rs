@@ -142,8 +142,8 @@ mod tests {
     use super::*;
     use crate::{FontSetup, Monospace};
     fn static_bytes() -> Vec<u8> {
-        egui::FontDefinitions::default().font_data["Ubuntu-Light"]
-            .font
+        (*egui::FontDefinitions::default().font_data["Ubuntu-Light"].font)
+            .as_ref()
             .to_vec()
     }
     #[test]

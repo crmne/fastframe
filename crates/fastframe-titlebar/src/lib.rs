@@ -362,7 +362,7 @@ pub fn drag(ui: &mut egui::Ui, rect: Rect) {
 fn area(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
     ui.interact(
         rect,
-        ui.id().with("fastframe-titlebar-drag"),
+        ui.scope_id().with("fastframe-titlebar-drag"),
         egui::Sense::CLICK | egui::Sense::DRAG,
     )
 }
@@ -397,7 +397,7 @@ pub fn controls(ui: &mut egui::Ui, style: &Style, labels: &Labels<'_>) {
         } else {
             ("fastframe-titlebar-left", Align2::LEFT_TOP, margin)
         };
-        egui::Area::new(egui::Id::new(id))
+        egui::Area::new(egui::Id::unique(id))
             .anchor(anchor, vec2(offset, top))
             .order(egui::Order::Foreground)
             .show(ui.ctx(), |ui| {

@@ -22,7 +22,7 @@ const SETTLING: f32 = 0.001;
 /// [`Geometry`](super::Geometry) opens windows at the right size. A window
 /// with a scale of its own, such as a mini player, does not call it.
 pub fn keep_zoom(ctx: &egui::Context, saved: f32) -> Option<f32> {
-    let applied = egui::Id::new("fastframe_shell::zoom_applied");
+    let applied = egui::Id::unique("fastframe_shell::zoom_applied");
     let zoom = if ctx.data(|data| data.get_temp::<bool>(applied).unwrap_or(false)) {
         ctx.zoom_factor()
     } else {

@@ -273,6 +273,7 @@ fn read_wheel(events: &[Event], options: &egui::InputOptions) -> Wheel {
             delta,
             phase,
             modifiers,
+            ..
         } = event
         {
             let horizontal = modifiers.matches_any(options.horizontal_scroll_modifier);

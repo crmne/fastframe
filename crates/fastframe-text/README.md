@@ -192,7 +192,7 @@ library would add a build dependency.
 
 ## egui version
 
-The crate depends on `egui` 0.36.1 or later from crates.io, without default
-features. The per-font hinting target and sub-pixel binning (emilk/egui#8262)
-and the font colour transfer function are in the stock 0.36.1 release, so no fork is required; apps that patch egui to `crmne/egui` apps-0.36
-work too.
+The crate depends on `egui` 0.37 from crates.io, without default features.
+The per-font hinting target and sub-pixel binning (emilk/egui#8262) and the
+font colour transfer function are in stock egui, so no fork is required; apps
+that patch egui to a `crmne/egui` fork based on 0.37 work too.

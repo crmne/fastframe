@@ -45,7 +45,7 @@ struct Textures {
 impl Cache {
     fn of(ctx: &egui::Context) -> Self {
         ctx.data_mut(|data| {
-            data.get_temp_mut_or_default::<Cache>(egui::Id::new("fastframe-emoji"))
+            data.get_temp_mut_or_default::<Cache>(egui::Id::unique("fastframe-emoji"))
                 .clone()
         })
     }

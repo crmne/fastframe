@@ -39,12 +39,12 @@ Run it with `cargo run -p fastframe-fonts --example fonts`, or append
 
 ## Start with fonts and text
 
-Requires **Rust 1.98+** and **egui 0.36.2**. fastframe is not on crates.io yet;
+Requires **Rust 1.98+** and **egui 0.37**. fastframe is not on crates.io yet;
 pin every fastframe crate to the same release tag:
 
 ```toml
 [dependencies]
-egui = "0.36.2"
+egui = "0.37.0"
 fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.17.1" }
 fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.17.1" }
 ```
@@ -98,7 +98,8 @@ fastframe builds against published egui releases. Our apps also use maintained
 forks for fixes awaiting upstream releases. The
 [getting started guide](docs/_guide/getting-started.md#egui-and-winit-forks)
 has the matching revisions, the complete app-root patch block, and the status
-of each fix. The current egui patch stack is based on **0.36.2**.
+of each fix. The apps' egui patch stack is still based on **0.36.2**, which
+pairs with fastframe 0.17 and earlier.
 
 ## How the project grows
 

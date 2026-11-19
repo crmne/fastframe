@@ -166,7 +166,7 @@ not route through that code kept the monochrome face.
 
 Colour glyphs inside epaint's text renderer would be the natural home, but
 that is an egui change that may never be accepted upstream, and fastframe
-does not patch egui. An egui [`Plugin`](https://docs.rs/egui/0.36/egui/trait.Plugin.html)
+does not patch egui. An egui [`Plugin`](https://docs.rs/egui/0.37/egui/trait.Plugin.html)
 reaches every text without it: `Plugin::output_hook` sees the frame's
 `FullOutput` after every widget has painted and before the backend
 tessellates it.
