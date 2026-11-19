@@ -101,10 +101,10 @@ if app.custom_themes.poll() { /* re-resolve the selected palette */ }
 
 ## Shared palettes
 
-`presets` embeds eight palettes in the sixteen base colours: Catppuccin,
-Catppuccin Latte, Nord, Ristretto, Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn
-and Tokyo Night. With `presets: true` they are listed alongside the user's
-files; a user file with the same name overrides one.
+`presets` embeds ten palettes in the sixteen base colours: Alucard_Perso,
+Catppuccin, Catppuccin Latte, Dracula, Nord, Ristretto, Rosé Pine, Rosé Pine
+Moon, Rosé Pine Dawn and Tokyo Night. With `presets: true` they are listed
+alongside the user's files; a user file with the same name overrides one.
 
 With presets on, the catalogue also installs them into the app's themes
 directory (for example `~/.config/<app>/themes`) the first time it scans,
