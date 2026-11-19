@@ -1274,6 +1274,7 @@ mod tests {
             &Release {
                 version: VERSION.into(),
                 url: String::new(),
+                published_at: None,
             },
             |_, _| {},
         )
@@ -1327,6 +1328,7 @@ mod tests {
             &Release {
                 version: VERSION.into(),
                 url: String::new(),
+                published_at: None,
             },
             |received, total| reported = (received, total),
         )
@@ -1618,6 +1620,7 @@ mod tests {
                 &Release {
                     version: VERSION.into(),
                     url: String::new(),
+                    published_at: None,
                 },
                 |_, _| {},
             )
