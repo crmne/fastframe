@@ -243,10 +243,10 @@ mod tests {
         };
         let fallbacks = Box::leak(Box::new([fallback]));
         let setup = FontSetup::default();
-        let before = setup.definitions_with(fallbacks, None);
+        let before = setup.definitions_with(fallbacks, None, None);
         let after = setup
             .local_font(LocalFont::from_bytes(static_bytes(), 0).unwrap())
-            .definitions_with(fallbacks, None);
+            .definitions_with(fallbacks, None, None);
         assert_eq!(
             after.font_data["fallback-yi"].tweak,
             before.font_data["fallback-yi"].tweak
