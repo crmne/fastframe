@@ -27,7 +27,9 @@ eframe.workspace = true
 raw-window-handle.workspace = true
 # `sel!` and the main-thread marker, for a header's double-click.
 objc2.workspace = true
-objc2-app-kit = { workspace = true, features = ["NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
+# The handler of the monitor that keeps each mouse-down for a header press.
+block2.workspace = true
+objc2-app-kit = { workspace = true, features = ["block2", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { workspace = true, features = ["NSUserDefaults"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

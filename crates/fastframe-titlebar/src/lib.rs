@@ -338,11 +338,21 @@ pub fn drag(ui: &mut egui::Ui, rect: Rect) {
     if fullscreen || !(macos || visible(ui.ctx())) {
         return;
     }
+    if macos {
+        macos::record_presses();
+    }
     let response = area(ui, rect);
     if macos {
-        if response.is_pointer_button_down_on()
-            && ui.input(|input| input.pointer.primary_pressed())
-            && macos::title_bar_press()
+        // A quick click can be pressed and released within one pass.
+        let (pressed, down) = ui.input(|input| {
+            (
+                input.pointer.primary_pressed(),
+                input.pointer.primary_down(),
+            )
+        });
+        if pressed
+            && (response.is_pointer_button_down_on() || response.clicked())
+            && macos::title_bar_press(ui.ctx(), down)
         {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
         }
