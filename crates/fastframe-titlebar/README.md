@@ -75,10 +75,12 @@ panel, say). `controls` draws in egui's foreground layer, over every panel.
   pointer moves. The second press of a double-click is not a drag:
   the crate performs the system's setting (zoom or minimize, after the
   frame), and Fill comes from AppKit's own drag.
-- **Windows buttons** are 36 points square, centred in the header's height,
-  5 points from the right edge, with Windows' caption feedback: a light wash
-  over Minimize and Maximize, red (232, 17, 35) under Close, dimmer while
-  pressed.
+- **Windows buttons** are 36 points wide and fill the header's height. On a
+  maximized window they reach the top and right edges, so a pointer pushed
+  along the top edge or into the corner lands on them, as on Windows' own
+  title bar; otherwise they start where the resize border ends, 5 points in.
+  They have Windows' square caption feedback: a light wash over Minimize and
+  Maximize, red (232, 17, 35) under Close, dimmer while pressed.
 - **Linux buttons** follow GNOME's `button-layout` (`appmenu:close` by
   default on GNOME; minimize, maximize and close elsewhere), 28 points round,
   14 points from the edges. The glyphs are the icon theme's
