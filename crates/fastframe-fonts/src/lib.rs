@@ -638,7 +638,7 @@ mod tests {
             scale: 1.0,
             y_offset_factor: 0.05,
         }]));
-        let fonts = FontSetup::default().definitions_with(fallbacks, None);
+        let fonts = FontSetup::default().definitions_with(fallbacks, None, None);
         assert_eq!(
             fonts.font_data["fallback-han"].tweak.coords,
             VariationCoords::new([(b"wght", 400.0)])
@@ -657,7 +657,7 @@ mod tests {
             scale: 1.0,
             y_offset_factor: 0.05,
         }]));
-        let fonts = FontSetup::default().definitions_with(fallbacks, None);
+        let fonts = FontSetup::default().definitions_with(fallbacks, None, None);
         assert_eq!(
             fonts.font_data["fallback-han"].tweak.coords,
             VariationCoords::new([(b"wght", 500.0)])
@@ -678,7 +678,7 @@ mod tests {
                 scale: 1.0,
                 y_offset_factor: 0.05,
             }]));
-            let fonts = FontSetup::default().definitions_with(fallbacks, None);
+            let fonts = FontSetup::default().definitions_with(fallbacks, None, None);
             let data = &fonts.font_data["fallback-han"];
             assert_eq!(data.index, index);
             assert_eq!(data.tweak.coords, expected, "face {index}");
@@ -694,7 +694,7 @@ mod tests {
             scale: 1.0,
             y_offset_factor: 0.05,
         }]));
-        let fonts = FontSetup::default().definitions_with(fallbacks, None);
+        let fonts = FontSetup::default().definitions_with(fallbacks, None, None);
         assert_eq!(
             fonts.font_data["fallback-yi"].tweak.coords,
             VariationCoords::default()
