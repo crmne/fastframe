@@ -193,10 +193,11 @@ Wayland drops a client's request to focus its own window, so apps close the
 window and open a new one, which lands on the current workspace instead of
 taking the user to the window. Under niri (`NIRI_SOCKET` set),
 `raise_on_compositor` asks `niri msg` to focus this process's window, which
-also switches to its workspace (ZapFast #474). It returns `false` elsewhere,
-or when `niri` is missing or fails, so the app keeps its fallback. Hyprland
-is not asked: `hyprctl dispatch` changed to Lua syntax in 0.56, so one
-request does not work across versions.
+also switches to its workspace (ZapFast #474). Under Hyprland
+(`HYPRLAND_INSTANCE_SIGNATURE` set) it asks `hyprctl dispatch`, in the Lua
+syntax of 0.56 and later and then in the older one, and counts only a reply
+of `ok`. It returns `false` elsewhere, or when the tool is missing or fails,
+so the app keeps its fallback.
 
 ## Saves on the UI thread
 
