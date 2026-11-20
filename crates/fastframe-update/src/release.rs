@@ -300,6 +300,16 @@ impl Metadata {
     }
 }
 
+/// Every target [`target`] answers.
+pub(crate) const TARGETS: [&str; 6] = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "macos-universal",
+    "macos-arm64",
+];
+
 /// The target part of release asset names for this operating system and
 /// processor, given which macOS build the app publishes.
 pub(crate) fn target(
@@ -318,14 +328,25 @@ pub(crate) fn target(
     })
 }
 
-/// `<slug>-v<version>-<target>`: the asset name without its extension, and
-/// the folder inside a portable archive.
+/// The asset name without its extension: [`UpdateConfig::asset_stem`]'s,
+/// or `<slug>-v<version>-<target>`.
+#[cfg(test)]
 pub(crate) fn stem(config: &UpdateConfig, version: &str, target: &str) -> String {
+    match config.asset_stem {
+        Some(name) => name(version, target),
+        None => folder(config, version, target),
+    }
+}
+
+/// `<slug>-v<version>-<target>`: the folder inside a portable archive,
+/// whatever the archive itself is called.
+pub(crate) fn folder(config: &UpdateConfig, version: &str, target: &str) -> String {
     format!("{}-v{version}-{target}", config.slug)
 }
 
 /// The asset to download for this kind of installation, for the release
 /// `version` and the [`target`].
+#[cfg(test)]
 pub(crate) fn asset_name(
     config: &UpdateConfig,
     version: &str,
@@ -345,11 +366,63 @@ pub(crate) fn asset_name(
 
 /// `<slug>-<version>-<arch>.AppImage`: the name native-packages gives an
 /// AppImage, without the `v` and with the processor alone (`x86_64`,
-/// `aarch64`) where the other downloads carry the whole target.
+/// `aarch64`) where the other downloads carry the whole target. With
+/// [`UpdateConfig::asset_stem`], `<stem>.AppImage` instead.
+#[cfg(test)]
 pub(crate) fn appimage_name(config: &UpdateConfig, version: &str, target: &str) -> String {
+    appimage_names(config, version, target).remove(0)
+}
+
+/// The AppImage names a release may use, preferred first: the
+/// [`UpdateConfig::asset_stem`] one, then the earlier pattern.
+pub(crate) fn appimage_names(config: &UpdateConfig, version: &str, target: &str) -> Vec<String> {
     let arch = target.split('-').next().unwrap_or(target);
     let name = config.appimage_name.unwrap_or(config.slug);
-    format!("{name}-{version}-{arch}.AppImage")
+    let earlier = format!("{name}-{version}-{arch}.AppImage");
+    match config.asset_stem {
+        Some(stem) => vec![format!("{}.AppImage", stem(version, target)), earlier],
+        None => vec![earlier],
+    }
+}
+
+/// The stems a release may give its downloads, preferred first:
+/// [`UpdateConfig::asset_stem`]'s, then `<slug>-v<version>-<target>`, which
+/// releases from before an app renamed its downloads carry.
+pub(crate) fn stems(config: &UpdateConfig, version: &str, target: &str) -> Vec<String> {
+    let mut stems = Vec::new();
+    if let Some(name) = config.asset_stem {
+        stems.push(name(version, target));
+    }
+    stems.push(folder(config, version, target));
+    stems
+}
+
+/// Every name a release may give this kind of copy's download, in the
+/// order they're tried: under each [`stems`], a Windows Installer package
+/// before the setup program.
+pub(crate) fn names(
+    config: &UpdateConfig,
+    version: &str,
+    target: &str,
+    kind: Kind,
+    platform: Platform,
+) -> Vec<String> {
+    if kind == Kind::AppImage {
+        return appimage_names(config, version, target);
+    }
+    let mut names = Vec::new();
+    for stem in stems(config, version, target) {
+        match kind {
+            Kind::WindowsInstaller => {
+                names.push(msi_name(&stem));
+                names.push(format!("{stem}-setup.exe"));
+            }
+            Kind::MacBundle => names.push(format!("{stem}.dmg")),
+            Kind::Portable if platform == Platform::Windows => names.push(format!("{stem}.zip")),
+            Kind::Portable | Kind::AppImage => names.push(format!("{stem}.tar.gz")),
+        }
+    }
+    names
 }
 
 /// The Windows Installer package a release publishes beside the setup
