@@ -210,6 +210,25 @@ pub struct UpdateConfig {
     /// (`chatwithwork-desktop-1.2.3-x86_64.AppImage`). `None`, the default,
     /// uses [`UpdateConfig::slug`].
     pub appimage_name: Option<&'static str>,
+    /// What the release calls its downloads, when not
+    /// `<slug>-v<version>-<target>`: given the version (`1.2.3`) and the
+    /// target (`macos-universal`, `x86_64-pc-windows-msvc`,
+    /// `aarch64-unknown-linux-gnu`, ...), the file name without its
+    /// extension, to which the disk image, the Windows installer, the
+    /// archive and the AppImage add theirs (`.dmg`, `.msi`, `-setup.exe`,
+    /// `.tar.gz`, `.zip`, `.AppImage`). For names people read, such as
+    /// `Chat-with-Work-Desktop-1.2.3-Windows-x64.msi`. It replaces
+    /// [`UpdateConfig::appimage_name`]'s pattern too. The folder inside a
+    /// portable archive keeps `<slug>-v<version>-<target>`, and the
+    /// `--version` probe still expects `<slug> <version>`. Keep the version
+    /// in the name: the signed `checksums.txt` lists names, so a name with
+    /// the version binds the signature to that release. The earlier
+    /// `<slug>-v<version>-<target>` names (and `appimage_name`'s) are still
+    /// taken when a release has no file under the new one. Copies installed
+    /// before look only for the names their own version computes, so a
+    /// release that sets this should also carry its files under the old
+    /// names until those copies have updated.
+    pub asset_stem: Option<fn(&str, &str) -> String>,
 }
 
 /// The macOS build a release publishes, which names its disk image.
@@ -271,6 +290,7 @@ impl UpdateConfig {
             mac_target: MacTarget::Universal,
             appimage: true,
             appimage_name: None,
+            asset_stem: None,
         }
     }
 
@@ -309,6 +329,28 @@ impl UpdateConfig {
             ensure!(
                 valid_name(name) && !name.starts_with('.'),
                 "The AppImage name must be a plain file name: {name}"
+            );
+        }
+        if let Some(name) = self.asset_stem {
+            let mut stems: Vec<String> = release::TARGETS
+                .iter()
+                .map(|target| name(self.current_version, target))
+                .collect();
+            for stem in &stems {
+                ensure!(
+                    valid_name(stem) && !stem.starts_with('.'),
+                    "Asset names must be plain file names: {stem}"
+                );
+                ensure!(
+                    stem.contains(self.current_version),
+                    "Asset names must carry the version: {stem}"
+                );
+            }
+            stems.sort();
+            stems.dedup();
+            ensure!(
+                stems.len() == release::TARGETS.len(),
+                "Every target needs an asset name of its own"
             );
         }
         ensure!(
@@ -425,6 +467,12 @@ mod tests {
     #[test]
     fn a_config_checks_its_own_values() {
         ZAPFAST.validate().unwrap();
+        UpdateConfig {
+            asset_stem: Some(|version, target| format!("ZapFast-{version}-{target}")),
+            ..ZAPFAST
+        }
+        .validate()
+        .unwrap();
         for broken in [
             UpdateConfig {
                 repository: "zapfast",
@@ -460,6 +508,18 @@ mod tests {
             },
             UpdateConfig {
                 portable_executable: Some(""),
+                ..ZAPFAST
+            },
+            UpdateConfig {
+                asset_stem: Some(|version, target| format!("../ZapFast-{version}-{target}")),
+                ..ZAPFAST
+            },
+            UpdateConfig {
+                asset_stem: Some(|_, target| format!("ZapFast-{target}")),
+                ..ZAPFAST
+            },
+            UpdateConfig {
+                asset_stem: Some(|version, _| format!("ZapFast-{version}")),
                 ..ZAPFAST
             },
         ] {
