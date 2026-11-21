@@ -101,6 +101,10 @@ panel, say). `controls` draws in egui's foreground layer, over every panel.
   it), and their room is measured from the zoom button's right edge once
   they are aligned, with `TRAFFIC_LIGHTS_WIDTH` (84 AppKit points) until
   then.
+  `align_traffic_lights_at(frame, ctx, header_height, left)` puts the close
+  button `left` AppKit points in instead of 16, for a header whose layout
+  starts further in; once the buttons are aligned, `footprint` measures
+  them where they are, so it includes the extra room.
 - **The double-click setting** is System Settings, Desktop & Dock,
   "Double-click a window's title bar to", read from `AppleActionOnDoubleClick`
   (Zoom is stored as `Maximize`), falling back to the older
