@@ -250,12 +250,12 @@ pub(crate) fn verify(
             })
         })
         .collect();
-    let stem = release::stem(config, &release.version, target);
-    let appimage = release::appimage_name(config, &release.version, target);
+    let stems = release::stems(config, &release.version, target);
+    let appimages = release::appimage_names(config, &release.version, target);
     let ours = files.iter().any(|file| {
-        file.starts_with(&format!("{stem}."))
-            || *file == format!("{stem}-setup.exe")
-            || *file == appimage
+        stems.iter().any(|stem| {
+            file.starts_with(&format!("{stem}.")) || *file == format!("{stem}-setup.exe")
+        }) || appimages.contains(file)
     });
     ensure!(
         ours,
@@ -286,17 +286,20 @@ pub(crate) fn appimage_listed(
     version: &str,
 ) -> Result<bool> {
     let target = release::target(platform, arch, config.mac_target)?;
-    let name = release::appimage_name(config, version, target);
     let metadata = release::metadata(config, transport, source, version)?;
     let (manifest, _) = signed_manifest(config, transport, source, &metadata, version)?;
     let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
     // As a download would find it: one attached asset of a plausible size,
     // and one well-formed signed line.
-    let attached = metadata.asset(&name).is_ok_and(|asset| {
-        Url::parse(&asset.browser_download_url)
-            .is_ok_and(|url| source.owns_asset(config, &url, version, &asset.name))
-    });
-    Ok(attached && release::checksum(text, &name).is_ok())
+    Ok(release::appimage_names(config, version, target)
+        .iter()
+        .any(|name| {
+            let attached = metadata.asset(name).is_ok_and(|asset| {
+                Url::parse(&asset.browser_download_url)
+                    .is_ok_and(|url| source.owns_asset(config, &url, version, &asset.name))
+            });
+            attached && release::checksum(text, name).is_ok()
+        }))
 }
 
 /// Downloads `release` for `installation` and verifies it. Nothing is
@@ -317,15 +320,18 @@ pub(crate) fn link(inputs: &Inputs<'_>, kind: Kind, version: &str) -> Result<Str
     } = *inputs;
     let target = release::target(platform, arch, config.mac_target)?;
     let metadata = release::metadata(config, transport, source, version)?;
-    let wanted = release::asset_name(config, version, target, kind, platform);
-    let msi = release::msi_name(&release::stem(config, version, target));
-    let package = metadata.asset(&wanted).or_else(|error| {
-        if kind == Kind::WindowsInstaller {
-            metadata.asset(&msi)
-        } else {
-            Err(error)
+    // The first name the release has, for a Windows installer copy the
+    // setup program before the package, as before names could change.
+    let mut names = release::names(config, version, target, kind, platform);
+    if kind == Kind::WindowsInstaller {
+        for pair in names.chunks_mut(2) {
+            pair.reverse();
         }
-    })?;
+    }
+    let package = names
+        .iter()
+        .find_map(|name| metadata.asset(name).ok())
+        .with_context(|| format!("The release has no unique {} download", names[0]))?;
     let url = Url::parse(&package.browser_download_url)?;
     ensure!(
         source.owns_asset(config, &url, version, &package.name),
@@ -356,19 +362,15 @@ pub(crate) fn download(
     keys(config)?;
     let target = release::target(platform, arch, config.mac_target)?;
     let metadata = release::metadata(config, transport, source, &release.version)?;
-    let stem = release::stem(config, &release.version, target);
     // A download the release attaches from outside itself is refused before
     // anything is fetched.
-    let candidates = [
-        release::asset_name(
-            config,
-            &release.version,
-            target,
-            installation.kind,
-            platform,
-        ),
-        release::msi_name(&stem),
-    ];
+    let candidates = release::names(
+        config,
+        &release.version,
+        target,
+        installation.kind,
+        platform,
+    );
     for asset in metadata
         .assets
         .iter()
@@ -386,21 +388,21 @@ pub(crate) fn download(
         signed_manifest(config, transport, source, &metadata, &release.version)?;
     let text = std::str::from_utf8(&manifest).context("Invalid update checksum text")?;
     let signed = signed_files(text);
-    let mut name = release::asset_name(
+    // The first name the release both signs and has attached: the
+    // configured names before the earlier ones, and a Windows Installer
+    // package before the setup program older releases only have.
+    let names = release::names(
         config,
         &release.version,
         target,
         installation.kind,
         platform,
     );
-    // A release that signs a Windows Installer package installs through it;
-    // older releases only have the setup program.
-    if installation.kind == Kind::WindowsInstaller {
-        let msi = release::msi_name(&stem);
-        if signed.contains(&msi) && metadata.asset(&msi).is_ok() {
-            name = msi;
-        }
-    }
+    let name = names
+        .iter()
+        .find(|name| signed.contains(*name) && metadata.asset(name).is_ok())
+        .unwrap_or(&names[0])
+        .clone();
     // A release that doesn't sign this installation's download (an AppImage
     // left out of checksums.txt), or hasn't attached it, is out, just not
     // installable from here: say so in a way the app can tell from a failed
@@ -481,7 +483,8 @@ pub(crate) fn download(
             Kind::Portable => {
                 let executable = release::portable_executable(config, platform);
                 let payload = directory.join(&executable);
-                host.extract(&archive, &format!("{stem}/{executable}"), &payload)?;
+                let folder = release::folder(config, &release.version, target);
+                host.extract(&archive, &format!("{folder}/{executable}"), &payload)?;
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -2265,6 +2268,186 @@ mod tests {
                 "nothing is replaced before the handoff"
             );
         }
+    }
+
+    /// ZapFast after renaming its downloads to names people read.
+    fn renamed_config() -> UpdateConfig {
+        fn stem(version: &str, target: &str) -> String {
+            let system = match target {
+                "macos-universal" => "macOS-universal",
+                "macos-arm64" => "macOS-arm64",
+                "x86_64-pc-windows-msvc" => "Windows-x64",
+                "aarch64-pc-windows-msvc" => "Windows-arm64",
+                "x86_64-unknown-linux-gnu" => "Linux-x64",
+                "aarch64-unknown-linux-gnu" => "Linux-arm64",
+                other => other,
+            };
+            format!("ZapFast-{version}-{system}")
+        }
+        UpdateConfig {
+            asset_stem: Some(stem),
+            ..config()
+        }
+    }
+
+    /// A signed release attaching `names`, each file's contents its name.
+    fn release_of(names: &[&str]) -> FakeTransport {
+        let manifest: String = names
+            .iter()
+            .map(|name| format!("{}  {name}\n", hex(&Sha256::digest(name.as_bytes()))))
+            .collect();
+        let signature = fixture_key().sign(manifest.as_bytes());
+        let mut assets: Vec<_> = names
+            .iter()
+            .map(|name| serde_json::json!({"name": name, "size": name.len(), "browser_download_url": asset_url(VERSION, name)}))
+            .collect();
+        assets.push(serde_json::json!({"name": "checksums.txt", "size": manifest.len(), "browser_download_url": asset_url(VERSION, "checksums.txt")}));
+        assets.push(serde_json::json!({"name": "checksums.txt.sig", "size": 64, "browser_download_url": asset_url(VERSION, "checksums.txt.sig")}));
+        let metadata = serde_json::json!({"tag_name": format!("v{VERSION}"), "draft": false, "prerelease": false, "assets": assets});
+        let mut transport = FakeTransport::default()
+            .serve(
+                &format!("https://api.github.com/repos/crmne/zapfast/releases/tags/v{VERSION}"),
+                metadata.to_string().as_bytes(),
+            )
+            .serve(&asset_url(VERSION, "checksums.txt"), manifest.as_bytes())
+            .serve(&asset_url(VERSION, "checksums.txt.sig"), signature.as_ref());
+        for name in names {
+            transport = transport.serve(&asset_url(VERSION, name), name.as_bytes());
+        }
+        transport
+    }
+
+    /// Which file a copy of `kind` downloads from a release of `names`.
+    fn downloaded(
+        config: &UpdateConfig,
+        names: &[&str],
+        kind: Kind,
+        platform: Platform,
+    ) -> Result<String> {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join(match kind {
+            Kind::AppImage => "ZapFast.AppImage",
+            _ => "zapfast.exe",
+        });
+        fs::write(&executable, b"the running app").unwrap();
+        let transport = release_of(names);
+        let release = Release {
+            version: VERSION.into(),
+            url: String::new(),
+            published_at: None,
+        };
+        verify(
+            config,
+            &transport,
+            &Source::github(),
+            platform,
+            "x86_64",
+            &release,
+        )?;
+        let prepared = download(
+            &Inputs {
+                config,
+                transport: &transport,
+                source: &Source::github(),
+                host: &FakeHost::default().with_version_output("zapfast 0.17.0"),
+                platform,
+                arch: "x86_64",
+            },
+            Installation { executable, kind },
+            &release,
+            |_, _| {},
+        )?;
+        Ok(String::from_utf8(fs::read(&prepared.staged.payload)?)?)
+    }
+
+    const OLD: [&str; 3] = [
+        "zapfast-v0.17.0-x86_64-pc-windows-msvc.msi",
+        "zapfast-0.17.0-x86_64.AppImage",
+        "zapfast-v0.17.0-macos-universal.dmg",
+    ];
+    const NEW: [&str; 3] = [
+        "ZapFast-0.17.0-Windows-x64.msi",
+        "ZapFast-0.17.0-Linux-x64.AppImage",
+        "ZapFast-0.17.0-macOS-universal.dmg",
+    ];
+
+    /// A release that renames its downloads keeps their old names too, for
+    /// copies installed before: those take the old names, and copies that
+    /// know the new ones take those.
+    #[test]
+    fn renamed_downloads_are_taken_first_and_old_names_by_old_copies() {
+        let both: Vec<&str> = OLD.iter().chain(NEW.iter()).copied().collect();
+        for (kind, platform, old, new) in [
+            (Kind::WindowsInstaller, Platform::Windows, OLD[0], NEW[0]),
+            (Kind::AppImage, Platform::Linux, OLD[1], NEW[1]),
+        ] {
+            assert_eq!(downloaded(&config(), &both, kind, platform).unwrap(), old);
+            assert_eq!(
+                downloaded(&renamed_config(), &both, kind, platform).unwrap(),
+                new
+            );
+            // A release with only the new names, after the old ones go.
+            assert_eq!(
+                downloaded(&renamed_config(), &NEW, kind, platform).unwrap(),
+                new
+            );
+            assert!(downloaded(&config(), &NEW, kind, platform).is_err());
+            // And one from before the rename.
+            assert_eq!(
+                downloaded(&renamed_config(), &OLD, kind, platform).unwrap(),
+                old
+            );
+        }
+    }
+
+    #[test]
+    fn a_renamed_macs_disk_image_is_verified_and_linked_under_either_name() {
+        for (names, wanted) in [(&NEW[..], NEW[2]), (&OLD[..], OLD[2])] {
+            let transport = release_of(names);
+            let release = Release {
+                version: VERSION.into(),
+                url: String::new(),
+                published_at: None,
+            };
+            let verified = verify(
+                &renamed_config(),
+                &transport,
+                &Source::github(),
+                Platform::MacOs,
+                "aarch64",
+                &release,
+            )
+            .unwrap();
+            assert!(verified.lists(wanted));
+            let inputs = Inputs {
+                config: &renamed_config(),
+                transport: &transport,
+                source: &Source::github(),
+                host: &FakeHost::default(),
+                platform: Platform::MacOs,
+                arch: "aarch64",
+            };
+            assert_eq!(
+                link(&inputs, Kind::MacBundle, VERSION).unwrap(),
+                asset_url(VERSION, wanted)
+            );
+        }
+        // A copy that doesn't know the new names finds nothing for its Mac.
+        assert!(
+            verify(
+                &config(),
+                &release_of(&NEW),
+                &Source::github(),
+                Platform::MacOs,
+                "aarch64",
+                &Release {
+                    version: VERSION.into(),
+                    url: String::new(),
+                    published_at: None,
+                },
+            )
+            .is_err()
+        );
     }
 
     #[test]

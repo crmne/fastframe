@@ -30,10 +30,14 @@ fn appimages() -> std::sync::MutexGuard<'static, Vec<(String, String, bool)>> {
 
 fn appimage_key(config: &UpdateConfig, source: &Source) -> String {
     format!(
-        "{}|{}|{}|{source:?}|{:?}",
+        "{}|{}|{}|{:?}|{source:?}|{:?}",
         config.repository,
         config.slug,
         config.appimage_name.unwrap_or(config.slug),
+        // The name for this version is enough to tell configurations apart.
+        config
+            .asset_stem
+            .map(|name| name("0.0.0", "x86_64-unknown-linux-gnu")),
         download::trusted(config)
     )
 }
@@ -254,10 +258,9 @@ impl Updater {
         }
         let version = &release.release().version;
         let target = release::target(platform, arch, self.config.mac_target)?;
-        let name = release::asset_name(&self.config, version, target, installation.kind, platform);
-        let msi = release::msi_name(&release::stem(&self.config, version, target));
-        let listed = release.lists(&name)
-            || (installation.kind == Kind::WindowsInstaller && release.lists(&msi));
+        let listed = release::names(&self.config, version, target, installation.kind, platform)
+            .iter()
+            .any(|name| release.lists(name));
         if listed {
             Ok(installation)
         } else {
