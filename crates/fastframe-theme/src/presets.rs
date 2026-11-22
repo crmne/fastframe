@@ -1,7 +1,8 @@
 //! The palettes the apps share, embedded so every installation has them.
 //!
-//! Eight palettes in the sixteen base colours (Catppuccin, Catppuccin Latte,
-//! Nord, Ristretto, Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn, Tokyo Night).
+//! Nine palettes in the sixteen base colours (Catppuccin, Catppuccin Latte,
+//! Nord, Pure Black, Ristretto, Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn,
+//! Tokyo Night).
 //! They set only [`crate::BASE_COLORS`] names, so any app's palette reads
 //! them; an app with more colours derives the rest ([`crate::Palette::derive`]).
 //!
@@ -46,6 +47,7 @@ pub const FILES: &[(&str, &str)] = &[
     ),
     ("Catppuccin.json", include_str!("../themes/Catppuccin.json")),
     ("Nord.json", include_str!("../themes/Nord.json")),
+    ("Pure Black.json", include_str!("../themes/Pure Black.json")),
     ("Ristretto.json", include_str!("../themes/Ristretto.json")),
     (
         "Rose Pine Dawn.json",
@@ -170,7 +172,7 @@ mod tests {
     #[test]
     fn every_shared_palette_uses_only_base_colours() {
         let themes: Vec<CustomTheme<Colors>> = themes().collect();
-        assert_eq!(themes.len(), 8);
+        assert_eq!(themes.len(), 9);
         for theme in &themes {
             assert!(contains(&theme.filename));
             assert_eq!(
@@ -190,6 +192,58 @@ mod tests {
             );
         }
         assert!(!contains("omarchy.json"));
+    }
+
+    /// Checks the preset's black backgrounds and readable text and control colours.
+    #[test]
+    fn pure_black_keeps_black_backgrounds_and_readable_content() {
+        /// Returns WCAG relative luminance after linearizing the sRGB channels.
+        fn luminance(color: egui::Color32) -> f64 {
+            let linear = [color.r(), color.g(), color.b()].map(|channel| {
+                let value = f64::from(channel) / 255.0;
+                if value <= 0.04045 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            });
+            0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+        }
+        let black = themes::<Colors>()
+            .find(|theme| theme.filename == "Pure Black.json")
+            .unwrap()
+            .palette;
+        assert!(black.dark);
+        for name in ["window", "panel", "chat"] {
+            assert_eq!(black.get(name), egui::Color32::BLACK, "{name}");
+        }
+        for foreground in ["text", "secondary", "dim"] {
+            for background in [
+                "window",
+                "panel",
+                "surface",
+                "surface_hover",
+                "surface_active",
+                "overlay",
+            ] {
+                let light = luminance(black.get(foreground));
+                let dark = luminance(black.get(background));
+                let contrast = (light.max(dark) + 0.05) / (light.min(dark) + 0.05);
+                assert!(
+                    contrast >= 4.5,
+                    "{foreground} on {background}: {contrast:.2}:1"
+                );
+            }
+        }
+        for background in ["accent", "accent_hover"] {
+            let light = luminance(black.get(background));
+            let dark = luminance(black.get("on_accent"));
+            let contrast = (light.max(dark) + 0.05) / (light.min(dark) + 0.05);
+            assert!(
+                contrast >= 4.5,
+                "on_accent on {background}: {contrast:.2}:1"
+            );
+        }
     }
 
     #[test]
