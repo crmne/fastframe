@@ -23,7 +23,7 @@ log.workspace = true
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 # Filesystem notifications for the themes folder and Omarchy's current
 # theme. ZapFast already uses this version.
-notify = "8.2"
+notify = "9.0"
 # The home directory Omarchy keeps its state in. Already in both apps.
 directories.workspace = true
 
