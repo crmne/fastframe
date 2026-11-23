@@ -388,9 +388,13 @@ fn area(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
 /// Draws the caption buttons over the window's top corners, above every
 /// panel, and acts on their clicks.
 pub fn controls(ui: &mut egui::Ui, style: &Style, labels: &Labels<'_>) {
-    if !visible(ui.ctx()) {
-        return;
+    if visible(ui.ctx()) {
+        caption_buttons(ui, style, labels);
     }
+}
+
+/// Draws the caption buttons, whether or not the title bar is chosen.
+fn caption_buttons(ui: &mut egui::Ui, style: &Style, labels: &Labels<'_>) {
     let maximized = ui
         .ctx()
         .input(|input| input.viewport().maximized.unwrap_or(false));

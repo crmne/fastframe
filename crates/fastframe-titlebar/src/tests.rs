@@ -147,6 +147,43 @@ fn windows_buttons_reach_the_edges_the_resize_border_leaves() {
     );
 }
 
+/// The buttons Windows' controls draw fill the top right corner of a
+/// maximized window and stop at the resize border of a restored one.
+#[cfg(windows)]
+#[test]
+fn windows_buttons_are_drawn_from_the_edges_they_reach() {
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+    let style = Style {
+        icon: egui::Color32::GRAY,
+        button: egui::Color32::TRANSPARENT,
+        header_height: 48.0,
+    };
+    for maximized in [true, false] {
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            let mut input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let viewport = input.viewports.entry(egui::ViewportId::ROOT).or_default();
+            viewport.maximized = Some(maximized);
+            let mut output = ctx.run_ui(input, |ui| {
+                caption_buttons(ui, &style, &Labels::default());
+            });
+            output.textures_delta.clear();
+        }
+        let id = egui::Id::unique("fastframe-titlebar-right");
+        let buttons = ctx.memory(|memory| memory.area_rect(id));
+        let (inset, height) = windows_buttons(maximized, 48.0);
+        let expected = Rect::from_min_max(
+            pos2(800.0 - inset - 3.0 * 36.0, inset),
+            pos2(800.0 - inset, 48.0),
+        );
+        assert_eq!(buttons, Some(expected), "maximized: {maximized}");
+        assert_eq!(expected.height(), height);
+    }
+}
+
 /// With the title bar off, nothing is drawn or reserved on Windows and
 /// Linux. macOS keeps the traffic lights, whose room is always reserved.
 #[test]
