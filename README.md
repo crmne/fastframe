@@ -81,7 +81,7 @@ apps replaced.
 | [`fastframe-shell`](crates/fastframe-shell) | Keep running without a window, reopen it, and restore its size, position, and zoom. |
 | [`fastframe-graphics`](crates/fastframe-graphics) | Choose Metal first on macOS with `wgpu`, fall back to available graphics, or explain why no window opens. |
 | [`fastframe-audio`](crates/fastframe-audio) | Maintained audio input and output, preallocated output conversion, guarded Linux real-time promotion, device changes, app and stream names in volume mixers, and rodio mixing. |
-| [`fastframe-scroll`](crates/fastframe-scroll) | Platform wheel steps, touchpad momentum, and axis locking. |
+| [`fastframe-scroll`](crates/fastframe-scroll) | Platform wheel steps, touchpad momentum, axis locking, and a Linux touchpad scale apps or people can set. |
 | [`fastframe-autostart`](crates/fastframe-autostart) | Start at login through each platform, including Flatpak and hidden startup. |
 | [`fastframe-instance`](crates/fastframe-instance) | One running copy per user, with a private channel for subsequent launches. |
 | [`fastframe-now-playing`](crates/fastframe-now-playing) | Desktop media controls, artwork, media keys, and playback commands. |

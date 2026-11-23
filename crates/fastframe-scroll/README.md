@@ -17,7 +17,11 @@ both:
   mapping. A setting of a screen at a time scrolls the default instead,
   since egui cannot scroll a page per notch.
 - **Linux touchpad gestures go 1.8 times further** (`TOUCHPAD_SCALE`) and
-  **glide on after the fingers lift**, slowing down until they stop. A
+  **glide on after the fingers lift**, slowing down until they stop.
+  `FASTFRAME_TOUCHPAD_SCALE` (a positive number, such as
+  `FASTFRAME_TOUCHPAD_SCALE=3`) or `Scrolling::set_touchpad_scale` picks
+  another factor: Linux has no system-wide touchpad scroll speed apps can
+  read, so this is where scrolling is matched to other apps. A
   press or a wheel notch stops a glide. Fingers that rest on the pad before
   lifting do not fling the page.
 - **A touchpad gesture holds the axis it started on**, so a vertical swipe
