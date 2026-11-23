@@ -55,7 +55,7 @@ fn the_buttons_take_their_slots_and_a_margin() {
             right: 3.0 * 36.0 + 5.0,
             height: 48.0,
         },
-        "Windows centres its buttons in the header"
+        "Windows' buttons and the resize border beside them"
     );
     let gnome = Layout::from_gnome("close:minimize,maximize").unwrap();
     assert_eq!(
@@ -127,6 +127,61 @@ fn edges_and_corners_resize_the_window() {
     assert_eq!(at(2.0, 592.0), Some((D::SouthWest, C::ResizeNeSw)));
     assert_eq!(at(792.0, 2.0), Some((D::NorthEast, C::ResizeNeSw)));
     assert_eq!(at(20.0, 2.0), Some((D::North, C::ResizeVertical)));
+}
+
+/// Windows' buttons reach the top right corner of a maximized window, so a
+/// pointer pushed along the top edge or into the corner lands on them.
+/// Otherwise they start where the resize border ends, with no gap between.
+#[test]
+fn windows_buttons_reach_the_edges_the_resize_border_leaves() {
+    assert_eq!(windows_buttons(true, 48.0), (0.0, 48.0));
+    let (inset, height) = windows_buttons(false, 48.0);
+    assert_eq!(inset + height, 48.0, "down to the header's foot");
+    let window = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+    let at = |x, y| resize_direction(window, pos2(x, y));
+    assert_eq!(at(800.0 - inset - 0.5, inset + 0.5), None, "the buttons");
+    assert_eq!(at(700.0, inset - 0.5), Some((D::North, C::ResizeVertical)));
+    assert_eq!(
+        at(800.0 - inset + 0.5, 20.0),
+        Some((D::East, C::ResizeHorizontal))
+    );
+}
+
+/// The buttons Windows' controls draw fill the top right corner of a
+/// maximized window and stop at the resize border of a restored one.
+#[cfg(windows)]
+#[test]
+fn windows_buttons_are_drawn_from_the_edges_they_reach() {
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+    let style = Style {
+        icon: egui::Color32::GRAY,
+        button: egui::Color32::TRANSPARENT,
+        header_height: 48.0,
+    };
+    for maximized in [true, false] {
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            let mut input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let viewport = input.viewports.entry(egui::ViewportId::ROOT).or_default();
+            viewport.maximized = Some(maximized);
+            let mut output = ctx.run_ui(input, |ui| {
+                caption_buttons(ui, &style, &Labels::default());
+            });
+            output.textures_delta.clear();
+        }
+        let id = egui::Id::unique("fastframe-titlebar-right");
+        let buttons = ctx.memory(|memory| memory.area_rect(id));
+        let (inset, height) = windows_buttons(maximized, 48.0);
+        let expected = Rect::from_min_max(
+            pos2(800.0 - inset - 3.0 * 36.0, inset),
+            pos2(800.0 - inset, 48.0),
+        );
+        assert_eq!(buttons, Some(expected), "maximized: {maximized}");
+        assert_eq!(expected.height(), height);
+    }
 }
 
 /// With the title bar off, nothing is drawn or reserved on Windows and
