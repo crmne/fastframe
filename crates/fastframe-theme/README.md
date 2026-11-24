@@ -101,9 +101,10 @@ if app.custom_themes.poll() { /* re-resolve the selected palette */ }
 
 ## Shared palettes
 
-`presets` embeds ten palettes in the sixteen base colours: Catppuccin (Mocha),
-Catppuccin Frappe, Catppuccin Latte, Catppuccin Macchiato, Nord, Ristretto,
+`presets` embeds twelve palettes in the sixteen base colours: Alucard, Catppuccin (Mocha),
+Catppuccin Frappe, Catppuccin Latte, Catppuccin Macchiato, Dracula, Nord, Ristretto,
 Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn and Tokyo Night.
+Alucard uses the [official light palette](https://draculatheme.com/spec).
 Frappe and Macchiato use the [official Catppuccin palette](https://github.com/catppuccin/palette):
 base for the window, mantle for panels, surface0 through surface2 for
 surfaces, and blue for the accent. With `presets: true` they are listed
