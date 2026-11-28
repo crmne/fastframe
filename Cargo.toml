@@ -35,7 +35,7 @@ eframe = { version = "0.37.0", default-features = false, features = ["glow", "wa
 
 # The tray (fastframe-tray): the versions ZapFast and Spotifast build with.
 ksni = { version = "0.3", features = ["blocking"] }
-tray-icon = { version = "0.25", default-features = false }
+tray-icon = { version = "0.27", default-features = false }
 objc2 = "0.6"
 # The AppKit event monitor's handler (fastframe-titlebar).
 block2 = "0.6"
