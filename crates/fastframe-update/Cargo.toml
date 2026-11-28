@@ -35,7 +35,7 @@ ring = "0.17"
 # Parse and compare release and redirect URLs. Already in both apps through
 # reqwest, at the same version.
 url = "2.5"
-reqwest = { version = "0.12", default-features = false, features = ["blocking"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["blocking"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # Wait on the running app's process handle, as both apps do today.
